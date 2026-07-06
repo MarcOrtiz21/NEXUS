@@ -27,6 +27,32 @@ BULL_WORDS = [
     "rebound", "recovery", "breakout", "soar", "gain", "optimism",
 ]
 
+PANIC_WEIGHTS = {
+    "crash": 3, "plunge": 2, "panic": 3, "recession": 2, "selloff": 2,
+    "sell-off": 2, "fear": 1, "bear": 1, "crisis": 3, "collapse": 3,
+    "tumble": 2, "slump": 2, "tank": 2, "meltdown": 3, "contagion": 3,
+    "default": 3, "bankruptcy": 3,
+}
+
+BULL_WEIGHTS = {
+    "rally": 2, "surge": 2, "record": 1, "boom": 2, "bull": 1,
+    "growth": 1, "rebound": 2, "recovery": 2, "breakout": 2,
+    "soar": 2, "gain": 1, "optimism": 2,
+}
+
+TOPIC_KEYWORDS = {
+    "Fed/tipos": ["fed", "federal reserve", "rates", "rate", "yields", "treasury", "central bank"],
+    "Inflación": ["inflation", "cpi", "prices", "pce"],
+    "Resultados": ["earnings", "profit", "revenue", "guidance"],
+    "IA/tecnología": ["ai", "artificial intelligence", "semiconductor", "chips", "nasdaq", "tech"],
+    "Recesión": ["recession", "slowdown", "unemployment", "jobs"],
+    "Geopolítica": ["war", "tariff", "sanctions", "oil", "geopolitical"],
+    "Divisas/dólar": ["usd", "dollar", "eur", "jpy", "gbp", "forex", "currency"],
+    "Calendario macro": ["calendar", "consensus", "actual", "forecast", "gdp", "pmi", "retail sales"],
+}
+
+NEGATION_TERMS = ["not", "no", "without", "less", "eases", "ease", "avoids", "averted"]
+
 
 def _count_word_hits(text: str, word_list: list) -> int:
     """Cuenta cuántas palabras de la lista aparecen como palabras completas en el texto."""
@@ -48,6 +74,29 @@ def _matched_words(text: str, word_list: list) -> List[str]:
     ]
 
 
+def _weighted_hits(text: str, weights: Dict[str, int]) -> tuple[int, List[str]]:
+    text_lower = text.lower()
+    score = 0
+    matches = []
+    for word, weight in weights.items():
+        if re.search(rf"\b{re.escape(word)}\b", text_lower):
+            matches.append(word)
+            score += weight
+    if matches and any(re.search(rf"\b{re.escape(term)}\b", text_lower) for term in NEGATION_TERMS):
+        score = max(0, score - 1)
+    return score, matches
+
+
+def _detect_topics(headlines: List[str]) -> Dict[str, int]:
+    joined = " ".join(headlines).lower()
+    topics = {}
+    for topic, terms in TOPIC_KEYWORDS.items():
+        hits = sum(1 for term in terms if re.search(rf"\b{re.escape(term)}\b", joined))
+        if hits:
+            topics[topic] = hits
+    return topics
+
+
 def analyze_headlines(headlines: List[str]) -> Dict:
     """
     Analiza una lista de titulares financieros.
@@ -65,7 +114,9 @@ def analyze_headlines(headlines: List[str]) -> Dict:
         "panic_hits": 0,
         "bull_hits": 0,
         "matched_terms": {"panic": [], "bullish": []},
-        "method": "keyword_regex_v1",
+        "topics": {},
+        "relevance_score": 0,
+        "method": "weighted_keyword_regex_v2",
     }
 
     if not headlines:
@@ -75,10 +126,10 @@ def analyze_headlines(headlines: List[str]) -> Dict:
     total_bull = 0
 
     for headline in headlines:
-        panic_matches = _matched_words(headline, PANIC_WORDS)
-        bull_matches = _matched_words(headline, BULL_WORDS)
-        total_panic += len(panic_matches)
-        total_bull += len(bull_matches)
+        panic_score, panic_matches = _weighted_hits(headline, PANIC_WEIGHTS)
+        bull_score, bull_matches = _weighted_hits(headline, BULL_WEIGHTS)
+        total_panic += panic_score
+        total_bull += bull_score
         result["matched_terms"]["panic"].extend(panic_matches)
         result["matched_terms"]["bullish"].extend(bull_matches)
 
@@ -87,9 +138,14 @@ def analyze_headlines(headlines: List[str]) -> Dict:
     result["bull_hits"] = total_bull
     result["matched_terms"]["panic"] = sorted(set(result["matched_terms"]["panic"]))
     result["matched_terms"]["bullish"] = sorted(set(result["matched_terms"]["bullish"]))
+    result["topics"] = _detect_topics(headlines)
+    result["relevance_score"] = min(100, total_hits * 10 + sum(result["topics"].values()) * 5)
 
     if total_hits == 0:
-        result["details"] = f"No se detectaron palabras clave financieras en {len(headlines)} titulares."
+        if result["topics"]:
+            result["details"] = f"Titulares relevantes por temas ({', '.join(result['topics'].keys())}), sin sesgo claro de pánico/euforia."
+        else:
+            result["details"] = f"No se detectaron palabras clave financieras en {len(headlines)} titulares."
         return result
 
     # Umbral mínimo: necesitamos al menos 3 señales para que sea estadísticamente relevante.

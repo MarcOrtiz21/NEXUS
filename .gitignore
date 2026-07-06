@@ -6,6 +6,9 @@ venv/
 APIKEYS/
 apikeys/
 .env
+.env.*
+data/cache/
+data/history/
 
 gemini context.html
 gemini context_files/

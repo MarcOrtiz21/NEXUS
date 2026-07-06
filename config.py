@@ -20,6 +20,9 @@ from pathlib import Path
 
 _BASE_DIR = Path(__file__).parent
 _KEYS_DIRS = (_BASE_DIR / "APIKEYS", _BASE_DIR / "apikeys")
+DATA_DIR = _BASE_DIR / "data"
+CACHE_DIR = DATA_DIR / "cache"
+HISTORY_DIR = DATA_DIR / "history"
 
 
 def _load_key(filename: str, env_var: str) -> str | None:
@@ -48,9 +51,48 @@ US10Y_WARNING_THRESHOLD = 4.5  # Bono > 4.5% = presión sobre múltiplos
 
 # ─── Feeds RSS gratuitos de noticias financieras ───
 RSS_FEEDS = [
-    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",  # CNBC Top News
-    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",          # Yahoo Finance S&P500
+    {
+        "name": "CNBC Top News",
+        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+        "weight": 1.0,
+    },
+    {
+        "name": "Yahoo Finance S&P500",
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",
+        "weight": 1.0,
+    },
+    {
+        "name": "Yahoo Finance Nasdaq",
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^IXIC&region=US&lang=en-US",
+        "weight": 1.0,
+    },
+    {
+        "name": "Yahoo Finance QQQ",
+        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=QQQ&region=US&lang=en-US",
+        "weight": 1.0,
+    },
+    {
+        "name": "MarketWatch Top Stories",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "weight": 0.9,
+    },
+    {
+        "name": "Myfxbook Forex News",
+        "url": "https://www.myfxbook.com/rss/latest-forex-news",
+        "weight": 0.9,
+    },
+    {
+        "name": "Myfxbook Economic Calendar",
+        "url": "https://www.myfxbook.com/rss/forex-economic-calendar-events",
+        "weight": 1.0,
+    },
 ]
 
 # ─── Intervalo de refresco en segundos (modo loop) ───
 REFRESH_INTERVAL_SECONDS = 300  # 5 minutos
+
+# ─── Calidad/cache/export ───
+MARKET_CACHE_FILE = CACHE_DIR / "market_data.json"
+MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
+DECISIONS_HISTORY_JSONL = HISTORY_DIR / "decisions.jsonl"
+DECISIONS_HISTORY_CSV = HISTORY_DIR / "decisions.csv"
