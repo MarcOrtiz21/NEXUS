@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ========================================
-echo  NEXUS - Terminal Macroeconomico
+echo  NEXUS - Terminal Macroeconomico (CLI)
 echo ========================================
 echo.
 
@@ -40,11 +40,11 @@ if errorlevel 1 (
 )
 
 echo.
-echo Iniciando NEXUS Desktop...
-python "nexus_desktop.py"
+echo Iniciando NEXUS en modo terminal...
+python "main_cli.py"
 if errorlevel 1 (
     echo.
-    echo [WARN] Fallo en modo desktop. Reintentando en CLI sin RSS...
+    echo [WARN] Fallo en modo completo. Reintentando sin RSS...
     python "main_cli.py" --no-news
 )
 if errorlevel 1 (

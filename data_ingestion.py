@@ -32,6 +32,12 @@ SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLP"]
 # Activos usados por la capa de decisión final.
 DECISION_ASSETS = ["SPY", "QQQ", "TLT", "GLD", "UUP"]
 
+# Proxies usados para detectar rotación sectorial/temática.
+ROTATION_ASSETS = ["AIQ", "SMH", "XLK", "XBI", "XLV", "KIE", "PJP"]
+
+# Par principal de divisas para bloque FX.
+FOREX_TICKERS = {"EURUSD": "EURUSD=X"}
+
 
 # ─────────────────────────────────────────────────────────────
 # Funciones auxiliares
@@ -85,10 +91,10 @@ def _apply_cache_fallback(data: Dict[str, Any], cache: Dict[str, Any] | None) ->
         if key.startswith("_") or key == "DataQuality":
             continue
         should_fallback = data.get(key) in (None, {})
-        if key == "Assets":
+        if key in ("Assets", "RotationAssets", "Forex"):
             should_fallback = not any(
                 metrics.get("price") is not None
-                for metrics in data.get("Assets", {}).values()
+                for metrics in data.get(key, {}).values()
             )
         if should_fallback and value not in (None, {}):
             data[key] = value
@@ -268,6 +274,7 @@ def fetch_market_data() -> Dict[str, Any]:
     - M2: masa monetaria M2 de EE.UU. (vía FRED, opcional).
     - IPC: índice de precios al consumidor (vía FRED, opcional).
     - Assets: tendencia, momentum y volatilidad de SPY, QQQ, TLT, GLD y UUP.
+    - Forex: métricas de EUR/USD (spot, tendencia, momentum y volatilidad).
     """
     cache = _load_market_cache()
     captured_at = _now_utc_iso()
@@ -300,10 +307,36 @@ def fetch_market_data() -> Dict[str, Any]:
             }
             for ticker in DECISION_ASSETS
         },
+        "RotationAssets": {
+            ticker: {
+                "price": None,
+                "ma20": None,
+                "ma50": None,
+                "ma200": None,
+                "momentum_1m": None,
+                "momentum_3m": None,
+                "volatility_20d": None,
+            }
+            for ticker in ROTATION_ASSETS
+        },
+        "Forex": {
+            pair: {
+                "price": None,
+                "ma20": None,
+                "ma50": None,
+                "ma200": None,
+                "momentum_1m": None,
+                "momentum_3m": None,
+                "volatility_20d": None,
+            }
+            for pair in FOREX_TICKERS
+        },
     }
 
     # ─── 1. Datos de yfinance (VIX, US10Y, ETFs, PER) ───
-    tickers = sorted(set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS))
+    tickers = sorted(
+        set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS + list(FOREX_TICKERS.values()))
+    )
     try:
         logging.info("Descargando datos de mercado (yfinance, 1 año)...")
         df = yf.download(tickers, period="1y", progress=False)
@@ -348,10 +381,26 @@ def fetch_market_data() -> Dict[str, Any]:
                 status = "OK" if metrics.get("price") is not None else "MISSING"
                 _mark_quality(data, f"Assets.{ticker}", f"yfinance:{ticker}", status)
 
+            data["RotationAssets"] = {
+                ticker: _calculate_asset_metrics(df_close, ticker)
+                for ticker in ROTATION_ASSETS
+            }
+            for ticker, metrics in data["RotationAssets"].items():
+                status = "OK" if metrics.get("price") is not None else "MISSING"
+                _mark_quality(data, f"RotationAssets.{ticker}", f"yfinance:{ticker}", status)
+
+            data["Forex"] = {
+                pair: _calculate_asset_metrics(df_close, ticker)
+                for pair, ticker in FOREX_TICKERS.items()
+            }
+            for pair, ticker in FOREX_TICKERS.items():
+                status = "OK" if data["Forex"].get(pair, {}).get("price") is not None else "MISSING"
+                _mark_quality(data, f"Forex.{pair}", f"yfinance:{ticker}", status)
+
         logging.info("Datos de yfinance extraídos.")
     except Exception as e:
         logging.error(f"Fallo en yfinance: {e}")
-        for key in ["VIX", "US10Y", "Correlation_Proxy", "Assets"]:
+        for key in ["VIX", "US10Y", "Correlation_Proxy", "Assets", "Forex"]:
             _mark_quality(data, key, "yfinance", "ERROR", str(e))
 
     # ─── 2. PER del S&P 500 / Large Cap USA ───
