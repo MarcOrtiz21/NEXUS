@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+APIKEYS/
+apikeys/
+.env
+
+gemini context.html
+gemini context_files/
