@@ -34,7 +34,18 @@ HIGH_IMPACT_TERMS = [
     "ecb", "boe", "boj", "pboc",
 ]
 
-US_TERMS = ["us ", " u.s.", "united states", "usa", "american"]
+US_EVENT_PATTERNS = [
+    r"^us\b",
+    r"\bu\.s\.\b",
+    r"\bunited states\b",
+    r"\busa\b",
+    r"\bamerican\b",
+    r"\bfomc\b",
+    r"\bfed\b",
+    r"\bnonfarm\b",
+    r"\bnfp\b",
+    r"\bjobless claims\b",
+]
 
 CALENDAR_SOURCE = "myfxbook_rss"
 CALENDAR_CONFIDENCE = "MEDIUM"
@@ -72,8 +83,8 @@ def _is_high_impact(title: str) -> bool:
 
 
 def _is_us_event(title: str) -> bool:
-    title_lower = f" {title.lower()} "
-    return any(term in title_lower for term in US_TERMS) or title_lower.strip().startswith("us ")
+    title_lower = title.lower().strip()
+    return any(re.search(pattern, title_lower) for pattern in US_EVENT_PATTERNS)
 
 
 def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:

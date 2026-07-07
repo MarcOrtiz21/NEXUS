@@ -46,7 +46,7 @@ class MarketStatus(Enum):
 
 
 STATUS_DISPLAY = {
-    MarketStatus.BLOCKED: "🛑 SISTEMA EN PAUSA (BLOQUEADO POR RIESGO EXTREMO)",
+    MarketStatus.BLOCKED: "🛑 PAUSA OPERATIVA (filtro de riesgo activo)",
     MarketStatus.PANIC:   "🚨 TECHO / PÁNICO INMINENTE (AUMENTAR LIQUIDEZ)",
     MarketStatus.CAUTION: "⚠️ MERCADO INESTABLE (PRECAUCIÓN)",
     MarketStatus.HEALTHY: "✅ TENDENCIA SANA / ROTACIÓN (COMPRAR/MANTENER)",

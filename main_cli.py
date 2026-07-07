@@ -29,6 +29,7 @@ from forex_engine import (
 )
 from history import export_decision_snapshot
 from logic_engine import LogicEngine, MarketStatus, STATUS_DISPLAY
+from risk_filters.calendar import check_macro_events
 from risk_filters.news_feed import fetch_news_items
 from rotation_engine import RotationEngine
 
@@ -483,7 +484,11 @@ def _build_macro_table(data):
     cal = check_macro_events()
     if cal.get("next_event"):
         nxt = cal["next_event"]
-        table.add_row("Próximo evento macro", nxt.get("title", "—")[:40], cal.get("confidence", "—"))
+        title = str(nxt.get("title", "—"))[:40]
+        state = cal.get("confidence", "—")
+        if cal.get("should_block_signals"):
+            state = f"BLOQUEO {cal.get('block_hours', 6)}h activo"
+        table.add_row("Próximo evento macro", title, state)
     else:
         table.add_row("Próximo evento macro", "—", "Sin eventos")
 
@@ -532,12 +537,18 @@ def _render_forex(data, news_items, compact: bool = False):
 def _render_executive_summary(decision, status: MarketStatus):
     favored = ", ".join(decision.favored_assets) if decision.favored_assets else "—"
     action_style = _decision_color(decision.action)
-    group = Group(
+    lines = [
         Text.from_markup(f"[bold]Acción principal:[/bold] [{action_style}] {decision.action} [/{action_style}]"),
         Text.from_markup(f"[bold]Confianza:[/bold] {decision.confidence}"),
         Text.from_markup(f"[bold]Activos favorecidos:[/bold] {favored}"),
         Text.from_markup(f"[bold]Score general:[/bold] {_score_bar(decision.score)}"),
-    )
+    ]
+    if status == MarketStatus.BLOCKED:
+        lines.append(Text.from_markup(
+            "[dim]Los datos de mercado se muestran con normalidad; "
+            "la señal operativa está pausada por un filtro de riesgo (calendario o sentimiento).[/dim]"
+        ))
+    group = Group(*lines)
     status_style = STATUS_COLORS.get(status, "bold white on blue")
     console.print(Panel(group, title="Resumen Ejecutivo", border_style="green", subtitle=f"[{status_style}] Estado: {status.value} [/{status_style}]"))
     console.print("")

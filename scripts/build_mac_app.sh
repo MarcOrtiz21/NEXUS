@@ -13,7 +13,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 cat > "$MACOS/launch_nexus" <<EOF
 #!/usr/bin/env bash
 cd "$NEXUS_ROOT"
-exec "$NEXUS_ROOT/run_program.sh"
+exec "$NEXUS_ROOT/run_program.command"
 EOF
 chmod +x "$MACOS/launch_nexus"
 
