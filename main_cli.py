@@ -317,7 +317,7 @@ def _build_snapshot(use_news: bool, export: bool = False):
     data = fetch_market_data()
     news_items = fetch_news_items() if use_news else []
     headlines = [item["title"] for item in news_items]
-    engine = LogicEngine(data, headlines=headlines if headlines else None)
+    engine = LogicEngine(data, news_items=news_items if news_items else None)
     status, alerts = engine.evaluate()
     decision = DecisionEngine(data, status, alerts).evaluate()
     rotation = RotationEngine(data).evaluate()
@@ -457,6 +457,35 @@ def _build_macro_table(data):
         table.add_row("Inflación IPC (YoY)", f"[{ic}]{cpi_yoy:.1f}%[/{ic}]", cpi_st)
     else:
         table.add_row("Inflación IPC", "[dim]—[/dim]", "[dim]Requiere FRED_API_KEY[/dim]")
+
+    spread = data.get("Yield_Curve_Spread")
+    if spread is not None:
+        sc = _color(spread, red_above=0.5, yellow_above=0.0, invert=True)
+        spread_status = "Invertida" if spread <= -0.2 else ("Plana" if spread < 0.5 else "Normal")
+        table.add_row("Curva 2Y-10Y", f"[{sc}]{spread:+.2f} pp[/{sc}]", spread_status)
+    else:
+        table.add_row("Curva 2Y-10Y", "[dim]—[/dim]", "[dim]Requiere FRED[/dim]")
+
+    pe_pct = data.get("PE_Forward_Percentile")
+    if pe_pct is not None:
+        table.add_row("PER Forward percentil", f"{pe_pct:.0f}", "Caro" if pe_pct >= 80 else ("Barato" if pe_pct <= 30 else "Neutro"))
+
+    china_m2 = data.get("China_M2_YoY_Pct")
+    if china_m2 is not None:
+        table.add_row("Liquidez China M2 YoY", f"{china_m2:.1f}%", "Expansiva" if china_m2 >= 8 else "Débil")
+
+    global_markets = data.get("GlobalMarkets", {})
+    for region, metrics in global_markets.items():
+        mom = metrics.get("momentum_1m")
+        if mom is not None:
+            table.add_row(f"Global {region} 1M", _fmt_signed(mom), "—")
+
+    cal = check_macro_events()
+    if cal.get("next_event"):
+        nxt = cal["next_event"]
+        table.add_row("Próximo evento macro", nxt.get("title", "—")[:40], cal.get("confidence", "—"))
+    else:
+        table.add_row("Próximo evento macro", "—", "Sin eventos")
 
     return table
 

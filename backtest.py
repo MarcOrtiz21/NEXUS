@@ -1,8 +1,8 @@
 """
-Backtesting básico para NEXUS.
+Backtesting mejorado para NEXUS.
 
-Reconstruye señales históricas con precios gratuitos de yfinance y compara
-una cartera NEXUS contra buy-and-hold de SPY y QQQ.
+Usa el LogicEngine completo y enriquece snapshots históricos con series FRED
+cuando están disponibles.
 """
 
 import argparse
@@ -16,9 +16,16 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from data_ingestion import DECISION_ASSETS, SECTOR_ETFS, _calculate_asset_metrics, _calculate_sector_correlation
+from config import FRED_API_KEY, GLOBAL_MARKET_TICKERS
+from data_ingestion import (
+    DECISION_ASSETS,
+    SECTOR_ETFS,
+    _calculate_asset_metrics,
+    _calculate_sector_correlation,
+    _fetch_fred_series,
+)
 from decision_engine import DecisionEngine
-from logic_engine import MarketStatus
+from logic_engine import LogicEngine, MarketStatus
 
 
 console = Console()
@@ -26,34 +33,87 @@ if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 if sys.stderr.encoding != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8")
-BACKTEST_TICKERS = sorted(set(["^VIX", "^TNX"] + DECISION_ASSETS + SECTOR_ETFS))
+
+BACKTEST_TICKERS = sorted(
+    set(["^VIX", "^TNX"] + DECISION_ASSETS + SECTOR_ETFS + list(GLOBAL_MARKET_TICKERS.values()))
+)
 
 
-def _status_from_data(data: Dict[str, Any]) -> MarketStatus:
-    vix = data.get("VIX")
-    corr = data.get("Correlation_Proxy")
-    if vix is not None and vix > 30:
-        return MarketStatus.PANIC
-    if (vix is not None and vix > 25) or (corr is not None and abs(corr) > 0.6):
-        return MarketStatus.CAUTION
-    return MarketStatus.HEALTHY
+def _fred_lookup(series: List[Dict[str, Any]] | None, target_date: pd.Timestamp, lag_days: int = 45) -> float | None:
+    if not series:
+        return None
+    target = target_date.date()
+    best = None
+    best_lag = lag_days + 1
+    for obs in series:
+        obs_date = pd.to_datetime(obs["date"]).date()
+        lag = (target - obs_date).days
+        if 0 <= lag <= lag_days and lag < best_lag:
+            best = obs["value"]
+            best_lag = lag
+    return best
 
 
-def _snapshot(df_close: pd.DataFrame, end_idx: int) -> Dict[str, Any]:
+def _fred_yoy(series: List[Dict[str, Any]] | None, target_date: pd.Timestamp) -> float | None:
+    if not series or len(series) < 13:
+        return None
+    latest = _fred_lookup(series, target_date, lag_days=60)
+    year_ago = _fred_lookup(series, target_date - pd.DateOffset(months=12), lag_days=120)
+    if latest is None or year_ago in (None, 0):
+        return None
+    return round(((latest - year_ago) / year_ago) * 100, 2)
+
+
+def _fred_change_pct(series: List[Dict[str, Any]] | None, target_date: pd.Timestamp, lookback: int = 14) -> float | None:
+    if not series or len(series) < lookback:
+        return None
+    latest = _fred_lookup(series, target_date, lag_days=60)
+    older = _fred_lookup(series, target_date - pd.DateOffset(weeks=lookback), lag_days=90)
+    if latest is None or older in (None, 0):
+        return None
+    return round(((latest - older) / older) * 100, 2)
+
+
+def _load_fred_context() -> Dict[str, List[Dict[str, Any]] | None]:
+    if not FRED_API_KEY:
+        return {"m2": None, "cpi": None, "us2y": None, "china_m2": None}
+    return {
+        "m2": _fetch_fred_series("WM2NS", limit=400),
+        "cpi": _fetch_fred_series("CPIAUCSL", limit=400),
+        "us2y": _fetch_fred_series("DGS2", limit=400),
+        "china_m2": _fetch_fred_series("MYAGM2CNM189N", limit=120),
+    }
+
+
+def _snapshot(df_close: pd.DataFrame, end_idx: int, fred_ctx: Dict[str, List[Dict[str, Any]] | None]) -> Dict[str, Any]:
     hist = df_close.iloc[: end_idx + 1]
     row = df_close.iloc[end_idx]
+    as_of = df_close.index[end_idx]
+    us10y = float(row["^TNX"]) if "^TNX" in row and pd.notna(row["^TNX"]) else None
+    us2y = _fred_lookup(fred_ctx.get("us2y"), as_of, lag_days=7)
+    spread = round(us10y - us2y, 2) if us10y is not None and us2y is not None else None
+
     data = {
         "VIX": float(row["^VIX"]) if "^VIX" in row and pd.notna(row["^VIX"]) else None,
-        "US10Y": float(row["^TNX"]) if "^TNX" in row and pd.notna(row["^TNX"]) else None,
+        "US10Y": us10y,
+        "US2Y": us2y,
+        "Yield_Curve_Spread": spread,
         "Correlation_Proxy": _calculate_sector_correlation(hist, SECTOR_ETFS),
         "PE_Trailing": None,
         "PE_Forward": None,
-        "M2_Change_Pct": None,
-        "CPI_YoY_Pct": None,
+        "PE_Forward_Percentile": None,
+        "M2_Change_Pct": _fred_change_pct(fred_ctx.get("m2"), as_of),
+        "CPI_YoY_Pct": _fred_yoy(fred_ctx.get("cpi"), as_of),
+        "China_M2_YoY_Pct": _fred_yoy(fred_ctx.get("china_m2"), as_of),
         "Assets": {
             ticker: _calculate_asset_metrics(hist, ticker)
             for ticker in DECISION_ASSETS
         },
+        "GlobalMarkets": {
+            region: _calculate_asset_metrics(hist, ticker)
+            for region, ticker in GLOBAL_MARKET_TICKERS.items()
+        },
+        "_as_of": pd.Timestamp(as_of).isoformat(),
         "DataQuality": {},
     }
     return data
@@ -108,6 +168,7 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
     if len(df_close) <= start_idx + rebalance_days:
         raise RuntimeError("Histórico insuficiente para reconstruir señales.")
 
+    fred_ctx = _load_fred_context()
     nexus_values = [1.0]
     spy_values = [1.0]
     qqq_values = [1.0]
@@ -115,9 +176,9 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
 
     for idx in range(start_idx, len(df_close) - rebalance_days, rebalance_days):
         next_idx = idx + rebalance_days
-        data = _snapshot(df_close, idx)
-        status = _status_from_data(data)
-        decision = DecisionEngine(data, status, []).evaluate()
+        data = _snapshot(df_close, idx, fred_ctx)
+        status, alerts = LogicEngine(data).evaluate()
+        decision = DecisionEngine(data, status, alerts).evaluate()
         period_returns = _period_return(df_close, idx, next_idx)
 
         portfolio_return = sum(
@@ -134,6 +195,7 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
         "period": period,
         "rebalance_days": rebalance_days,
         "observations": len(actions),
+        "fred_enriched": FRED_API_KEY is not None,
         "nexus": _metrics(nexus_values, periods_per_year),
         "spy": _metrics(spy_values, periods_per_year),
         "qqq": _metrics(qqq_values, periods_per_year),
@@ -146,7 +208,11 @@ def _fmt_pct(value: float) -> str:
 
 
 def render_report(result: Dict[str, Any]) -> None:
-    table = Table(title=f"Backtest NEXUS ({result['period']}, rebalance {result['rebalance_days']}D)", box=box.SIMPLE_HEAVY)
+    fred_note = "con FRED" if result.get("fred_enriched") else "sin FRED"
+    table = Table(
+        title=f"Backtest NEXUS ({result['period']}, rebalance {result['rebalance_days']}D, {fred_note})",
+        box=box.SIMPLE_HEAVY,
+    )
     table.add_column("Estrategia", style="cyan")
     table.add_column("Retorno", justify="right")
     table.add_column("Volatilidad", justify="right")
@@ -167,7 +233,7 @@ def render_report(result: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backtesting básico de NEXUS")
+    parser = argparse.ArgumentParser(description="Backtesting mejorado de NEXUS")
     parser.add_argument("--period", default="5y", help="Periodo yfinance, ej. 2y, 5y, 10y.")
     parser.add_argument("--rebalance-days", type=int, default=5, help="Frecuencia de rebalanceo en días de mercado.")
     args = parser.parse_args()

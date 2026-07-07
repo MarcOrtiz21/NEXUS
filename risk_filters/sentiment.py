@@ -10,7 +10,8 @@ NOTA: Este módulo NO usa FinBERT. Para una versión con NLP real, instalar
 
 import re
 import logging
-from typing import List, Dict
+from datetime import datetime, timezone
+from typing import List, Dict, Any
 
 
 # Diccionarios de palabras clave con peso.
@@ -95,6 +96,63 @@ def _detect_topics(headlines: List[str]) -> Dict[str, int]:
         if hits:
             topics[topic] = hits
     return topics
+
+
+def _headline_weight(item: Dict[str, Any] | str) -> float:
+    if isinstance(item, str):
+        return 1.0
+    return float(item.get("weight", 1.0))
+
+
+def _headline_text(item: Dict[str, Any] | str) -> str:
+    return item if isinstance(item, str) else str(item.get("title", ""))
+
+
+def analyze_news_items(news_items: List[Dict[str, Any]]) -> Dict:
+    headlines = [_headline_text(item) for item in news_items if _headline_text(item)]
+    result = analyze_headlines(headlines)
+    if not news_items:
+        return result
+
+    weighted_panic = 0.0
+    weighted_bull = 0.0
+    for item in news_items:
+        title = _headline_text(item)
+        if not title:
+            continue
+        weight = _headline_weight(item)
+        panic_score, _ = _weighted_hits(title, PANIC_WEIGHTS)
+        bull_score, _ = _weighted_hits(title, BULL_WEIGHTS)
+        weighted_panic += panic_score * weight
+        weighted_bull += bull_score * weight
+
+    total_hits = weighted_panic + weighted_bull
+    result["method"] = "weighted_keyword_regex_v3"
+    result["panic_hits"] = round(weighted_panic, 2)
+    result["bull_hits"] = round(weighted_bull, 2)
+
+    if total_hits >= 3:
+        panic_ratio = weighted_panic / total_hits
+        result["panic_score"] = round(panic_ratio, 2)
+        if panic_ratio > 0.6:
+            result["dominant_sentiment"] = "PANIC"
+            result["details"] = (
+                f"Noticias ponderadas por fuente/recencia: miedo dominante "
+                f"({weighted_panic:.1f} vs {weighted_bull:.1f}, {len(news_items)} titulares)."
+            )
+        elif panic_ratio < 0.4:
+            result["dominant_sentiment"] = "BULLISH"
+            result["details"] = (
+                f"Noticias ponderadas por fuente/recencia: optimismo dominante "
+                f"({weighted_bull:.1f} vs {weighted_panic:.1f}, {len(news_items)} titulares)."
+            )
+        else:
+            result["dominant_sentiment"] = "MIXED"
+            result["details"] = (
+                f"Sentimiento mixto ponderado ({weighted_panic:.1f} pánico, "
+                f"{weighted_bull:.1f} alcista, {len(news_items)} titulares)."
+            )
+    return result
 
 
 def analyze_headlines(headlines: List[str]) -> Dict:

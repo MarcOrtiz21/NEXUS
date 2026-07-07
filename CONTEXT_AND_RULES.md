@@ -4,7 +4,7 @@
 El objetivo de este proyecto es construir, optimizar y mantener **NEXUS-Macro** (Networked Economic cross-asset Utility System), una herramienta CLI en Python. Está diseñada para ingerir datos macroeconómicos, procesar reglas de lógica cuantitativa y emitir señales de mercado en la terminal, aislando el sesgo emocional.
 
 ## Contexto del Entorno y Arquitectura
-El proyecto se desarrolla bajo el directorio local `C:\Users\marco\Documents\NEXUS`. La arquitectura es modular y se divide estrictamente en los siguientes componentes:
+El proyecto se desarrolla bajo el directorio local del repositorio NEXUS (Windows: `C:\Users\marco\Documents\NEXUS`, macOS: `/Users/marc/Documents/Progrmas Propios/NEXUS`). En macOS, usar los scripts `.sh` (`setup.sh`, `run_nexus.sh`, etc.) en lugar de los `.bat`. La arquitectura es modular y se divide estrictamente en los siguientes componentes:
 
 - `data_ingestion.py`: Encargado de las conexiones API (yfinance, FRED, Alpha Vantage, etc.) para la extracción de datos brutos.
 - `logic_engine.py`: El núcleo matemático. Evalúa umbrales, calcula derivadas de volatilidad y cruza variables para emitir diagnósticos.

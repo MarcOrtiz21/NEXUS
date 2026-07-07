@@ -6,14 +6,18 @@ Cada variable se evalúa de forma independiente.
 """
 
 from enum import Enum
+from datetime import datetime
 from typing import Dict, Any, List, Tuple
 
 from risk_filters.calendar import check_macro_events
-from risk_filters.sentiment import analyze_headlines
+from risk_filters.sentiment import analyze_headlines, analyze_news_items
 from config import (
     VIX_PANIC_THRESHOLD, VIX_ELEVATED_THRESHOLD, VIX_ACCELERATION_PCT,
     CORR_HIGH_THRESHOLD, CORR_LOW_THRESHOLD,
     US10Y_DANGER_THRESHOLD, US10Y_WARNING_THRESHOLD,
+    YIELD_CURVE_INVERSION_THRESHOLD, PE_PERCENTILE_HIGH, PE_PERCENTILE_LOW,
+    CHINA_M2_EXPANSION_THRESHOLD, CHINA_M2_CONTRACTION_THRESHOLD,
+    CALENDAR_BLOCK_HOURS, CALENDAR_BLOCK_HOURS_STRICT,
 )
 
 CORE_DATA_FIELDS = {
@@ -24,8 +28,11 @@ CORE_DATA_FIELDS = {
 
 SUPPORTING_DATA_FIELDS = {
     "PE_Forward": "PER forward",
+    "PE_Forward_Percentile": "percentil PER forward",
     "M2_Change_Pct": "liquidez M2",
     "CPI_YoY_Pct": "IPC interanual",
+    "Yield_Curve_Spread": "curva de tipos 2Y-10Y",
+    "China_M2_YoY_Pct": "liquidez China M2",
 }
 
 
@@ -48,9 +55,15 @@ STATUS_DISPLAY = {
 
 
 class LogicEngine:
-    def __init__(self, data: Dict[str, Any], headlines: List[str] | None = None):
+    def __init__(
+        self,
+        data: Dict[str, Any],
+        headlines: List[str] | None = None,
+        news_items: List[Dict[str, Any]] | None = None,
+    ):
         self.data = data
         self.headlines = headlines
+        self.news_items = news_items
         self.status = MarketStatus.UNKNOWN
         self.alerts: List[str] = []
 
@@ -141,6 +154,21 @@ class LogicEngine:
         if pe_trail is not None and pe_trail > 28:
             self.alerts.append(f"⚠️ PER TRAILING ALTO: {pe_trail:.1f}x.")
 
+        pe_pct = d.get("PE_Forward_Percentile")
+        if pe_pct is not None:
+            if pe_pct >= PE_PERCENTILE_HIGH:
+                self.alerts.append(f"⚠️ PER FORWARD CARO vs HISTÓRICO: percentil {pe_pct:.0f}.")
+            elif pe_pct <= PE_PERCENTILE_LOW:
+                self.alerts.append(f"✅ PER FORWARD BARATO vs HISTÓRICO: percentil {pe_pct:.0f}.")
+
+        # ─── 5b. Curva de tipos (2Y-10Y) ───
+        spread = d.get("Yield_Curve_Spread")
+        if spread is not None:
+            if spread <= YIELD_CURVE_INVERSION_THRESHOLD:
+                self.alerts.append(f"🚨 CURVA INVERTIDA: spread 2Y-10Y = {spread:+.2f} pp.")
+            elif spread < 0.5:
+                self.alerts.append(f"⚠️ CURVA PLANA: spread 2Y-10Y = {spread:+.2f} pp.")
+
         # ─── 6. Liquidez Global (M2) ───
         m2_chg = d.get("M2_Change_Pct")
         if m2_chg is not None:
@@ -161,18 +189,58 @@ class LogicEngine:
             elif cpi_yoy < 2.0:
                 self.alerts.append(f"✅ INFLACIÓN CONTROLADA: IPC interanual = {cpi_yoy:.1f}%.")
 
+        # ─── 7b. Liquidez China ───
+        china_m2 = d.get("China_M2_YoY_Pct")
+        if china_m2 is not None:
+            if china_m2 >= CHINA_M2_EXPANSION_THRESHOLD:
+                self.alerts.append(f"✅ LIQUIDEZ CHINA EXPANSIVA: M2 YoY = {china_m2:.1f}%.")
+            elif china_m2 <= CHINA_M2_CONTRACTION_THRESHOLD:
+                self.alerts.append(f"⚠️ LIQUIDEZ CHINA DÉBIL: M2 YoY = {china_m2:.1f}%.")
+
+        # ─── 7c. Mercados globales ───
+        global_markets = d.get("GlobalMarkets", {})
+        global_lines = []
+        for region, metrics in global_markets.items():
+            mom = metrics.get("momentum_1m")
+            if mom is not None:
+                global_lines.append(f"{region} {mom:+.1f}%")
+        if global_lines:
+            self.alerts.append("🌍 MERCADOS GLOBALES 1M: " + " | ".join(global_lines[:4]) + ".")
+
         # ─── 8. Calendario Económico ───
-        cal = check_macro_events()
+        as_of = None
+        raw_as_of = d.get("_as_of")
+        if raw_as_of is not None:
+            try:
+                as_of = datetime.fromisoformat(str(raw_as_of).replace("Z", "+00:00"))
+            except ValueError:
+                as_of = None
+        cal = check_macro_events(as_of=as_of)
         calendar_blocked = cal.get("should_block_signals", False)
         if cal["event_imminent"]:
             prefix = "🛑 CALENDARIO" if calendar_blocked else "ℹ️ CALENDARIO ESTIMADO"
+            block_note = f"bloqueo {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h"
             for ev in cal["events"]:
-                self.alerts.append(f"{prefix}: {ev} (fuente: {cal.get('source', 'desconocida')}, confianza: {cal.get('confidence', 'UNKNOWN')}).")
+                self.alerts.append(
+                    f"{prefix}: {ev} (fuente: {cal.get('source', 'desconocida')}, "
+                    f"confianza: {cal.get('confidence', 'UNKNOWN')}, {block_note})."
+                )
+            for ev in cal.get("warning_events", []):
+                self.alerts.append(
+                    f"⚠️ CALENDARIO PRÓXIMO: {ev.get('title')} en {ev.get('hours_until')}h "
+                    f"(ventana estricta {CALENDAR_BLOCK_HOURS_STRICT}h activa)."
+                )
 
         # ─── 9. Sentimiento de Noticias ───
         sentiment_blocked = False
-        if self.headlines:
+        if self.news_items:
+            sent = analyze_news_items(self.news_items)
+        elif self.headlines:
             sent = analyze_headlines(self.headlines)
+        else:
+            sent = None
+
+        if sent:
             if sent["dominant_sentiment"] == "PANIC":
                 self.alerts.append(f"🛑 SENTIMIENTO: {sent['details']}")
                 sentiment_blocked = True
@@ -184,9 +252,10 @@ class LogicEngine:
             self.alerts.append("ℹ️ SENTIMIENTO: Sin fuente de noticias conectada.")
 
         # ─── ÁRBOL DE DECISIÓN FINAL ───
+        yield_inverted = spread is not None and spread <= YIELD_CURVE_INVERSION_THRESHOLD
         if calendar_blocked or sentiment_blocked:
             self.status = MarketStatus.BLOCKED
-        elif is_panic or (is_vix_accelerating and is_corr_high):
+        elif is_panic or yield_inverted or (is_vix_accelerating and is_corr_high):
             self.status = MarketStatus.PANIC
         elif is_vix_accelerating or is_corr_high:
             self.status = MarketStatus.CAUTION

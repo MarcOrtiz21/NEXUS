@@ -17,7 +17,14 @@ from datetime import datetime, timezone
 from typing import Dict, Any
 from itertools import combinations
 
-from config import FRED_API_KEY, MARKET_CACHE_FILE, MARKET_CACHE_MAX_AGE_SECONDS
+from config import (
+    FRED_API_KEY,
+    MARKET_CACHE_FILE,
+    MARKET_CACHE_MAX_AGE_SECONDS,
+    GLOBAL_MARKET_TICKERS,
+    PE_PERCENTILE_HIGH,
+    PE_PERCENTILE_LOW,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -227,15 +234,13 @@ def _fetch_sp500_pe() -> Dict[str, float | None]:
 
 def _fetch_siblis_forward_pe() -> Dict[str, Any]:
     """
-    Obtiene PER forward desde Siblis Research Free API.
-
-    La API gratuita no expone explícitamente el S&P 500, pero sí "USA"
-    (U.S. Large Cap Index), que se usa como proxy transparente de large caps USA.
+    Obtiene PER forward desde Siblis Research Free API y calcula percentil histórico.
     """
     result = {
         "PE_Forward": None,
         "PE_Forward_Date": None,
         "PE_Forward_Source": None,
+        "PE_Forward_Percentile": None,
     }
     url = "https://siblisresearch.supabase.co/functions/v1/free-data-api/v1/USA/pe-forward"
 
@@ -249,13 +254,26 @@ def _fetch_siblis_forward_pe() -> Dict[str, Any]:
             return result
 
         latest = valid_rows[-1]
-        result["PE_Forward"] = float(latest["value"])
+        values = [float(row["value"]) for row in valid_rows]
+        current = float(latest["value"])
+        rank = sum(1 for value in values if value <= current)
+        percentile = round((rank / len(values)) * 100, 1)
+
+        result["PE_Forward"] = current
         result["PE_Forward_Date"] = latest.get("trading_day (EOD)")
         result["PE_Forward_Source"] = "Siblis USA Large Cap proxy"
+        result["PE_Forward_Percentile"] = percentile
     except Exception as e:
         logging.warning(f"Error al obtener PER forward desde Siblis: {e}")
 
     return result
+
+
+def _fetch_latest_fred_value(series_id: str) -> float | None:
+    observations = _fetch_fred_series(series_id, limit=5)
+    if not observations:
+        return None
+    return observations[0]["value"]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -289,6 +307,10 @@ def fetch_market_data() -> Dict[str, Any]:
         "PE_Forward": None,
         "PE_Forward_Date": None,
         "PE_Forward_Source": None,
+        "PE_Forward_Percentile": None,
+        "US2Y": None,
+        "Yield_Curve_Spread": None,
+        "China_M2_YoY_Pct": None,
         "M2_Latest": None,
         "M2_Previous": None,
         "M2_Change_Pct": None,
@@ -331,11 +353,24 @@ def fetch_market_data() -> Dict[str, Any]:
             }
             for pair in FOREX_TICKERS
         },
+        "GlobalMarkets": {
+            region: {
+                "price": None,
+                "ma20": None,
+                "ma50": None,
+                "ma200": None,
+                "momentum_1m": None,
+                "momentum_3m": None,
+                "volatility_20d": None,
+            }
+            for region in GLOBAL_MARKET_TICKERS
+        },
     }
 
+    global_tickers = list(GLOBAL_MARKET_TICKERS.values())
     # ─── 1. Datos de yfinance (VIX, US10Y, ETFs, PER) ───
     tickers = sorted(
-        set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS + list(FOREX_TICKERS.values()))
+        set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS + list(FOREX_TICKERS.values()) + global_tickers)
     )
     try:
         logging.info("Descargando datos de mercado (yfinance, 1 año)...")
@@ -397,6 +432,14 @@ def fetch_market_data() -> Dict[str, Any]:
                 status = "OK" if data["Forex"].get(pair, {}).get("price") is not None else "MISSING"
                 _mark_quality(data, f"Forex.{pair}", f"yfinance:{ticker}", status)
 
+            data["GlobalMarkets"] = {
+                region: _calculate_asset_metrics(df_close, ticker)
+                for region, ticker in GLOBAL_MARKET_TICKERS.items()
+            }
+            for region, ticker in GLOBAL_MARKET_TICKERS.items():
+                status = "OK" if data["GlobalMarkets"].get(region, {}).get("price") is not None else "MISSING"
+                _mark_quality(data, f"GlobalMarkets.{region}", f"yfinance:{ticker}", status)
+
         logging.info("Datos de yfinance extraídos.")
     except Exception as e:
         logging.error(f"Fallo en yfinance: {e}")
@@ -428,11 +471,28 @@ def fetch_market_data() -> Dict[str, Any]:
                     "OK",
                     f"Proxy U.S. Large Cap; fecha EOD {fwd_data.get('PE_Forward_Date')}",
                 )
+                if fwd_data.get("PE_Forward_Percentile") is not None:
+                    _mark_quality(data, "PE_Forward_Percentile", "Siblis:USA/pe-forward", "OK")
             else:
                 _mark_quality(data, "PE_Forward", "Siblis:USA/pe-forward", "MISSING")
     except Exception as e:
         logging.warning(f"Fallo al obtener PER forward alternativo: {e}")
         _mark_quality(data, "PE_Forward", "Siblis:USA/pe-forward", "ERROR", str(e))
+
+    # ─── 2b. Tipos 2Y y curva de rendimiento ───
+    if FRED_API_KEY:
+        logging.info("Descargando tipos 2Y desde FRED...")
+        us2y = _fetch_latest_fred_value("DGS2")
+        if us2y is not None:
+            data["US2Y"] = us2y
+            _mark_quality(data, "US2Y", "FRED:DGS2")
+            if data.get("US10Y") is not None:
+                data["Yield_Curve_Spread"] = round(data["US10Y"] - us2y, 2)
+                _mark_quality(data, "Yield_Curve_Spread", "FRED:DGS2+^TNX")
+        else:
+            _mark_quality(data, "Yield_Curve_Spread", "FRED:DGS2", "MISSING")
+    else:
+        _mark_quality(data, "Yield_Curve_Spread", "FRED:DGS2", "MISSING", "FRED_API_KEY no configurada")
 
     # ─── 3. FRED: Masa Monetaria M2 (liquidez) ───
     if FRED_API_KEY:
@@ -475,8 +535,27 @@ def fetch_market_data() -> Dict[str, Any]:
         logging.info("FRED_API_KEY no configurada. IPC desactivado.")
         _mark_quality(data, "CPI_YoY_Pct", "FRED:CPIAUCSL", "MISSING", "FRED_API_KEY no configurada")
 
+    # ─── 5. FRED: Liquidez China (M2 YoY) ───
+    if FRED_API_KEY:
+        logging.info("Descargando M2 China desde FRED...")
+        china_obs = _fetch_fred_series("MYAGM2CNM189N", limit=24)
+        if china_obs and len(china_obs) >= 13:
+            latest = china_obs[0]["value"]
+            year_ago = china_obs[12]["value"]
+            if year_ago > 0:
+                data["China_M2_YoY_Pct"] = round(((latest - year_ago) / year_ago) * 100, 2)
+                _mark_quality(data, "China_M2_YoY_Pct", "FRED:MYAGM2CNM189N")
+        else:
+            _mark_quality(data, "China_M2_YoY_Pct", "FRED:MYAGM2CNM189N", "MISSING")
+    else:
+        _mark_quality(data, "China_M2_YoY_Pct", "FRED:MYAGM2CNM189N", "MISSING", "FRED_API_KEY no configurada")
+
     data = _apply_cache_fallback(data, cache)
-    for key in ["VIX", "US10Y", "Correlation_Proxy", "PE_Trailing", "PE_Forward", "M2_Change_Pct", "CPI_YoY_Pct"]:
+    for key in [
+        "VIX", "US10Y", "US2Y", "Yield_Curve_Spread", "Correlation_Proxy",
+        "PE_Trailing", "PE_Forward", "PE_Forward_Percentile",
+        "M2_Change_Pct", "CPI_YoY_Pct", "China_M2_YoY_Pct",
+    ]:
         if key not in data["DataQuality"]:
             _mark_quality(data, key, "unknown", "MISSING")
     data["DataQuality"]["snapshot"] = _quality("NEXUS", "OK", captured_at, "snapshot de ejecución")

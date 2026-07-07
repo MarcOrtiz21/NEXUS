@@ -96,3 +96,44 @@ MARKET_CACHE_FILE = CACHE_DIR / "market_data.json"
 MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
 DECISIONS_HISTORY_JSONL = HISTORY_DIR / "decisions.jsonl"
 DECISIONS_HISTORY_CSV = HISTORY_DIR / "decisions.csv"
+PAPER_TRADES_JSONL = HISTORY_DIR / "paper_trades.jsonl"
+PAPER_PORTFOLIO_JSON = HISTORY_DIR / "paper_portfolio.json"
+
+# ─── Calendario y dashboard ───
+CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"
+CALENDAR_BLOCKS_SIGNALS = True
+CALENDAR_BLOCK_HOURS_DEFAULT = 6
+CALENDAR_BLOCK_HOURS_STRICT = 3
+CALENDAR_BLOCK_HOURS_OPTIONS = (CALENDAR_BLOCK_HOURS_STRICT, CALENDAR_BLOCK_HOURS_DEFAULT)
+
+
+def _resolve_calendar_block_hours() -> int:
+    """Ventana de bloqueo antes de eventos macro. Permitido: 3h (estricto) o 6h (defecto)."""
+    raw = os.environ.get("NEXUS_CALENDAR_BLOCK_HOURS", str(CALENDAR_BLOCK_HOURS_DEFAULT))
+    try:
+        hours = int(float(raw))
+    except ValueError:
+        return CALENDAR_BLOCK_HOURS_DEFAULT
+    if hours in CALENDAR_BLOCK_HOURS_OPTIONS:
+        return hours
+    return CALENDAR_BLOCK_HOURS_DEFAULT
+
+
+CALENDAR_BLOCK_HOURS = _resolve_calendar_block_hours()
+WEB_DASHBOARD_HOST = "127.0.0.1"
+WEB_DASHBOARD_PORT = 8765
+
+# ─── Mercados globales (ETFs proxy) ───
+GLOBAL_MARKET_TICKERS = {
+    "Europa": "FEZ",
+    "Japon": "EWJ",
+    "China": "FXI",
+    "Asia_EM": "AAXJ",
+}
+
+# ─── Umbrales adicionales ───
+YIELD_CURVE_INVERSION_THRESHOLD = -0.2   # 2Y-10Y spread (%)
+PE_PERCENTILE_HIGH = 80
+PE_PERCENTILE_LOW = 30
+CHINA_M2_EXPANSION_THRESHOLD = 8.0
+CHINA_M2_CONTRACTION_THRESHOLD = 4.0

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from config import DECISIONS_HISTORY_CSV, DECISIONS_HISTORY_JSONL
+from config import DECISIONS_HISTORY_CSV, DECISIONS_HISTORY_JSONL, PAPER_PORTFOLIO_JSON
 
 
 def _now_utc_iso() -> str:
@@ -76,4 +76,14 @@ def export_decision_snapshot(
             writer.writeheader()
         writer.writerow(row)
 
-    return {"jsonl": str(jsonl_path), "csv": str(csv_path)}
+    paper_result = None
+    try:
+        from paper_trading import update_paper_portfolio
+        paper_result = update_paper_portfolio(decision, snapshot["prices"])
+    except Exception:
+        pass
+
+    result = {"jsonl": str(jsonl_path), "csv": str(csv_path)}
+    if paper_result:
+        result["paper"] = str(PAPER_PORTFOLIO_JSON)
+    return result

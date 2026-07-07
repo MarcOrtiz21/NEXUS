@@ -19,8 +19,12 @@ from datetime import datetime, timezone
 from tkinter import font as tkfont
 from typing import Any, Dict
 
+from config import CALENDAR_BLOCK_HOURS
 from decision_engine import DecisionEngine
 from history import export_decision_snapshot
+from history_view import format_history_report
+from paper_trading import format_paper_report
+from risk_filters.calendar import check_macro_events
 from logic_engine import LogicEngine
 from risk_filters.news_feed import fetch_news_items
 from rotation_engine import RotationEngine
@@ -65,7 +69,7 @@ def build_snapshot(use_news: bool = True, export: bool = False) -> Dict[str, Any
     news_items = fetch_news_items() if use_news else []
     headlines = [item["title"] for item in news_items]
 
-    logic = LogicEngine(data, headlines=headlines if headlines else None)
+    logic = LogicEngine(data, news_items=news_items if news_items else None)
     status, alerts = logic.evaluate()
     decision = DecisionEngine(data, status, alerts).evaluate()
     rotation = RotationEngine(data).evaluate()
@@ -313,8 +317,11 @@ class NexusDesktopApp:
         self.current_signature: str | None = None
         self.current_view = "overview"
         self.fetch_in_progress = False
+        self.compact_mode = False
 
         self._build_ui()
+        self.root.bind("<Command-r>", lambda _event: self._schedule_fetch(immediate=True))
+        self.root.bind("<Control-r>", lambda _event: self._schedule_fetch(immediate=True))
         self._schedule_fetch(immediate=True)
 
     def _pick_font_family(self, candidates: tuple[str, ...]) -> str:
@@ -348,7 +355,10 @@ class NexusDesktopApp:
             ("rotation", "Rotación"),
             ("forex", "Forex"),
             ("assets", "Activos"),
+            ("global", "Global"),
             ("news", "Noticias"),
+            ("history", "Historial"),
+            ("paper", "Paper"),
             ("quality", "Data Quality"),
         ]:
             btn = tk.Button(
@@ -369,6 +379,8 @@ class NexusDesktopApp:
 
         right = tk.Frame(top, bg="#070B13")
         right.pack(side="right", padx=12)
+        self.macro_label = tk.Label(right, text="Macro: --", fg=MUTED, bg="#070B13", font=self.ui_font)
+        self.macro_label.pack(side="left", padx=6)
         self.status_label = tk.Label(right, text="Cargando...", fg=TEXT, bg=PANEL, font=self.ui_font, padx=8, pady=4)
         self.status_label.pack(side="left", padx=6)
         self.updated_label = tk.Label(right, text="--", fg=MUTED, bg="#070B13", font=self.ui_font)
@@ -419,7 +431,32 @@ class NexusDesktopApp:
         )
         refresh_btn.pack(side="right", padx=8)
 
+        compact_btn = tk.Button(
+            footer,
+            text="Modo compacto",
+            command=self._toggle_compact_mode,
+            fg=TEXT,
+            bg=PANEL,
+            activeforeground=TEXT,
+            activebackground=PANEL_ALT,
+            relief="flat",
+            padx=10,
+            pady=4,
+            font=self.ui_font,
+        )
+        compact_btn.pack(side="right", padx=8)
+
         self._set_view("overview")
+
+    def _toggle_compact_mode(self):
+        self.compact_mode = not self.compact_mode
+        if self.compact_mode:
+            self.root.geometry("980x620")
+            self.ui_font.configure(size=10)
+        else:
+            self.root.geometry("1380x860")
+            self.ui_font.configure(size=11)
+        self._render_current()
 
     def _set_view(self, key: str):
         self.current_view = key
@@ -443,7 +480,7 @@ class NexusDesktopApp:
 
     def _fetch_worker(self):
         try:
-            snap = build_snapshot(use_news=True, export=False)
+            snap = build_snapshot(use_news=True, export=True)
             sig = snapshot_signature(snap)
             self.root.after(0, lambda: self._on_fetch_success(snap, sig))
         except Exception as exc:
@@ -459,9 +496,24 @@ class NexusDesktopApp:
             self.current_snapshot = snap
             self.current_signature = sig
             self.status_label.configure(text=f"{snap['status']} • actualizado", fg=TEXT, bg="#143726")
+            self._update_macro_label(snap)
             self._render_current()
         else:
             self.status_label.configure(text=f"{snap['status']} • sin cambios", fg=TEXT, bg="#243148")
+            self._update_macro_label(snap)
+
+    def _update_macro_label(self, snap: Dict[str, Any]):
+        cal = check_macro_events()
+        if cal.get("should_block_signals"):
+            self.macro_label.configure(
+                text=f"Macro: BLOQUEO {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
+                fg=BAD,
+            )
+        elif cal.get("next_event"):
+            title = cal["next_event"].get("title", "Evento macro")
+            self.macro_label.configure(text=f"Macro: {title[:42]}", fg=WARN)
+        else:
+            self.macro_label.configure(text="Macro: sin eventos inminentes", fg=GOOD)
 
     def _on_fetch_error(self, exc: Exception):
         self.fetch_in_progress = False
@@ -484,7 +536,10 @@ class NexusDesktopApp:
             "overview": self._render_overview,
             "rotation": self._render_rotation,
             "forex": self._render_forex,
+            "global": self._render_global,
             "news": self._render_news,
+            "history": lambda snap: format_history_report(limit=25),
+            "paper": lambda snap: format_paper_report(limit=12),
             "quality": self._render_quality,
         }
         content = view_renderers[self.current_view](self.current_snapshot)
@@ -521,6 +576,9 @@ class NexusDesktopApp:
             f"  Bono 10Y     {metric_bar(d.get('US10Y'), 2, 6)}  {fmt(d.get('US10Y'), 2, '%')}",
             f"  Inflacion    {metric_bar(d.get('CPI_YoY_Pct'), 1, 6)}  {fmt(d.get('CPI_YoY_Pct'), 1, '%')}",
             f"  Liquidez M2  {metric_bar(d.get('M2_Change_Pct'), -6, 8)}  {signed(d.get('M2_Change_Pct'))}",
+            f"  Curva 2Y-10Y {metric_bar(d.get('Yield_Curve_Spread'), -1, 2)}  {signed(d.get('Yield_Curve_Spread'), suffix='pp')}",
+            f"  PER pct hist {metric_bar(d.get('PE_Forward_Percentile'), 0, 100)}  {fmt(d.get('PE_Forward_Percentile'), 0)}",
+            f"  China M2 YoY {metric_bar(d.get('China_M2_YoY_Pct'), 2, 12)}  {fmt(d.get('China_M2_YoY_Pct'), 1, '%')}",
             f"  Correlacion  {metric_bar(abs(d.get('Correlation_Proxy')) if d.get('Correlation_Proxy') is not None else None, 0, 1)}  {fmt(d.get('Correlation_Proxy'), 3)}",
             "",
             "ROTACION",
@@ -669,6 +727,21 @@ class NexusDesktopApp:
             self.text.insert("end", left)
             self.text.insert("end", bar, score_tag(score))
             self.text.insert("end", right)
+
+    def _render_global(self, s: Dict[str, Any]) -> str:
+        markets = s["data"].get("GlobalMarkets", {})
+        lines = [
+            "MERCADOS GLOBALES",
+            "REGION     SPOT      MA20      MA50      1M        3M        TREND",
+            "-" * 95,
+        ]
+        for region, metrics in markets.items():
+            lines.append(
+                f"{region:<10}{fmt(metrics.get('price'), 2):<10}{fmt(metrics.get('ma20'), 2):<10}"
+                f"{fmt(metrics.get('ma50'), 2):<10}{signed(metrics.get('momentum_1m')):<10}"
+                f"{signed(metrics.get('momentum_3m')):<10}{trend_from_metrics(metrics)}"
+            )
+        return "\n".join(lines)
 
     def _render_news(self, s: Dict[str, Any]) -> str:
         items = s.get("news_items", [])
