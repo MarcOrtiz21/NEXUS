@@ -102,6 +102,7 @@ DECISIONS_HISTORY_JSONL = HISTORY_DIR / "decisions.jsonl"
 DECISIONS_HISTORY_CSV = HISTORY_DIR / "decisions.csv"
 PAPER_TRADES_JSONL = HISTORY_DIR / "paper_trades.jsonl"
 PAPER_PORTFOLIO_JSON = HISTORY_DIR / "paper_portfolio.json"
+REPORTS_DIR = DATA_DIR / "reports"
 
 # ─── Calendario y dashboard ───
 CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"
@@ -140,5 +141,13 @@ GLOBAL_MARKET_TICKERS = {
 YIELD_CURVE_INVERSION_THRESHOLD = -0.2   # 2Y-10Y spread (%)
 PE_PERCENTILE_HIGH = 80
 PE_PERCENTILE_LOW = 30
+GLOBAL_MARKET_MOMENTUM_STRONG = 4.0
+GLOBAL_MARKET_MOMENTUM_WEAK = -4.0
+GLOBAL_MARKET_SCORE_WEIGHTS = {
+    "Europa": 0.35,
+    "China": 0.35,
+    "Japon": 0.15,
+    "Asia_EM": 0.15,
+}
 CHINA_M2_EXPANSION_THRESHOLD = 8.0
 CHINA_M2_CONTRACTION_THRESHOLD = 4.0

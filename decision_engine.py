@@ -8,6 +8,11 @@ conclusión operativa trazable: acción, score, confianza y asignación.
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List
 
+from config import (
+    GLOBAL_MARKET_MOMENTUM_STRONG,
+    GLOBAL_MARKET_MOMENTUM_WEAK,
+    GLOBAL_MARKET_SCORE_WEIGHTS,
+)
 from logic_engine import MarketStatus
 
 
@@ -259,7 +264,29 @@ class DecisionEngine:
             score -= 4
             reasons.append("sentimiento de noticias prudente")
 
+        global_adj, global_reasons = self._global_markets_adjustment()
+        score += global_adj
+        reasons.extend(global_reasons)
+
         return score, reasons
+
+    def _global_markets_adjustment(self) -> tuple[int, List[str]]:
+        global_markets = self.data.get("GlobalMarkets", {})
+        adjustment = 0
+        reasons: List[str] = []
+        for region, weight in GLOBAL_MARKET_SCORE_WEIGHTS.items():
+            momentum = global_markets.get(region, {}).get("momentum_1m")
+            if momentum is None:
+                continue
+            if momentum <= GLOBAL_MARKET_MOMENTUM_WEAK:
+                delta = round(6 * weight)
+                adjustment -= delta
+                reasons.append(f"presión global: {region} débil 1M ({momentum:+.1f}%)")
+            elif momentum >= GLOBAL_MARKET_MOMENTUM_STRONG:
+                delta = round(3 * weight)
+                adjustment += delta
+                reasons.append(f"soporte global: {region} fuerte 1M ({momentum:+.1f}%)")
+        return adjustment, reasons
 
     def _asset_trend_score(self, metrics: Dict[str, Any]) -> int | None:
         price = metrics.get("price")

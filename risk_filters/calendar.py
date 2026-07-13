@@ -2,8 +2,9 @@
 Filtro de Calendario Económico (calendar.py)
 
 Detecta eventos macroeconómicos inminentes de alto impacto usando:
-1. RSS verificado de Myfxbook (calendario económico)
-2. Fechas FOMC/IPC manuales como respaldo informativo
+1. Fechas oficiales de publicación FRED (CPI, NFP, GDP, PCE, FOMC)
+2. RSS verificado de Myfxbook (calendario económico)
+3. Fechas FOMC/IPC manuales como respaldo informativo
 
 Solo eventos macro de EE.UU. con impacto directo en SPY pueden bloquear señales.
 """
@@ -28,6 +29,7 @@ from config import (
     CALENDAR_RSS_URL,
     CALENDAR_US_ONLY_BLOCKING,
 )
+from risk_filters.fred_calendar import fetch_fred_release_events
 from user_settings import get_setting
 
 US_BLOCKING_TERMS = [
@@ -190,12 +192,13 @@ def check_macro_events(
     """Comprueba eventos macro inminentes desde RSS verificado y respaldo manual."""
     now = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
     block_window = block_hours if block_hours in (3, 6) else get_setting("calendar_block_hours")
+    fred_events = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
     rss_events = _fetch_rss_events(lookahead_hours=lookahead_hours, now=now)
     manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
 
     seen_titles = set()
     merged: List[Dict] = []
-    for event in rss_events + manual_events:
+    for event in fred_events + rss_events + manual_events:
         key = re.sub(r"\s+", " ", event["title"].lower())
         if key in seen_titles:
             continue
@@ -224,8 +227,8 @@ def check_macro_events(
         for event in display_pool[:8]
     ]
 
-    source = CALENDAR_SOURCE if rss_events else "estimado_manual"
-    confidence = CALENDAR_CONFIDENCE if rss_events else "LOW"
+    source = "fred_release" if fred_events else (CALENDAR_SOURCE if rss_events else "estimado_manual")
+    confidence = "HIGH" if fred_events else (CALENDAR_CONFIDENCE if rss_events else "LOW")
 
     return {
         "event_imminent": len(display_pool) > 0,

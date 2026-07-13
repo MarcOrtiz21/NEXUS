@@ -26,6 +26,8 @@ from decision_engine import DecisionEngine
 from history import export_decision_snapshot
 from history_view import format_history_report
 from paper_trading import format_paper_report
+from signal_track_record import format_track_record_report
+from daily_report import export_daily_report, format_daily_report
 from risk_filters.calendar import check_macro_events
 from logic_engine import LogicEngine
 from risk_filters.news_feed import fetch_news_items
@@ -362,6 +364,8 @@ class NexusDesktopApp:
             ("news", "Noticias"),
             ("history", "Historial"),
             ("paper", "Paper"),
+            ("track", "Track Record"),
+            ("report", "Informe"),
             ("quality", "Data Quality"),
         ]:
             btn = tk.Button(
@@ -449,6 +453,21 @@ class NexusDesktopApp:
         )
         compact_btn.pack(side="right", padx=8)
 
+        export_btn = tk.Button(
+            footer,
+            text="Exportar informe",
+            command=self._export_daily_report,
+            fg=TEXT,
+            bg=PANEL,
+            activeforeground=TEXT,
+            activebackground=PANEL_ALT,
+            relief="flat",
+            padx=10,
+            pady=4,
+            font=self.ui_font,
+        )
+        export_btn.pack(side="right", padx=8)
+
         settings_btn = tk.Button(
             footer,
             text="Ajustes",
@@ -466,6 +485,12 @@ class NexusDesktopApp:
 
         self._set_view("overview")
         self._update_footer_refresh_label()
+
+    def _export_daily_report(self) -> None:
+        if not self.current_snapshot:
+            return
+        paths = export_daily_report(self.current_snapshot)
+        self.footer_left.configure(text=f"Informe exportado: {paths['html_path']}")
 
     def _refresh_interval_ms(self) -> int:
         return int(get_setting("refresh_interval_seconds")) * 1000
@@ -627,6 +652,8 @@ class NexusDesktopApp:
             "news": self._render_news,
             "history": lambda snap: format_history_report(limit=25),
             "paper": lambda snap: format_paper_report(limit=12),
+            "track": lambda snap: format_track_record_report(forward_days=5, limit=100),
+            "report": lambda snap: format_daily_report(snap),
             "quality": self._render_quality,
         }
         content = view_renderers[self.current_view](self.current_snapshot)
