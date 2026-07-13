@@ -27,6 +27,9 @@ def _load_portfolio(path: Path = PAPER_PORTFOLIO_JSON) -> Dict[str, Any]:
             "last_update": None,
             "starting_value": 100000.0,
             "current_value": 100000.0,
+            "benchmark_spy_entry_price": None,
+            "benchmark_start_value": 100000.0,
+            "benchmark_current_value": 100000.0,
         }
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -84,6 +87,17 @@ def update_paper_portfolio(
         if price is not None:
             marked_value += shares * price
 
+    spy_price = prices.get("SPY")
+    start_value = float(portfolio.get("starting_value", 100000.0))
+    benchmark_entry = portfolio.get("benchmark_spy_entry_price")
+    if benchmark_entry in (None, 0) and spy_price not in (None, 0):
+        benchmark_entry = spy_price
+        portfolio["benchmark_spy_entry_price"] = spy_price
+        portfolio["benchmark_start_value"] = start_value
+    benchmark_value = start_value
+    if benchmark_entry not in (None, 0) and spy_price not in (None, 0):
+        benchmark_value = (spy_price / benchmark_entry) * float(portfolio.get("benchmark_start_value", start_value))
+
     previous_action = portfolio.get("last_action")
     action_changed = previous_action != decision.action
 
@@ -94,6 +108,7 @@ def update_paper_portfolio(
         "allocation": allocation,
         "prices": prices,
         "portfolio_value": round(marked_value, 2),
+        "benchmark_value": round(benchmark_value, 2),
         "pnl_since_last_pct": round(((marked_value / total_value) - 1) * 100, 3) if total_value else 0.0,
         "pnl_by_asset_pct": pnl_by_asset,
         "action_changed": action_changed,
@@ -106,6 +121,7 @@ def update_paper_portfolio(
         "last_score": decision.score,
         "last_update": record["captured_at"],
         "current_value": round(marked_value, 2),
+        "benchmark_current_value": round(benchmark_value, 2),
         "cash_pct": cash_weight,
     })
 
@@ -132,12 +148,16 @@ def summarize_paper_trading(limit: int = 20) -> Dict[str, Any]:
 
     start = float(portfolio.get("starting_value", 100000.0))
     current = float(portfolio.get("current_value", start))
+    benchmark_current = float(portfolio.get("benchmark_current_value", start))
     total_return = ((current / start) - 1) * 100 if start else 0.0
+    benchmark_return = ((benchmark_current / start) - 1) * 100 if start else 0.0
 
     return {
         "portfolio": portfolio,
         "trades": trades,
         "total_return_pct": round(total_return, 2),
+        "benchmark_return_pct": round(benchmark_return, 2),
+        "alpha_vs_spy_pct": round(total_return - benchmark_return, 2),
         "trade_count": len(trades),
     }
 
@@ -150,6 +170,8 @@ def format_paper_report(limit: int = 10) -> str:
         f"Valor inicial: ${portfolio.get('starting_value', 0):,.2f}",
         f"Valor actual : ${portfolio.get('current_value', 0):,.2f}",
         f"Retorno total: {summary['total_return_pct']:+.2f}%",
+        f"Buy&Hold SPY: {summary['benchmark_return_pct']:+.2f}%",
+        f"Alpha vs SPY: {summary['alpha_vs_spy_pct']:+.2f}%",
         f"Última acción: {portfolio.get('last_action')} (score {portfolio.get('last_score')})",
         "",
         "POSICIÓN ACTUAL",

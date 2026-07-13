@@ -39,6 +39,10 @@ class DecisionResult:
     rationale: str
     inputs_used: List[str]
     missing_inputs: List[str]
+    macro_action: str = "ESPERAR"
+    operational_action: str = "ESPERAR"
+    operational_pause_reason: str | None = None
+    macro_allocation: Dict[str, int] | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -67,23 +71,34 @@ class DecisionEngine:
                 rationale="No se emite señal operativa porque faltan datos críticos: " + ", ".join(missing) + ".",
                 inputs_used=inputs_used,
                 missing_inputs=missing,
+                macro_action="DATOS INSUFICIENTES",
+                operational_action="DATOS INSUFICIENTES",
+                operational_pause_reason="Datos críticos incompletos",
+                macro_allocation={"SPY": 0, "QQQ": 0, "TLT": 0, "GLD": 0, "UUP": 0, "CASH": 100},
             )
 
         score, reasons = self._macro_score()
         score = max(0, min(100, score))
         asset_scores = self._asset_scores(score)
-        allocation = self._build_allocation(score, asset_scores)
+        macro_allocation = self._build_allocation(score, asset_scores)
+        macro_action = self._action_from_score(score)
+        macro_confidence = self._confidence(score)
+
+        allocation = dict(macro_allocation)
         favored_assets = self._favored_assets(allocation)
-        action = self._action_from_score(score)
-        confidence = self._confidence(score)
+        action = macro_action
+        confidence = macro_confidence
+        operational_pause_reason = None
 
         if self.status == MarketStatus.BLOCKED:
+            operational_pause_reason = "Filtro de riesgo activo (calendario macro US o sentimiento extremo)"
             action = "ESPERAR"
             confidence = "MEDIA"
             allocation = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
             favored_assets = self._favored_assets(allocation)
-            reasons.insert(0, "el sistema está bloqueado por un filtro de riesgo")
+            reasons.insert(0, "la señal operativa está pausada por un filtro de riesgo")
         elif self.status == MarketStatus.PANIC:
+            operational_pause_reason = "Entorno de pánico o estrés extremo detectado por el motor lógico"
             action = "REDUCIR RIESGO"
             confidence = "ALTA"
             allocation = {"SPY": 5, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 45}
@@ -100,6 +115,10 @@ class DecisionEngine:
             rationale=self._build_rationale(reasons),
             inputs_used=inputs_used,
             missing_inputs=[],
+            macro_action=macro_action,
+            operational_action=action,
+            operational_pause_reason=operational_pause_reason,
+            macro_allocation=macro_allocation,
         )
 
     def _missing_required_inputs(self) -> List[str]:

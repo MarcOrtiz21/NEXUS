@@ -20,7 +20,7 @@ from rich import box
 
 from config import REFRESH_INTERVAL_SECONDS, FRED_API_KEY
 from data_ingestion import fetch_market_data
-from decision_engine import DecisionEngine
+from decision_engine import DecisionEngine, ASSET_LABELS
 from forex_engine import (
     directional_forex_semaphore,
     forex_dual_perspective,
@@ -322,7 +322,7 @@ def _build_snapshot(use_news: bool, export: bool = False):
     status, alerts = engine.evaluate()
     decision = DecisionEngine(data, status, alerts).evaluate()
     rotation = RotationEngine(data).evaluate()
-    export_paths = export_decision_snapshot(data, decision, news_items) if export else None
+    export_paths = export_decision_snapshot(data, decision, news_items, market_status=status.value) if export else None
     return {
         "data": data,
         "news_items": news_items,
@@ -535,22 +535,53 @@ def _render_forex(data, news_items, compact: bool = False):
 
 
 def _render_executive_summary(decision, status: MarketStatus):
-    favored = ", ".join(decision.favored_assets) if decision.favored_assets else "—"
-    action_style = _decision_color(decision.action)
-    lines = [
-        Text.from_markup(f"[bold]Acción principal:[/bold] [{action_style}] {decision.action} [/{action_style}]"),
+    macro_action = getattr(decision, "macro_action", decision.action)
+    operational_action = getattr(decision, "operational_action", decision.action)
+    pause_reason = getattr(decision, "operational_pause_reason", None)
+
+    macro_style = _decision_color(macro_action)
+    op_style = _decision_color(operational_action)
+    macro_alloc = decision.macro_allocation or decision.allocation
+    macro_favored = ", ".join(
+        ASSET_LABELS.get(asset, asset)
+        for asset, weight in macro_alloc.items()
+        if weight == max(macro_alloc.values()) and weight > 0
+    ) if macro_alloc else "—"
+
+    diagnosis = Group(
+        Text.from_markup(f"[bold cyan]Diagnóstico macro[/bold cyan]"),
+        Text.from_markup(f"[bold]Lectura:[/bold] [{macro_style}] {macro_action} [/{macro_style}]"),
+        Text.from_markup(f"[bold]Score macro:[/bold] {_score_bar(decision.score)}"),
+        Text.from_markup(f"[bold]Sesgo teórico:[/bold] {macro_favored or '—'}"),
+        Text.from_markup("[dim]Resume VIX, tipos, liquidez, inflación y momentum. No incluye pausas operativas.[/dim]"),
+    )
+
+    operational_lines = [
+        Text.from_markup(f"[bold magenta]Señal operativa[/bold magenta]"),
+        Text.from_markup(f"[bold]Acción ahora:[/bold] [{op_style}] {operational_action} [/{op_style}]"),
         Text.from_markup(f"[bold]Confianza:[/bold] {decision.confidence}"),
-        Text.from_markup(f"[bold]Activos favorecidos:[/bold] {favored}"),
-        Text.from_markup(f"[bold]Score general:[/bold] {_score_bar(decision.score)}"),
+        Text.from_markup(f"[bold]Activos favorecidos:[/bold] {', '.join(decision.favored_assets) if decision.favored_assets else '—'}"),
     ]
-    if status == MarketStatus.BLOCKED:
-        lines.append(Text.from_markup(
-            "[dim]Los datos de mercado se muestran con normalidad; "
-            "la señal operativa está pausada por un filtro de riesgo (calendario o sentimiento).[/dim]"
+    if pause_reason:
+        operational_lines.append(Text.from_markup(f"[yellow]Pausa:[/yellow] {pause_reason}"))
+    elif macro_action != operational_action:
+        operational_lines.append(Text.from_markup(
+            "[dim]La señal operativa difiere del diagnóstico macro por filtros de riesgo.[/dim]"
         ))
-    group = Group(*lines)
+    operational = Group(*operational_lines)
+
     status_style = STATUS_COLORS.get(status, "bold white on blue")
-    console.print(Panel(group, title="Resumen Ejecutivo", border_style="green", subtitle=f"[{status_style}] Estado: {status.value} [/{status_style}]"))
+    console.print(
+        Columns(
+            [
+                Panel(diagnosis, border_style="cyan", title="Análisis"),
+                Panel(operational, border_style="magenta", title="Operativa"),
+            ],
+            equal=True,
+            expand=True,
+        )
+    )
+    console.print(Panel("", border_style="green", subtitle=f"[{status_style}] Estado motor: {status.value} [/{status_style}]"))
     console.print("")
 
 

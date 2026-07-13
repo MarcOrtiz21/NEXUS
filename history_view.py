@@ -56,7 +56,13 @@ def summarize_history(limit: int = 30) -> Dict[str, Any]:
         }
 
     score_timeline = [
-        {"captured_at": row.get("captured_at"), "score": row.get("score"), "action": row.get("action")}
+        {
+            "captured_at": row.get("captured_at"),
+            "score": row.get("score"),
+            "action": row.get("operational_action") or row.get("action"),
+            "macro_action": row.get("macro_action") or row.get("action"),
+            "operational_action": row.get("operational_action") or row.get("action"),
+        }
         for row in rows
     ]
 
@@ -103,7 +109,14 @@ def format_history_report(limit: int = 20) -> str:
         "EVOLUCIÓN RECIENTE",
     ]
     for point in summary["score_timeline"][-10:]:
-        lines.append(f"  {point['captured_at']}  score={point['score']}  action={point['action']}")
+        macro = point.get("macro_action") or point.get("action")
+        operational = point.get("operational_action") or point.get("action")
+        if macro != operational:
+            lines.append(
+                f"  {point['captured_at']}  score={point['score']}  macro={macro}  ops={operational}"
+            )
+        else:
+            lines.append(f"  {point['captured_at']}  score={point['score']}  action={operational}")
 
     lines.extend(["", "CAMBIOS DE SEÑAL"])
     if summary["action_changes"]:
@@ -122,7 +135,8 @@ def format_history_report(limit: int = 20) -> str:
     lines.extend([
         "",
         "ÚLTIMA DECISIÓN",
-        f"  Acción: {latest.get('action')}",
+        f"  Macro: {latest.get('macro_action') or latest.get('action')}",
+        f"  Operativa: {latest.get('operational_action') or latest.get('action')}",
         f"  Score: {latest.get('score')}",
         f"  Confianza: {latest.get('confidence')}",
         f"  Favorecidos: {', '.join(latest.get('favored_assets', []))}",

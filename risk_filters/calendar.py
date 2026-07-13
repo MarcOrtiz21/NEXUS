@@ -4,6 +4,8 @@ Filtro de Calendario Económico (calendar.py)
 Detecta eventos macroeconómicos inminentes de alto impacto usando:
 1. RSS verificado de Myfxbook (calendario económico)
 2. Fechas FOMC/IPC manuales como respaldo informativo
+
+Solo eventos macro de EE.UU. con impacto directo en SPY pueden bloquear señales.
 """
 
 from __future__ import annotations
@@ -20,27 +22,28 @@ except ImportError:
     feedparser = None
 
 from config import (
-    CALENDAR_BLOCK_HOURS,
     CALENDAR_BLOCK_HOURS_DEFAULT,
     CALENDAR_BLOCK_HOURS_STRICT,
     CALENDAR_BLOCKS_SIGNALS,
     CALENDAR_RSS_URL,
+    CALENDAR_US_ONLY_BLOCKING,
 )
+from user_settings import get_setting
 
-HIGH_IMPACT_TERMS = [
-    "fomc", "fed", "federal reserve", "interest rate", "rate decision",
-    "cpi", "inflation", "pce", "nfp", "nonfarm", "payroll", "gdp",
-    "retail sales", "ism", "pmi", "jobless claims", "unemployment",
-    "ecb", "boe", "boj", "pboc",
+US_BLOCKING_TERMS = [
+    "cpi", "pce", "nfp", "nonfarm", "payroll", "fomc", "fed", "gdp",
+    "jobless claims", "ism", "retail sales", "interest rate", "rate decision",
+    "unemployment rate", "consumer confidence",
 ]
 
 US_EVENT_PATTERNS = [
     r"^us\b",
-    r"\bu\.s\.\b",
+    r"^u\.s\.\b",
     r"\bunited states\b",
     r"\busa\b",
     r"\bamerican\b",
     r"\bfomc\b",
+    r"\bfederal reserve\b",
     r"\bfed\b",
     r"\bnonfarm\b",
     r"\bnfp\b",
@@ -77,14 +80,28 @@ def _parse_event_time(entry) -> datetime | None:
     return None
 
 
-def _is_high_impact(title: str) -> bool:
-    title_lower = title.lower()
-    return any(term in title_lower for term in HIGH_IMPACT_TERMS)
-
-
 def _is_us_event(title: str) -> bool:
     title_lower = title.lower().strip()
     return any(re.search(pattern, title_lower) for pattern in US_EVENT_PATTERNS)
+
+
+def _is_us_blocking_event(title: str) -> bool:
+    if not _is_us_event(title):
+        return False
+    title_lower = title.lower()
+    return any(re.search(rf"\b{re.escape(term)}\b", title_lower) for term in US_BLOCKING_TERMS)
+
+
+def _event_impact(title: str) -> str:
+    if CALENDAR_US_ONLY_BLOCKING:
+        if _is_us_blocking_event(title):
+            return "ALTO"
+        if _is_us_event(title):
+            return "MEDIO"
+        return "INFO"
+    if _is_us_event(title):
+        return "ALTO"
+    return "MEDIO"
 
 
 def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
@@ -98,7 +115,7 @@ def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
         feed = feedparser.parse(CALENDAR_RSS_URL)
         for entry in feed.entries[:80]:
             title = (entry.get("title") or "").strip()
-            if not title or not _is_high_impact(title):
+            if not title:
                 continue
 
             event_time = _parse_event_time(entry)
@@ -108,7 +125,7 @@ def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
                 continue
 
             hours_until = (event_time - now).total_seconds() / 3600
-            impact = "ALTO" if _is_us_event(title) else "MEDIO"
+            impact = _event_impact(title)
             events.append({
                 "title": title,
                 "when_utc": event_time.isoformat(timespec="minutes"),
@@ -116,6 +133,8 @@ def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
                 "impact": impact,
                 "source": CALENDAR_SOURCE,
                 "verified": True,
+                "us_event": _is_us_event(title),
+                "blocks_signals": _is_us_blocking_event(title),
             })
     except Exception as exc:
         logging.warning(f"Error al leer calendario RSS: {exc}")
@@ -123,7 +142,7 @@ def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
     return sorted(events, key=lambda item: item["hours_until"])
 
 
-def _manual_fallback_events(lookahead_days: int, today: date) -> List[Dict]:
+def _manual_fallback_events(lookahead_days: int, today: date, now: datetime) -> List[Dict]:
     horizon = [today + timedelta(days=d) for d in range(lookahead_days + 1)]
     events: List[Dict] = []
 
@@ -131,26 +150,32 @@ def _manual_fallback_events(lookahead_days: int, today: date) -> List[Dict]:
         event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         if event_date in horizon:
             when = "HOY" if event_date == today else f"en {(event_date - today).days} día(s)"
+            event_dt = datetime.combine(event_date, datetime.min.time(), tzinfo=timezone.utc)
             events.append({
                 "title": f"Reunión del FOMC (FED) {when} ({date_str})",
-                "when_utc": None,
-                "hours_until": max(0.0, (datetime.combine(event_date, datetime.min.time(), tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds() / 3600),
+                "when_utc": event_dt.isoformat(timespec="minutes"),
+                "hours_until": max(0.0, (event_dt - now).total_seconds() / 3600),
                 "impact": "ALTO",
                 "source": "estimado_manual",
                 "verified": False,
+                "us_event": True,
+                "blocks_signals": False,
             })
 
     for date_str in CPI_DATES:
         event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         if event_date in horizon:
             when = "HOY" if event_date == today else f"en {(event_date - today).days} día(s)"
+            event_dt = datetime.combine(event_date, datetime.min.time(), tzinfo=timezone.utc)
             events.append({
                 "title": f"Publicación del IPC (Inflación) {when} ({date_str})",
-                "when_utc": None,
-                "hours_until": max(0.0, (datetime.combine(event_date, datetime.min.time(), tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds() / 3600),
+                "when_utc": event_dt.isoformat(timespec="minutes"),
+                "hours_until": max(0.0, (event_dt - now).total_seconds() / 3600),
                 "impact": "ALTO",
                 "source": "estimado_manual",
                 "verified": False,
+                "us_event": True,
+                "blocks_signals": False,
             })
 
     return events
@@ -164,9 +189,9 @@ def check_macro_events(
 ) -> Dict:
     """Comprueba eventos macro inminentes desde RSS verificado y respaldo manual."""
     now = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
-    block_window = block_hours if block_hours in (3, 6) else CALENDAR_BLOCK_HOURS
+    block_window = block_hours if block_hours in (3, 6) else get_setting("calendar_block_hours")
     rss_events = _fetch_rss_events(lookahead_hours=lookahead_hours, now=now)
-    manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date())
+    manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
 
     seen_titles = set()
     merged: List[Dict] = []
@@ -180,29 +205,31 @@ def check_macro_events(
     blocking_events = [
         event for event in merged
         if event.get("verified")
-        and event.get("impact") == "ALTO"
+        and event.get("blocks_signals")
         and event.get("hours_until", 999) <= block_window
     ]
 
     warning_events = [
         event for event in merged
         if event.get("verified")
-        and event.get("impact") == "ALTO"
+        and event.get("blocks_signals")
         and block_window == CALENDAR_BLOCK_HOURS_STRICT
         and CALENDAR_BLOCK_HOURS_STRICT < event.get("hours_until", 999) <= CALENDAR_BLOCK_HOURS_DEFAULT
     ]
 
+    us_events = [event for event in merged if event.get("us_event") or event.get("blocks_signals")]
+    display_pool = us_events if CALENDAR_US_ONLY_BLOCKING else merged
     display_events = [
         f"{event['title']} ({event.get('when_utc') or 'fecha estimada'})"
-        for event in merged[:8]
+        for event in display_pool[:8]
     ]
 
     source = CALENDAR_SOURCE if rss_events else "estimado_manual"
     confidence = CALENDAR_CONFIDENCE if rss_events else "LOW"
 
     return {
-        "event_imminent": len(merged) > 0,
-        "should_block_signals": CALENDAR_BLOCKS_SIGNALS and len(blocking_events) > 0,
+        "event_imminent": len(display_pool) > 0,
+        "should_block_signals": get_setting("calendar_blocks_signals") and CALENDAR_BLOCKS_SIGNALS and len(blocking_events) > 0,
         "events": display_events,
         "events_detail": merged,
         "blocking_events": blocking_events,
@@ -210,17 +237,6 @@ def check_macro_events(
         "block_hours": block_window,
         "source": source,
         "confidence": confidence,
-        "next_event": merged[0] if merged else None,
+        "next_event": display_pool[0] if display_pool else None,
+        "us_only_blocking": CALENDAR_US_ONLY_BLOCKING,
     }
-
-
-if __name__ == "__main__":
-    res = check_macro_events()
-    print("Estado del calendario económico:")
-    if res["event_imminent"]:
-        for ev in res["events"]:
-            print(f"  ⚠️ {ev}")
-        if res["should_block_signals"]:
-            print("  🛑 Bloqueo de señales ACTIVO por evento verificado de alto impacto.")
-    else:
-        print("  ✅ No hay eventos macro inminentes.")

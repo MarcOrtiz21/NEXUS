@@ -24,14 +24,25 @@ def _price_snapshot(data: Dict[str, Any]) -> Dict[str, float | None]:
     }
 
 
-def build_decision_snapshot(data: Dict[str, Any], decision, news_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_decision_snapshot(
+    data: Dict[str, Any],
+    decision,
+    news_items: List[Dict[str, Any]],
+    market_status: str | None = None,
+) -> Dict[str, Any]:
+    macro_allocation = decision.macro_allocation or decision.allocation
     return {
         "captured_at": _now_utc_iso(),
-        "action": decision.action,
+        "action": decision.operational_action,
+        "macro_action": decision.macro_action,
+        "operational_action": decision.operational_action,
+        "operational_pause_reason": decision.operational_pause_reason,
+        "market_status": market_status,
         "score": decision.score,
         "confidence": decision.confidence,
         "favored_assets": decision.favored_assets,
         "allocation": decision.allocation,
+        "macro_allocation": macro_allocation,
         "asset_scores": decision.asset_scores,
         "rationale": decision.rationale,
         "inputs_used": decision.inputs_used,
@@ -49,8 +60,9 @@ def export_decision_snapshot(
     news_items: List[Dict[str, Any]],
     jsonl_path: Path = DECISIONS_HISTORY_JSONL,
     csv_path: Path = DECISIONS_HISTORY_CSV,
+    market_status: str | None = None,
 ) -> Dict[str, str]:
-    snapshot = build_decision_snapshot(data, decision, news_items)
+    snapshot = build_decision_snapshot(data, decision, news_items, market_status=market_status)
 
     jsonl_path.parent.mkdir(parents=True, exist_ok=True)
     with jsonl_path.open("a", encoding="utf-8") as fh:
@@ -60,7 +72,10 @@ def export_decision_snapshot(
     exists = csv_path.exists()
     row = {
         "captured_at": snapshot["captured_at"],
-        "action": snapshot["action"],
+        "action": snapshot["operational_action"],
+        "macro_action": snapshot["macro_action"],
+        "operational_action": snapshot["operational_action"],
+        "market_status": snapshot.get("market_status"),
         "score": snapshot["score"],
         "confidence": snapshot["confidence"],
         "favored_assets": ", ".join(snapshot["favored_assets"]),

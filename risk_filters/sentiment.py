@@ -10,8 +10,11 @@ NOTA: Este módulo NO usa FinBERT. Para una versión con NLP real, instalar
 
 import re
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Dict, Any
+
+from user_settings import get_setting
 
 
 # Diccionarios de palabras clave con peso.
@@ -53,6 +56,87 @@ TOPIC_KEYWORDS = {
 }
 
 NEGATION_TERMS = ["not", "no", "without", "less", "eases", "ease", "avoids", "averted"]
+
+_FINBERT_PIPELINE = None
+
+
+def _finbert_enabled() -> bool:
+    return bool(get_setting("use_finbert")) or os.environ.get("NEXUS_USE_FINBERT", "0") == "1"
+
+
+def _finbert_refine(headlines: List[str], result: Dict) -> Dict:
+    """Refina titulares ambiguos con FinBERT si está disponible."""
+    if not _finbert_enabled():
+        return result
+    if result["dominant_sentiment"] not in {"MIXED", "NEUTRAL"}:
+        return result
+    if result.get("headline_count", 0) == 0:
+        return result
+
+    global _FINBERT_PIPELINE
+    try:
+        from transformers import pipeline
+    except ImportError:
+        result["finbert_status"] = "unavailable"
+        return result
+
+    try:
+        if _FINBERT_PIPELINE is None:
+            _FINBERT_PIPELINE = pipeline(
+                "sentiment-analysis",
+                model="ProsusAI/finbert",
+                truncation=True,
+            )
+    except Exception as exc:
+        logging.warning(f"No se pudo cargar FinBERT: {exc}")
+        result["finbert_status"] = "error"
+        return result
+
+    negative = 0
+    positive = 0
+    for headline in headlines[:12]:
+        try:
+            scores = _FINBERT_PIPELINE(headline[:512])
+            if not scores:
+                continue
+            label = scores[0].get("label", "").lower()
+            if label == "negative":
+                negative += 1
+            elif label == "positive":
+                positive += 1
+        except Exception:
+            continue
+
+    total = negative + positive
+    if total == 0:
+        result["finbert_status"] = "no_signal"
+        return result
+
+    panic_ratio = negative / total
+    result["finbert_status"] = "applied"
+    result["finbert_negative"] = negative
+    result["finbert_positive"] = positive
+    result["method"] = "weighted_keyword_regex_v3+finbert"
+    result["panic_score"] = round(panic_ratio, 2)
+
+    if panic_ratio > 0.6:
+        result["dominant_sentiment"] = "PANIC"
+        result["details"] = (
+            f"FinBERT refina titulares ambiguos: miedo dominante "
+            f"({negative} negativos vs {positive} positivos en {total} titulares analizados)."
+        )
+    elif panic_ratio < 0.4:
+        result["dominant_sentiment"] = "BULLISH"
+        result["details"] = (
+            f"FinBERT refina titulares ambiguos: optimismo dominante "
+            f"({positive} positivos vs {negative} negativos en {total} titulares analizados)."
+        )
+    else:
+        result["dominant_sentiment"] = "MIXED"
+        result["details"] = (
+            f"FinBERT mantiene sesgo mixto ({negative} negativos, {positive} positivos)."
+        )
+    return result
 
 
 def _count_word_hits(text: str, word_list: list) -> int:
@@ -152,7 +236,7 @@ def analyze_news_items(news_items: List[Dict[str, Any]]) -> Dict:
                 f"Sentimiento mixto ponderado ({weighted_panic:.1f} pánico, "
                 f"{weighted_bull:.1f} alcista, {len(news_items)} titulares)."
             )
-    return result
+    return _finbert_refine(headlines, result)
 
 
 def analyze_headlines(headlines: List[str]) -> Dict:
@@ -225,7 +309,7 @@ def analyze_headlines(headlines: List[str]) -> Dict:
         result["dominant_sentiment"] = "MIXED"
         result["details"] = f"Sentimiento mixto ({total_panic} pánico, {total_bull} alcistas, {len(headlines)} titulares)."
 
-    return result
+    return _finbert_refine(headlines, result)
 
 
 if __name__ == "__main__":

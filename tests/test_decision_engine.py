@@ -72,8 +72,18 @@ class DecisionEngineTests(unittest.TestCase):
         decision = DecisionEngine(data, MarketStatus.PANIC, ["pánico"]).evaluate()
 
         self.assertEqual(decision.action, "REDUCIR RIESGO")
+        self.assertEqual(decision.operational_action, "REDUCIR RIESGO")
         self.assertEqual(decision.confidence, "ALTA")
         self.assertGreaterEqual(decision.allocation["CASH"], 40)
+
+    def test_blocked_status_keeps_macro_but_pauses_operational(self):
+        decision = DecisionEngine(_base_data(), MarketStatus.BLOCKED, ["calendario"]).evaluate()
+
+        self.assertEqual(decision.macro_action, "COMPRAR")
+        self.assertEqual(decision.operational_action, "ESPERAR")
+        self.assertEqual(decision.action, "ESPERAR")
+        self.assertIsNotNone(decision.operational_pause_reason)
+        self.assertGreater(decision.macro_allocation["SPY"], decision.allocation["SPY"])
 
     def test_missing_critical_inputs_blocks_operational_signal(self):
         data = _base_data()
