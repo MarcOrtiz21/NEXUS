@@ -1,43 +1,175 @@
 # NEXUS-Macro: Seguimiento del Proyecto (TRACKING)
 
-Este documento es un registro vivo del progreso del desarrollo de NEXUS.
+Registro vivo del desarrollo de **NEXUS** (Networked Economic cross-asset Utility System).  
+Última actualización: **2026-07-13** — commit `58dade8` (local, pendiente de push).
 
-## Qué avanzamos (Funcionalidades Completadas)
-- **Fase 1:** Inicialización del proyecto, documentación, estructura de carpetas.
-- **Fase 2:** `data_ingestion.py` con ingesta de VIX (múltiples temporalidades) y US10Y.
-- **Fase 3:** `logic_engine.py` con árbol de decisión y `main_cli.py` con interfaz `rich`.
-- **Fase 4:** Escudos de riesgo (`risk_filters/calendar.py` y `risk_filters/sentiment.py`).
-- **Auditoría v1:** Revisión completa. 7 bugs críticos detectados y corregidos.
-- **Auditoría v2:** Control anti-alucinaciones operativas:
-  - `logic_engine.py` ya no confirma `HEALTHY` con datos críticos insuficientes.
-  - `risk_filters/calendar.py` distingue calendario estimado de calendario oficial y no bloquea señales con fechas no verificadas.
-  - `risk_filters/sentiment.py` expone conteos, tamaño de muestra, términos detectados y método usado.
-  - `requirements.txt` creado para instalación reproducible.
-  - Tests unitarios básicos añadidos para el motor lógico.
-- **Fase 5 (Backlog):** Implementación completa de todas las variables del megaprompt original:
-  - PER del S&P 500 (Trailing y Forward) vía yfinance (SPY/IVV/VOO).
-  - Liquidez M2 vía FRED API (requiere API key gratuita).
-  - Inflación IPC interanual vía FRED API (requiere API key gratuita).
-  - Noticias financieras reales por RSS (CNBC + Yahoo Finance, sin API key).
-  - `config.py` centralizado para API keys y constantes.
-  - Modo loop con `--loop` y `--interval` para refresco periódico.
+---
 
-## Qué fallamos (Errores y Soluciones)
-- **Bug: VIX_MA20 siempre N/A.** `period="1mo"` insuficiente. **Fix:** `period="3mo"`.
-- **Bug: Evaluación del VIX muerta.** `if` monolítico exigía 4 variables. **Fix:** IFs independientes.
-- **Bug: Sentimiento siempre PÁNICO.** Titulares hardcodeados con palabras de pánico. **Fix:** Sentimiento desactivado sin fuente real; ahora usa RSS.
-- **Bug: FinBERT nunca se ejecutaba.** `raise ImportError` intencional. **Fix:** Eliminado, honestidad en docstrings.
-- **Bug: Correlación ruidosa (2 ETFs).** **Fix:** 5 ETFs sectoriales, 10 pares, correlación media.
-- **Bug: Correlación negativa tratada como baja.** **Fix:** `abs(corr)` para evaluar magnitud.
-- **Bug: Colores del CLI frágiles.** **Fix:** Enum `MarketStatus` + diccionario de colores.
-- **Bug: Sentimiento bloqueaba con 1 solo hit.** 1 palabra negativa de 20 titulares = PÁNICO. **Fix:** Umbral mínimo de 3 señales.
-- **Bug: Diagnóstico saludable con datos incompletos.** El motor podía devolver `HEALTHY` si solo había VIX disponible. **Fix:** control de calidad de datos críticos antes de confirmar estado saludable.
-- **Bug: Calendario estimado tratado como bloqueo fuerte.** Las fechas manuales podían pausar el sistema como si fueran oficiales. **Fix:** `should_block_signals` solo se activa para calendarios verificados.
+## Arquitectura actual (capas)
 
-## Qué queda por hacer (Backlog)
-- [ ] Validar ejecución real de la CLI cuando el terminal vuelva a devolver salida/códigos de estado.
-- [ ] Conectar calendario económico oficial o API verificada para activar bloqueos de eventos macro.
-- [ ] Investigar por qué `forwardPE` no se expone para SPY/IVV/VOO (podría ser por mercado cerrado en domingo).
-- [ ] Añadir más fuentes RSS o integrar NewsAPI para mayor cobertura de sentimiento.
-- [x] Implementar tests unitarios para `logic_engine.py`.
-- [x] Crear `requirements.txt` para instalar dependencias de un solo golpe.
+| Capa | Módulo | Rol |
+|------|--------|-----|
+| Ingesta | `data_ingestion.py` | yfinance, FRED, Siblis; caché rápida (5 min) + macro lenta (6 h) |
+| Motor lógico | `logic_engine.py` | VIX, tipos, correlación, calendario, sentimiento → `MarketStatus` |
+| Decisión | `decision_engine.py` | Score macro, asignación, **macro vs operativa** |
+| Rotación | `rotation_engine.py` | Leaders vs receivers sectoriales |
+| Forex | `forex_engine.py` | EUR/USD, UUP, sesgo noticias |
+| Riesgo | `risk_filters/` | Calendario, sentimiento, noticias RSS/NewsAPI |
+| Historial | `history.py`, `history_view.py` | Snapshots JSONL/CSV |
+| Paper | `paper_trading.py` | Cartera virtual vs buy-and-hold SPY |
+| Track record | `signal_track_record.py` | Acierto histórico vs SPY |
+| Informe | `daily_report.py` | Export TXT/HTML diario |
+| Notificaciones | `macos_notifications.py` | Alertas nativas macOS |
+| Ajustes | `user_settings.json` | Refresco, calendario, filtros, FinBERT, notificaciones |
+| UI | `main_cli.py`, `nexus_desktop.py`, `web_dashboard.py` | Terminal, desktop, web |
+
+### Diagnóstico macro vs señal operativa
+
+NEXUS separa dos lecturas:
+
+- **Diagnóstico macro** — qué dice el mercado (VIX, tipos, liquidez, momentum, global).
+- **Señal operativa** — qué hacer ahora; puede estar **pausada** por calendario o sentimiento aunque el macro diga COMPRAR.
+
+Campos en `DecisionResult`: `macro_action`, `operational_action`, `operational_pause_reason`, `macro_allocation`.
+
+---
+
+## Lanzadores macOS (doble clic)
+
+| Archivo | Qué hace |
+|---------|----------|
+| `setup.command` | Crea `.venv` e instala dependencias |
+| `run_terminal.command` | CLI Rich en terminal (modo loop por defecto) |
+| `run_program.command` | App desktop tkinter (NEXUS Workstation) |
+| `run_nexus.command` | Menú interactivo CLI |
+| `run_checks.command` | Tests + smoke CLI + backtest rápido |
+| `run_history.command` | Consulta historial de decisiones |
+| `run_track_record.command` | Track record NEXUS vs SPY |
+| `run_paper.command` | Paper trading + alpha vs SPY |
+| `run_dashboard.command` | Dashboard web FastAPI (puerto 8765) |
+| `run_daily_report.command` | Exporta informe diario TXT/HTML en `data/reports/` |
+
+En terminal también existen los `.sh` equivalentes. Windows mantiene `.bat` (paridad parcial).
+
+---
+
+## Configuración y API keys
+
+| Recurso | Ubicación | Uso |
+|---------|-----------|-----|
+| FRED | `apikeys/FRED.txt` o `FRED_API_KEY` | M2, IPC, 2Y, China M2, **calendario US oficial** |
+| NewsAPI | `apikeys/NEWSAPI.txt` o `NEWSAPI_KEY` | Titulares premium (opcional) |
+| Ajustes usuario | `data/user_settings.json` | Refresco, bloqueo 3h/6h, filtros, FinBERT, notificaciones |
+| Historial | `data/history/decisions.jsonl` | Snapshots exportados |
+| Caché | `data/cache/fast_market.json`, `slow_macro.json` | Precios vs macro lento |
+| Informes | `data/reports/daily_YYYY-MM-DD.html` | Informe diario imprimible a PDF |
+
+Variables de entorno útiles:
+
+- `NEXUS_CALENDAR_BLOCK_HOURS=3|6` — ventana de bloqueo pre-evento
+- `NEXUS_USE_FINBERT=1` — FinBERT opcional (requiere `transformers` + `torch`)
+
+---
+
+## Completado
+
+### Fases iniciales (v1–v2)
+- Estructura modular, `data_ingestion`, `logic_engine`, `main_cli` con Rich.
+- Escudos de riesgo: calendario y sentimiento por keywords.
+- Auditoría v1/v2: bugs críticos corregidos, tests básicos, `requirements.txt`.
+- PER, M2, IPC vía FRED; RSS noticias; `config.py` centralizado.
+
+### oleada macOS + analytics (`dd4ebd3`)
+- Desktop tkinter, forex, rotación sectorial.
+- Calendario RSS Myfxbook, historial JSONL, paper trading, dashboard web.
+- Indicadores: curva 2Y-10Y, PER percentil Siblis, China M2 YoY, mercados globales (FEZ, EWJ, FXI, AAXJ).
+- Backtest mejorado con `LogicEngine` + series FRED.
+
+### Prioridad alta — confianza y UX (`1de8382`)
+- [x] Calendario US-only: solo eventos US verificados bloquean; fix Mauritius/`"us"`.
+- [x] Paneles dual macro/operativa en CLI y desktop.
+- [x] Track record vs SPY (`signal_track_record.py`, `run_track_record.command`).
+- [x] Tests de regresión: calendario, sentimiento, track record, decisión dual (34+ tests).
+- [x] Launchers `.command` para doble clic en Finder.
+
+### Prioridad media — profundidad (`1de8382`)
+- [x] Caché en capas: precios/VIX 5 min, FRED/PER 6 h.
+- [x] Sentimiento ponderado por fuente/recencia; FinBERT opcional para titulares ambiguos.
+- [x] Paper trading vs benchmark SPY (alpha).
+- [x] Dashboard web ampliado (VIX, curva, rotación, divergencias de señal).
+- [x] Ajustes desktop sin terminal (`user_settings.json`).
+
+### Operaciones y CI (`67396b9`, merge `c0b5f2a`)
+- [x] Notificaciones macOS al cambiar señal, entrar en BLOCKED/PANIC o VIX > 30.
+- [x] GitHub Actions: tests unitarios en push/PR (`.github/workflows/checks.yml`).
+
+### Siguiente oleada (`58dade8`)
+- [x] Calendario US vía fechas oficiales FRED (`fred_calendar.py`: CPI, NFP, GDP, PCE, FOMC).
+- [x] Europa/China pesan en score macro (`GlobalMarkets` en `decision_engine.py`).
+- [x] Pestaña **Track Record** en desktop.
+- [x] Informe diario exportable TXT/HTML (`daily_report.py`, pestaña **Informe** en desktop).
+- [x] ~~Envío por email del informe~~ — descartado por decisión del usuario.
+
+---
+
+## Bugs corregidos (histórico)
+
+| Bug | Fix |
+|-----|-----|
+| VIX_MA20 N/A con periodo corto | `period="1y"` en yfinance |
+| VIX evaluación muerta (if monolítico) | IFs independientes |
+| Sentimiento siempre PÁNICO (titulares fake) | RSS real + umbral mínimo 3 hits |
+| Correlación con 2 ETFs ruidosa | 5 ETFs, media de 10 pares |
+| Correlación negativa mal interpretada | `abs(corr)` |
+| HEALTHY con datos críticos incompletos | Validación `CORE_DATA_FIELDS` |
+| Calendario manual bloqueaba como oficial | Solo RSS/FRED verificados bloquean |
+| Mauritius activaba bloqueo US (`"us"`) | Regex `\b` + whitelist US |
+| China M2 YoY mal calculado | YoY % correcto |
+| Backtest usaba calendario de hoy en fechas pasadas | `_as_of` en snapshots |
+| Import faltante `check_macro_events` en CLI | Import restaurado |
+| Paréntesis sin cerrar en desktop overview | SyntaxError corregido |
+
+---
+
+## Tests
+
+```bash
+./run_checks.command          # tests + smoke + backtest
+python -m unittest discover -s tests -v   # solo unitarios
+```
+
+Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `test_backtest`, `test_calendar`, `test_sentiment`, `test_signal_track_record`, `test_data_cache`, `test_medium_priority`, `test_macos_notifications`, `test_next_wave`, `test_daily_report`.
+
+**37 tests** en local (commit `58dade8`).
+
+---
+
+## Backlog (pendiente)
+
+### Prioridad media-baja
+- [ ] Paridad Windows: `.bat` con historial, dashboard, paper, track record, ajustes.
+- [ ] App macOS empaquetada (icono, firma, `.app` en Applications) — `scripts/build_mac_app.sh` existe.
+- [ ] Gráfico visual de track record en desktop (ahora es texto).
+- [ ] Actualizar `CONTEXT_AND_RULES.md` (sigue describiendo solo CLI básica).
+
+### Prioridad baja
+- [ ] README.md de usuario (instalación, launchers, keys, flujo diario).
+- [ ] Más mercados en score (Japón/Asia_EM ya pesan menos; afinar umbrales).
+- [ ] Fuente BLS directa además de FRED release dates.
+- [ ] Export PDF nativo (hoy: HTML → Imprimir → PDF).
+
+### Descartado
+- ~~Informe diario por email~~ (no requerido).
+
+---
+
+## Commits de referencia recientes
+
+```
+58dade8  FRED calendar, global score, track record UI, daily reports
+c0b5f2a  Merge macOS launchers, analytics, notifications, CI
+67396b9  macOS notifications + GitHub Actions
+1de8382  Prioridad alta/media: UX dual, cache, track record, tests
+01a4321  macOS .command launchers + fix calendario Mauritius
+dd4ebd3  macOS tooling, calendario, historial, paper, dashboard, global markets
+```
