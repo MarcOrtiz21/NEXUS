@@ -69,3 +69,10 @@ nexus_prepare_python() {
     nexus_ensure_dependencies "$python_cmd" "$imports"
     echo "$python_cmd"
 }
+
+nexus_pause_if_interactive() {
+    if [[ -t 0 ]] && [[ "${NEXUS_NO_PAUSE:-}" != "1" ]]; then
+        echo
+        read -r -p "Pulsa Enter para cerrar..." _
+    fi
+}

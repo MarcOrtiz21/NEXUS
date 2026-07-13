@@ -11,13 +11,13 @@ from typing import Dict, Any, List, Tuple
 
 from risk_filters.calendar import check_macro_events
 from risk_filters.sentiment import analyze_headlines, analyze_news_items
+from user_settings import get_setting
 from config import (
     VIX_PANIC_THRESHOLD, VIX_ELEVATED_THRESHOLD, VIX_ACCELERATION_PCT,
     CORR_HIGH_THRESHOLD, CORR_LOW_THRESHOLD,
     US10Y_DANGER_THRESHOLD, US10Y_WARNING_THRESHOLD,
     YIELD_CURVE_INVERSION_THRESHOLD, PE_PERCENTILE_HIGH, PE_PERCENTILE_LOW,
     CHINA_M2_EXPANSION_THRESHOLD, CHINA_M2_CONTRACTION_THRESHOLD,
-    CALENDAR_BLOCK_HOURS, CALENDAR_BLOCK_HOURS_STRICT,
 )
 
 CORE_DATA_FIELDS = {
@@ -46,7 +46,7 @@ class MarketStatus(Enum):
 
 
 STATUS_DISPLAY = {
-    MarketStatus.BLOCKED: "🛑 SISTEMA EN PAUSA (BLOQUEADO POR RIESGO EXTREMO)",
+    MarketStatus.BLOCKED: "🛑 PAUSA OPERATIVA (filtro de riesgo activo)",
     MarketStatus.PANIC:   "🚨 TECHO / PÁNICO INMINENTE (AUMENTAR LIQUIDEZ)",
     MarketStatus.CAUTION: "⚠️ MERCADO INESTABLE (PRECAUCIÓN)",
     MarketStatus.HEALTHY: "✅ TENDENCIA SANA / ROTACIÓN (COMPRAR/MANTENER)",
@@ -215,11 +215,11 @@ class LogicEngine:
                 as_of = datetime.fromisoformat(str(raw_as_of).replace("Z", "+00:00"))
             except ValueError:
                 as_of = None
-        cal = check_macro_events(as_of=as_of)
+        cal = check_macro_events(as_of=as_of, block_hours=get_setting("calendar_block_hours"))
         calendar_blocked = cal.get("should_block_signals", False)
         if cal["event_imminent"]:
             prefix = "🛑 CALENDARIO" if calendar_blocked else "ℹ️ CALENDARIO ESTIMADO"
-            block_note = f"bloqueo {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h"
+            block_note = f"bloqueo {cal.get('block_hours', get_setting('calendar_block_hours'))}h"
             for ev in cal["events"]:
                 self.alerts.append(
                     f"{prefix}: {ev} (fuente: {cal.get('source', 'desconocida')}, "
@@ -228,7 +228,7 @@ class LogicEngine:
             for ev in cal.get("warning_events", []):
                 self.alerts.append(
                     f"⚠️ CALENDARIO PRÓXIMO: {ev.get('title')} en {ev.get('hours_until')}h "
-                    f"(ventana estricta {CALENDAR_BLOCK_HOURS_STRICT}h activa)."
+                    f"(ventana estricta {get_setting('calendar_block_hours')}h activa)."
                 )
 
         # ─── 9. Sentimiento de Noticias ───
@@ -243,7 +243,7 @@ class LogicEngine:
         if sent:
             if sent["dominant_sentiment"] == "PANIC":
                 self.alerts.append(f"🛑 SENTIMIENTO: {sent['details']}")
-                sentiment_blocked = True
+                sentiment_blocked = get_setting("sentiment_blocks_signals")
             elif sent["dominant_sentiment"] == "BULLISH":
                 self.alerts.append(f"📈 SENTIMIENTO: {sent['details']}")
             else:

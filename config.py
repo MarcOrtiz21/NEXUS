@@ -94,6 +94,10 @@ REFRESH_INTERVAL_SECONDS = 300  # 5 minutos
 # ─── Calidad/cache/export ───
 MARKET_CACHE_FILE = CACHE_DIR / "market_data.json"
 MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
+FAST_MARKET_CACHE_FILE = CACHE_DIR / "fast_market.json"
+SLOW_MACRO_CACHE_FILE = CACHE_DIR / "slow_macro.json"
+FAST_MARKET_CACHE_TTL_SECONDS = 60 * 5
+SLOW_MACRO_CACHE_TTL_SECONDS = 60 * 60 * 6
 DECISIONS_HISTORY_JSONL = HISTORY_DIR / "decisions.jsonl"
 DECISIONS_HISTORY_CSV = HISTORY_DIR / "decisions.csv"
 PAPER_TRADES_JSONL = HISTORY_DIR / "paper_trades.jsonl"
@@ -120,6 +124,7 @@ def _resolve_calendar_block_hours() -> int:
 
 
 CALENDAR_BLOCK_HOURS = _resolve_calendar_block_hours()
+CALENDAR_US_ONLY_BLOCKING = True
 WEB_DASHBOARD_HOST = "127.0.0.1"
 WEB_DASHBOARD_PORT = 8765
 

@@ -20,6 +20,8 @@ from tkinter import font as tkfont
 from typing import Any, Dict
 
 from config import CALENDAR_BLOCK_HOURS
+from macos_notifications import notify_snapshot_change
+from user_settings import get_setting, load_user_settings, save_user_settings
 from decision_engine import DecisionEngine
 from history import export_decision_snapshot
 from history_view import format_history_report
@@ -31,7 +33,7 @@ from rotation_engine import RotationEngine
 from data_ingestion import fetch_market_data
 
 
-REFRESH_MS = 5 * 60 * 1000
+REFRESH_MS = 5 * 60 * 1000  # fallback; se sobreescribe con user_settings
 
 BG = "#05070B"
 PANEL = "#0B0F17"
@@ -73,7 +75,7 @@ def build_snapshot(use_news: bool = True, export: bool = False) -> Dict[str, Any
     status, alerts = logic.evaluate()
     decision = DecisionEngine(data, status, alerts).evaluate()
     rotation = RotationEngine(data).evaluate()
-    export_paths = export_decision_snapshot(data, decision, news_items) if export else None
+    export_paths = export_decision_snapshot(data, decision, news_items, market_status=status.value) if export else None
 
     return {
         "captured_at_utc": _now_utc_iso(),
@@ -318,6 +320,7 @@ class NexusDesktopApp:
         self.current_view = "overview"
         self.fetch_in_progress = False
         self.compact_mode = False
+        self.refresh_job = None
 
         self._build_ui()
         self.root.bind("<Command-r>", lambda _event: self._schedule_fetch(immediate=True))
@@ -446,7 +449,90 @@ class NexusDesktopApp:
         )
         compact_btn.pack(side="right", padx=8)
 
+        settings_btn = tk.Button(
+            footer,
+            text="Ajustes",
+            command=self._open_settings_dialog,
+            fg=TEXT,
+            bg=PANEL,
+            activeforeground=TEXT,
+            activebackground=PANEL_ALT,
+            relief="flat",
+            padx=10,
+            pady=4,
+            font=self.ui_font,
+        )
+        settings_btn.pack(side="right", padx=8)
+
         self._set_view("overview")
+        self._update_footer_refresh_label()
+
+    def _refresh_interval_ms(self) -> int:
+        return int(get_setting("refresh_interval_seconds")) * 1000
+
+    def _update_footer_refresh_label(self) -> None:
+        seconds = int(get_setting("refresh_interval_seconds"))
+        self.footer_left.configure(text=f"Auto-refresh {seconds}s • Cmd+R manual • solo cambia cuando hay cambios")
+
+    def _open_settings_dialog(self) -> None:
+        settings = load_user_settings(force=True)
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Ajustes NEXUS")
+        dialog.configure(bg=PANEL)
+        dialog.geometry("420x360")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        def add_row(row: int, label: str, widget) -> None:
+            tk.Label(dialog, text=label, fg=MUTED, bg=PANEL, font=self.ui_font, anchor="w").grid(
+                row=row, column=0, sticky="w", padx=16, pady=8
+            )
+            widget.grid(row=row, column=1, sticky="ew", padx=16, pady=8)
+
+        dialog.grid_columnconfigure(1, weight=1)
+
+        refresh_var = tk.StringVar(value=str(settings["refresh_interval_seconds"]))
+        refresh_menu = tk.OptionMenu(dialog, refresh_var, "60", "120", "300", "600")
+        add_row(0, "Refresco (segundos)", refresh_menu)
+
+        block_var = tk.StringVar(value=str(settings["calendar_block_hours"]))
+        block_menu = tk.OptionMenu(dialog, block_var, "3", "6")
+        add_row(1, "Bloqueo calendario (h)", block_menu)
+
+        cal_var = tk.BooleanVar(value=bool(settings["calendar_blocks_signals"]))
+        add_row(2, "Bloquear por calendario", tk.Checkbutton(dialog, variable=cal_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+
+        sent_var = tk.BooleanVar(value=bool(settings["sentiment_blocks_signals"]))
+        add_row(3, "Bloquear por sentimiento", tk.Checkbutton(dialog, variable=sent_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+
+        finbert_var = tk.BooleanVar(value=bool(settings["use_finbert"]))
+        add_row(4, "FinBERT (opcional)", tk.Checkbutton(dialog, variable=finbert_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+
+        notify_var = tk.BooleanVar(value=bool(settings.get("macos_notifications", True)))
+        add_row(5, "Notificaciones macOS", tk.Checkbutton(dialog, variable=notify_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+
+        def on_save() -> None:
+            save_user_settings({
+                "refresh_interval_seconds": int(refresh_var.get()),
+                "calendar_block_hours": int(block_var.get()),
+                "calendar_blocks_signals": cal_var.get(),
+                "sentiment_blocks_signals": sent_var.get(),
+                "use_finbert": finbert_var.get(),
+                "macos_notifications": notify_var.get(),
+            })
+            self._update_footer_refresh_label()
+            self._schedule_refresh_loop()
+            dialog.destroy()
+
+        btn_row = tk.Frame(dialog, bg=PANEL)
+        btn_row.grid(row=7, column=0, columnspan=2, pady=16)
+        tk.Button(btn_row, text="Guardar", command=on_save, bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
+        tk.Button(btn_row, text="Cancelar", command=dialog.destroy, bg=PANEL, fg=MUTED, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
+
+    def _schedule_refresh_loop(self) -> None:
+        if self.refresh_job is not None:
+            self.root.after_cancel(self.refresh_job)
+        self.refresh_job = self.root.after(self._refresh_interval_ms(), self._schedule_fetch)
 
     def _toggle_compact_mode(self):
         self.compact_mode = not self.compact_mode
@@ -468,7 +554,7 @@ class NexusDesktopApp:
     def _schedule_fetch(self, immediate: bool = False):
         if immediate:
             self._start_fetch()
-        self.root.after(REFRESH_MS, self._schedule_fetch)
+        self._schedule_refresh_loop()
 
     def _start_fetch(self):
         if self.fetch_in_progress:
@@ -488,6 +574,7 @@ class NexusDesktopApp:
 
     def _on_fetch_success(self, snap: Dict[str, Any], sig: str):
         changed = sig != self.current_signature
+        notify_snapshot_change(self.current_snapshot, snap)
         self.fetch_in_progress = False
         self.updated_label.configure(text=snap.get("captured_at_utc", "--"))
         self.footer_right.configure(text=f"sig: {sig[:12]}")
@@ -562,14 +649,24 @@ class NexusDesktopApp:
             reverse=True,
         )[:3]
         top_news = s.get("news_items", [])[:3]
+        macro_action = dec.get("macro_action", dec.get("action"))
+        operational_action = dec.get("operational_action", dec.get("action"))
+        pause_reason = dec.get("operational_pause_reason")
         lines = [
             f"STATUS: {s['status']}    SNAPSHOT UTC: {s.get('captured_at_utc', '--')}",
             "",
-            "DECISION",
-            f"  Accion      : {dec['action']}",
-            f"  Score       : {dec['score']}/100  {score_bar(int(dec['score']), 16)}",
+            "DIAGNOSTICO MACRO",
+            f"  Lectura     : {macro_action}",
+            f"  Score macro : {dec['score']}/100  {score_bar(int(dec['score']), 16)}",
+            "",
+            "SENAL OPERATIVA",
+            f"  Accion      : {operational_action}",
             f"  Confianza   : {dec['confidence']}",
             f"  Favorecidos : {', '.join(dec['favored_assets'])}",
+        ]
+        if pause_reason:
+            lines.append(f"  Pausa       : {pause_reason}")
+        lines.extend([
             "",
             "PULSO MERCADO",
             f"  VIX          {metric_bar(d.get('VIX'), 10, 40)}  {fmt(d.get('VIX'))}",
@@ -600,7 +697,7 @@ class NexusDesktopApp:
             f"  Que esperar   : {fx_sig['news']['expectation']}",
             "",
             "TOP ACTIVOS",
-        ]
+        ])
         for m in ranked:
             sc = int(m.get("score", 0))
             lines.append(
