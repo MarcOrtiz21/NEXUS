@@ -21,6 +21,7 @@ DEFAULTS: Dict[str, Any] = {
     "calendar_blocks_signals": True,
     "sentiment_blocks_signals": True,
     "use_finbert": False,
+    "macos_notifications": True,
 }
 
 _settings_cache: Dict[str, Any] | None = None

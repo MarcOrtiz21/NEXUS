@@ -27,6 +27,7 @@ from forex_engine import (
     forex_semaphore,
     forex_signal,
 )
+from macos_notifications import notify_snapshot_change
 from history import export_decision_snapshot
 from logic_engine import LogicEngine, MarketStatus, STATUS_DISPLAY
 from risk_filters.calendar import check_macro_events
@@ -840,6 +841,7 @@ def generate_dashboard(
 
 def _run_live_loop(use_news: bool, export: bool, compact: bool, max_alerts: int, no_clear: bool, interval: int):
     last_signature = None
+    last_snapshot = None
     while True:
         started_at = time.perf_counter()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -849,6 +851,7 @@ def _run_live_loop(use_news: bool, export: bool, compact: bool, max_alerts: int,
         elapsed_s = time.perf_counter() - started_at
 
         if signature != last_signature:
+            notify_snapshot_change(last_snapshot, snapshot)
             _render_dashboard(
                 snapshot=snapshot,
                 now=now,
@@ -863,6 +866,7 @@ def _run_live_loop(use_news: bool, export: bool, compact: bool, max_alerts: int,
                 "Solo se redibuja si cambia la lectura. Ctrl+C para salir.[/dim]"
             )
             last_signature = signature
+            last_snapshot = snapshot
         else:
             console.print(f"[dim]{now} | Sin cambios relevantes. Próxima comprobación en {interval}s.[/dim]")
 

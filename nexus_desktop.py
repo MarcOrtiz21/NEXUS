@@ -20,6 +20,7 @@ from tkinter import font as tkfont
 from typing import Any, Dict
 
 from config import CALENDAR_BLOCK_HOURS
+from macos_notifications import notify_snapshot_change
 from user_settings import get_setting, load_user_settings, save_user_settings
 from decision_engine import DecisionEngine
 from history import export_decision_snapshot
@@ -507,6 +508,9 @@ class NexusDesktopApp:
         finbert_var = tk.BooleanVar(value=bool(settings["use_finbert"]))
         add_row(4, "FinBERT (opcional)", tk.Checkbutton(dialog, variable=finbert_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
 
+        notify_var = tk.BooleanVar(value=bool(settings.get("macos_notifications", True)))
+        add_row(5, "Notificaciones macOS", tk.Checkbutton(dialog, variable=notify_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+
         def on_save() -> None:
             save_user_settings({
                 "refresh_interval_seconds": int(refresh_var.get()),
@@ -514,13 +518,14 @@ class NexusDesktopApp:
                 "calendar_blocks_signals": cal_var.get(),
                 "sentiment_blocks_signals": sent_var.get(),
                 "use_finbert": finbert_var.get(),
+                "macos_notifications": notify_var.get(),
             })
             self._update_footer_refresh_label()
             self._schedule_refresh_loop()
             dialog.destroy()
 
         btn_row = tk.Frame(dialog, bg=PANEL)
-        btn_row.grid(row=6, column=0, columnspan=2, pady=16)
+        btn_row.grid(row=7, column=0, columnspan=2, pady=16)
         tk.Button(btn_row, text="Guardar", command=on_save, bg=PANEL_ALT, fg=TEXT, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
         tk.Button(btn_row, text="Cancelar", command=dialog.destroy, bg=PANEL, fg=MUTED, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
 
@@ -569,6 +574,7 @@ class NexusDesktopApp:
 
     def _on_fetch_success(self, snap: Dict[str, Any], sig: str):
         changed = sig != self.current_signature
+        notify_snapshot_change(self.current_snapshot, snap)
         self.fetch_in_progress = False
         self.updated_label.configure(text=snap.get("captured_at_utc", "--"))
         self.footer_right.configure(text=f"sig: {sig[:12]}")
