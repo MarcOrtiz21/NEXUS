@@ -691,7 +691,7 @@ class NexusDesktopApp:
             f"  Que esperar   : {fx_sig['news']['expectation']}",
             "",
             "TOP ACTIVOS",
-        ]
+        ])
         for m in ranked:
             sc = int(m.get("score", 0))
             lines.append(
