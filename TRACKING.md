@@ -1,7 +1,7 @@
 # NEXUS-Macro: Seguimiento del Proyecto (TRACKING)
 
 Registro vivo del desarrollo de **NEXUS** (Networked Economic cross-asset Utility System).  
-Última actualización: **2026-07-14** — oleada refactor + hardening (local, pendiente de commit).
+Última actualización: **2026-07-14** — commit `d6eaad8`.
 
 ---
 
@@ -180,7 +180,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 ## Commits de referencia recientes
 
 ```
-(pendiente)  Refactor DRY, utils.py, action labels, FRED DST, user_settings fix
+d6eaad8      Refactor DRY, utils.py, action labels, FRED DST, user_settings fix
 e5a86d1      Update TRACKING.md with current architecture, launchers, and backlog.
 58dade8      FRED calendar, global score weights, track record UI, daily reports
 c0b5f2a      Merge macOS launchers, analytics, notifications, CI
