@@ -62,7 +62,7 @@ En terminal también existen los `.sh` equivalentes. Windows mantiene `.bat` (pa
 | NewsAPI | `apikeys/NEWSAPI.txt` o `NEWSAPI_KEY` | Titulares premium (opcional) |
 | Ajustes usuario | `data/user_settings.json` | Refresco, bloqueo 3h/6h, filtros, FinBERT, notificaciones |
 | Historial | `data/history/decisions.jsonl` | Snapshots exportados |
-| Caché | `data/cache/fast_market.json`, `slow_macro.json` | Precios vs macro lento |
+| Caché | `data/cache/fast_market.json`, `slow_macro.json`, `fred_release_calendar.json` | Precios vs macro lento vs calendario FRED |
 | Informes | `data/reports/daily_YYYY-MM-DD.html` | Informe diario imprimible a PDF |
 
 Variables de entorno útiles:
@@ -163,7 +163,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 - [ ] Gráfico visual de track record en desktop (ahora es texto).
 - [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
 - [ ] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
-- [ ] Caché FRED release calendar (5 HTTP por evaluación).
+- [x] Caché FRED release calendar (5 HTTP por evaluación → 1 refresh cada 6 h).
 - [ ] Rediseño UI desktop estilo Bloomberg/Trade Republic (task 6.1).
 
 ### Prioridad baja
