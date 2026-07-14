@@ -8,6 +8,8 @@ qué sectores rezagados están recibiendo flujo.
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List
 
+from utils import trend_label
+
 
 ROTATION_THEMES = [
     {
@@ -113,7 +115,7 @@ class RotationEngine:
         mom_3m = metrics.get("momentum_3m")
         spy_1m = self.spy_metrics.get("momentum_1m")
         relative = mom_1m - spy_1m if mom_1m is not None and spy_1m is not None else None
-        trend = self._trend_label(metrics)
+        trend = trend_label(metrics)
         score = self._theme_score(metrics, relative)
         signal = self._signal(config["group"], mom_1m, mom_3m, relative, trend)
 
@@ -227,18 +229,6 @@ class RotationEngine:
             "ROTACIÓN EN DESARROLLO",
             "Hay señales mixtas: conviene vigilar si los receptores sostienen momentum relativo.",
         )
-
-    def _trend_label(self, metrics: Dict[str, Any]) -> str:
-        price = metrics.get("price")
-        ma50 = metrics.get("ma50")
-        ma200 = metrics.get("ma200")
-        if price is None or ma50 is None:
-            return "sin datos"
-        if ma200 is not None and price > ma50 > ma200:
-            return "alcista"
-        if ma200 is not None and price < ma50 < ma200:
-            return "bajista"
-        return "mixta"
 
     def _avg(self, values: List[float | None]) -> float | None:
         clean = [value for value in values if value is not None]

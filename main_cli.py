@@ -7,8 +7,6 @@ Dashboard macroeconómico en terminal con foco en claridad visual y trazabilidad
 import sys
 import time
 import argparse
-import json
-import hashlib
 from datetime import datetime
 
 from rich.console import Console, Group
@@ -19,13 +17,14 @@ from rich.text import Text
 from rich import box
 
 from config import REFRESH_INTERVAL_SECONDS, FRED_API_KEY
-from data_ingestion import fetch_market_data
 from decision_engine import DecisionEngine, ASSET_LABELS
 from forex_engine import (
     directional_forex_semaphore,
     forex_dual_perspective,
     forex_semaphore,
     forex_signal,
+    forex_news_bias,
+    forex_bidirectional_rates,
 )
 from macos_notifications import notify_snapshot_change
 from history import export_decision_snapshot
@@ -33,6 +32,12 @@ from logic_engine import LogicEngine, MarketStatus, STATUS_DISPLAY
 from risk_filters.calendar import check_macro_events
 from risk_filters.news_feed import fetch_news_items
 from rotation_engine import RotationEngine
+from utils import (
+    build_snapshot as _build_snapshot_core,
+    snapshot_signature as _snapshot_signature_core,
+    to_float as _to_float,
+    trend_from_metrics as _trend_from_metrics,
+)
 
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -91,7 +96,7 @@ def _color(val, red_above=None, yellow_above=None, green_below=None, invert=Fals
 def _decision_color(action: str) -> str:
     if action in ("COMPRAR", "COMPRAR PARCIAL"):
         return "bold white on green"
-    if action in ("MANTENER", "ESPERAR"):
+    if action in ("MANTENER", "ESPERAR", "MANTENER POSICIONES", "ESPERAR / NO ABRIR"):
         return "bold black on yellow"
     if action == "DATOS INSUFICIENTES":
         return "bold white on blue"
@@ -115,169 +120,53 @@ def _fmt_signed(val, decimals: int = 2, suffix: str = "%") -> str:
     return f"[{style}]{val:+.{decimals}f}{suffix}[/{style}]"
 
 
-def _to_float(value):
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _trend_from_metrics(metrics):
-    price = _to_float(metrics.get("price"))
-    ma20 = _to_float(metrics.get("ma20"))
-    ma50 = _to_float(metrics.get("ma50"))
-    if price is None or ma20 is None or ma50 is None:
-        return "n/d"
-    if price > ma20 > ma50:
-        return "alcista"
-    if price < ma20 < ma50:
-        return "bajista"
-    return "mixta"
-
-
-def _forex_news_bias(news_items):
-    usd_pos = ("hawkish", "higher rates", "inflation sticky", "risk-off", "safe haven", "strong dollar", "dollar strength", "fed hold")
-    usd_neg = ("dovish", "rate cuts", "disinflation", "soft data", "weak dollar", "dollar falls", "fed cut")
-    eur_pos = ("ecb hawkish", "euro strength", "eurozone inflation up", "eur rallies")
-    eur_neg = ("ecb cuts", "eurozone weak", "eurozone recession", "eur weak", "eur drops")
-
-    usd_score = 0
-    eur_score = 0
-    for item in news_items[:60]:
-        title = (item.get("title") or "").lower()
-        usd_score += sum(1 for k in usd_pos if k in title)
-        usd_score -= sum(1 for k in usd_neg if k in title)
-        eur_score += sum(1 for k in eur_pos if k in title)
-        eur_score -= sum(1 for k in eur_neg if k in title)
-
-    net = eur_score - usd_score
-    if net >= 2:
-        expectation = "Sesgo noticias favorece EUR; esperar soporte en EUR/USD."
-    elif net <= -2:
-        expectation = "Sesgo noticias favorece USD; esperar presión bajista en EUR/USD."
-    else:
-        expectation = "Sesgo noticias mixto; esperar lateralidad y volatilidad."
-
-    return {
-        "usd_score": usd_score,
-        "eur_score": eur_score,
-        "net_eur_minus_usd": net,
-        "expectation": expectation,
-    }
-
-
-def _forex_signal(data, news_items):
+def _forex_cli_signal(data, news_items):
+    """Wrapper CLI: genera la señal forex usando el motor canónico y añade refs extra."""
     fx = data.get("Forex", {}).get("EURUSD", {})
     uup = data.get("Assets", {}).get("UUP", {})
+    sig = forex_signal(fx, uup, news_items)
+    # Añade campos extra que la CLI necesita para render
+    sig["fx"] = fx
+    sig["uup"] = uup
+    return sig
 
-    eur_1m = _to_float(fx.get("momentum_1m"))
-    eur_3m = _to_float(fx.get("momentum_3m"))
-    usd_1m = _to_float(uup.get("momentum_1m"))
-    usd_3m = _to_float(uup.get("momentum_3m"))
 
-    rel_1m = (eur_1m if eur_1m is not None else 0.0) - (usd_1m if usd_1m is not None else 0.0)
-    rel_3m = (eur_3m if eur_3m is not None else 0.0) - (usd_3m if usd_3m is not None else 0.0)
-    rel_change = rel_1m - rel_3m
-
-    evolution = "estable"
-    if rel_change > 0.7:
-        evolution = "EUR gana fuerza frente a USD"
-    elif rel_change < -0.7:
-        evolution = "USD gana fuerza frente a EUR"
-
-    news = _forex_news_bias(news_items)
-    eur_trend = _trend_from_metrics(fx)
-    usd_trend = _trend_from_metrics(uup)
-
-    score = 0
-    if rel_1m > 0.7:
-        score += 2
-    elif rel_1m < -0.7:
-        score -= 2
-    if rel_change > 0.5:
-        score += 1
-    elif rel_change < -0.5:
-        score -= 1
-    if eur_trend == "alcista" and usd_trend != "alcista":
-        score += 1
-    elif usd_trend == "alcista" and eur_trend != "alcista":
-        score -= 1
-    if news["net_eur_minus_usd"] >= 2:
-        score += 1
-    elif news["net_eur_minus_usd"] <= -2:
-        score -= 1
-
+def _forex_cli_semaphore(score: int):
+    """Wrapper CLI: devuelve el semáforo forex con markup Rich."""
+    raw = forex_semaphore(score)
+    badge = raw["badge"]
+    desc = raw["description"]
     if score >= 3:
-        action, confidence = "COMPRAR EUR / REDUCIR USD", "ALTA"
-    elif score <= -3:
-        action, confidence = "COMPRAR USD / REDUCIR EUR", "ALTA"
-    elif score >= 1:
-        action, confidence = "MANTENER SESGO EUR", "MEDIA"
-    elif score <= -1:
-        action, confidence = "MANTENER SESGO USD", "MEDIA"
-    else:
-        action, confidence = "MANTENER / ESPERAR", "BAJA"
-
-    return {
-        "fx": fx,
-        "uup": uup,
-        "score": score,
-        "action": action,
-        "confidence": confidence,
-        "rel_1m": rel_1m,
-        "rel_3m": rel_3m,
-        "rel_change": rel_change,
-        "evolution": evolution,
-        "news": news,
-        "eur_trend": eur_trend,
-        "usd_trend": usd_trend,
-    }
-
-
-def _forex_semaphore(score: int):
-    if score >= 3:
-        return "[bold white on green] VERDE [/bold white on green]", "Sesgo fuerte pro EUR"
+        return "[bold white on green] VERDE [/bold white on green]", desc
     if score >= 1:
-        return "[bold black on yellow] AMARILLO [/bold black on yellow]", "Sesgo moderado pro EUR"
+        return "[bold black on yellow] AMARILLO [/bold black on yellow]", desc
     if score <= -3:
-        return "[bold white on red] ROJO [/bold white on red]", "Sesgo fuerte pro USD"
+        return "[bold white on red] ROJO [/bold white on red]", desc
     if score <= -1:
-        return "[bold white on magenta] NARANJA [/bold white on magenta]", "Sesgo moderado pro USD"
-    return "[bold black on white] NEUTRO [/bold black on white]", "Sin ventaja clara"
+        return "[bold white on magenta] NARANJA [/bold white on magenta]", desc
+    return "[bold black on white] NEUTRO [/bold black on white]", desc
 
 
-def _forex_dual_perspective(fx_sig):
-    score = fx_sig["score"]
-    if score >= 3:
-        eur_view = "COMPRAR EUR/USD"
-        usd_view = "REDUCIR USD / evitar largos USD"
-    elif score >= 1:
-        eur_view = "MANTENER SESGO EUR/USD"
-        usd_view = "MANTENER USD bajo control"
-    elif score <= -3:
-        eur_view = "REDUCIR EUR/USD"
-        usd_view = "COMPRAR USD (vs EUR)"
-    elif score <= -1:
-        eur_view = "MANTENER EUR/USD defensivo"
-        usd_view = "MANTENER SESGO USD"
-    else:
-        eur_view = "MANTENER / ESPERAR"
-        usd_view = "MANTENER / ESPERAR"
-    return eur_view, usd_view
+def _forex_cli_dual(fx_sig):
+    """Wrapper CLI: devuelve perspectiva dual desde forex_engine."""
+    dual = forex_dual_perspective(fx_sig)
+    return dual["eur_view"], dual["usd_view"]
 
 
-def _directional_forex_semaphore(score_for_direction: float):
+def _directional_cli_semaphore(score_for_direction: float):
+    """Wrapper CLI: semáforo direccional con markup Rich."""
+    raw = directional_forex_semaphore(score_for_direction)
+    strength = raw["strength"]
     if score_for_direction >= 2.0:
-        return "[bold white on green] VERDE [/bold white on green]", "fuerte"
+        return "[bold white on green] VERDE [/bold white on green]", strength
     if score_for_direction >= 0.5:
-        return "[bold black on yellow] AMARILLO [/bold black on yellow]", "moderado"
+        return "[bold black on yellow] AMARILLO [/bold black on yellow]", strength
     if score_for_direction <= -2.0:
-        return "[bold white on red] ROJO [/bold white on red]", "fuerte"
+        return "[bold white on red] ROJO [/bold white on red]", strength
     if score_for_direction <= -0.5:
-        return "[bold white on magenta] NARANJA [/bold white on magenta]", "moderado"
-    return "[bold black on white] NEUTRO [/bold black on white]", "mixto"
+        return "[bold white on magenta] NARANJA [/bold white on magenta]", strength
+    return "[bold black on white] NEUTRO [/bold black on white]", strength
+
 
 
 def _gauge(value, low: float, high: float, width: int = 18, style: str = "cyan") -> str:
@@ -316,50 +205,24 @@ def _render_market_pulse(data):
 
 
 def _build_snapshot(use_news: bool, export: bool = False):
-    data = fetch_market_data()
-    news_items = fetch_news_items() if use_news else []
-    headlines = [item["title"] for item in news_items]
-    engine = LogicEngine(data, news_items=news_items if news_items else None)
-    status, alerts = engine.evaluate()
-    decision = DecisionEngine(data, status, alerts).evaluate()
-    rotation = RotationEngine(data).evaluate()
-    export_paths = export_decision_snapshot(data, decision, news_items, market_status=status.value) if export else None
+    """Construye snapshot usando la fuente canónica en utils.py."""
+    snap = _build_snapshot_core(use_news=use_news, export=export)
+    # Compatibilidad: la CLI espera objetos directos, no dicts
     return {
-        "data": data,
-        "news_items": news_items,
-        "headlines": headlines,
-        "status": status,
-        "alerts": alerts,
-        "decision": decision,
-        "rotation": rotation,
-        "export_paths": export_paths,
+        "data": snap["data"],
+        "news_items": snap["news_items"],
+        "headlines": snap["headlines"],
+        "status": snap["status"],
+        "alerts": snap["alerts"],
+        "decision": snap["decision"],
+        "rotation": snap["rotation"],
+        "export_paths": snap["export_paths"],
     }
 
 
 def _snapshot_signature(snapshot) -> str:
     """Firma estable para saber si merece la pena redibujar el panel."""
-    data = snapshot["data"]
-    decision = snapshot["decision"]
-    rotation = snapshot["rotation"]
-    payload = {
-        "status": snapshot["status"].value,
-        "alerts": snapshot["alerts"],
-        "decision": decision.to_dict(),
-        "rotation": rotation.to_dict(),
-        "market": {
-            key: data.get(key)
-            for key in (
-                "VIX", "VIX_MA5", "VIX_MA10", "VIX_MA20", "US10Y",
-                "Correlation_Proxy", "PE_Forward", "PE_Trailing",
-                "M2_Change_Pct", "CPI_YoY_Pct",
-            )
-        },
-        "forex": data.get("Forex", {}).get("EURUSD"),
-        "usd_proxy": data.get("Assets", {}).get("UUP"),
-        "news_titles": [item.get("title") for item in snapshot["news_items"][:25]],
-    }
-    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return _snapshot_signature_core(snapshot)
 
 
 def _render_header(now: str, status: MarketStatus, compact: bool):
@@ -497,19 +360,21 @@ def _build_macro_table(data):
 
 
 def _render_forex(data, news_items, compact: bool = False):
-    fx_sig = _forex_signal(data, news_items)
+    fx_sig = _forex_cli_signal(data, news_items)
     fx = fx_sig["fx"]
     uup = fx_sig["uup"]
-    semaphore_badge, semaphore_text = _forex_semaphore(fx_sig["score"])
-    eur_view, usd_view = _forex_dual_perspective(fx_sig)
-    eur_badge, eur_strength = _directional_forex_semaphore(fx_sig["rel_1m"])
-    usd_badge, usd_strength = _directional_forex_semaphore(-fx_sig["rel_1m"])
+    rates = forex_bidirectional_rates(fx)
+    semaphore_badge, semaphore_text = _forex_cli_semaphore(fx_sig["score"])
+    eur_view, usd_view = _forex_cli_dual(fx_sig)
+    eur_badge, eur_strength = _directional_cli_semaphore(fx_sig["rel_1m"])
+    usd_badge, usd_strength = _directional_cli_semaphore(-fx_sig["rel_1m"])
 
     action_style = "bold white on green" if fx_sig["score"] >= 1 else ("bold white on red" if fx_sig["score"] <= -1 else "bold black on yellow")
     body = (
         f"[bold]Semáforo:[/bold] {semaphore_badge}  [dim]{semaphore_text}[/dim]\n"
         f"[bold]Recomendación:[/bold] [{action_style}] {fx_sig['action']} [/{action_style}]  "
         f"[bold]Confianza:[/bold] {fx_sig['confidence']}\n"
+        f"[bold]{rates['eur_label']}[/bold]  |  [bold]{rates['usd_label']}[/bold]\n"
         f"[bold]EUR/USD[/bold] {_fmt(fx.get('price'), 4)}  "
         f"1M {_fmt_signed(fx.get('momentum_1m'))}  3M {_fmt_signed(fx.get('momentum_3m'))}  "
         f"Trend {_trend_symbol(fx_sig['eur_trend'])}\n"
@@ -519,8 +384,8 @@ def _render_forex(data, news_items, compact: bool = False):
         f"[bold]Dif EUR-USD[/bold] 1M {_fmt_signed(fx_sig['rel_1m'], suffix='pp')} | "
         f"3M {_fmt_signed(fx_sig['rel_3m'], suffix='pp')} | "
         f"Evolución {_fmt_signed(fx_sig['rel_change'], suffix='pp')} ({fx_sig['evolution']})\n"
-        f"[bold]Vista EUR->USD:[/bold] {eur_badge} ({eur_strength})  {eur_view}\n"
-        f"[bold]Vista USD->EUR:[/bold] {usd_badge} ({usd_strength})  {usd_view}\n"
+        f"[bold]Vista EUR→USD:[/bold] {eur_badge} ({eur_strength})  {eur_view}\n"
+        f"[bold]Vista USD→EUR:[/bold] {usd_badge} ({usd_strength})  {usd_view}\n"
     )
     if compact:
         body += f"[dim]{fx_sig['news']['expectation']}[/dim]"

@@ -240,15 +240,32 @@ class LogicEngine:
         else:
             sent = None
 
+        # Guardar resultado estructurado para que DecisionEngine lo use directamente
+        self.sentiment_result = sent
+
         if sent:
-            if sent["dominant_sentiment"] == "PANIC":
-                self.alerts.append(f"🛑 SENTIMIENTO: {sent['details']}")
+            sentiment_label = sent["dominant_sentiment"]
+            if sentiment_label == "PANIC":
+                self.alerts.append(
+                    f"🛑 SENTIMIENTO: Miedo dominante en noticias → reducir exposición. "
+                    f"(pánico {sent['panic_hits']}, alcista {sent['bull_hits']}, "
+                    f"{sent.get('headline_count', len(self.news_items or []))} titulares)"
+                )
                 sentiment_blocked = get_setting("sentiment_blocks_signals")
-            elif sent["dominant_sentiment"] == "BULLISH":
-                self.alerts.append(f"📈 SENTIMIENTO: {sent['details']}")
+            elif sentiment_label == "BULLISH":
+                self.alerts.append(
+                    f"📈 SENTIMIENTO: Optimismo dominante → contexto favorable para riesgo. "
+                    f"(alcista {sent['bull_hits']}, pánico {sent['panic_hits']})"
+                )
+            elif sentiment_label == "MIXED":
+                self.alerts.append(
+                    f"⚠️ SENTIMIENTO: Señales mixtas → prudencia, esperar claridad. "
+                    f"(pánico {sent['panic_hits']}, alcista {sent['bull_hits']})"
+                )
             else:
-                self.alerts.append(f"ℹ️ SENTIMIENTO: {sent['details']}")
+                self.alerts.append("ℹ️ SENTIMIENTO: Sin señales claras en titulares.")
         else:
+            self.sentiment_result = None
             self.alerts.append("ℹ️ SENTIMIENTO: Sin fuente de noticias conectada.")
 
         # ─── ÁRBOL DE DECISIÓN FINAL ───

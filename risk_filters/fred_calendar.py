@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Dict, List
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -20,17 +21,25 @@ FRED_RELEASES = [
     {"release_id": 677, "label": "FOMC Press Release"},
 ]
 
-# Publicaciones macro US habituales: 8:30 ET ≈ 12:30 UTC (horario estándar aproximado).
-US_RELEASE_HOUR_UTC = 12
-US_RELEASE_MINUTE_UTC = 30
+# Zona horaria oficial de EE.UU. para publicaciones macro.
+_US_EASTERN = ZoneInfo("America/New_York")
+
+# Hora local ET real de cada tipo de publicación (por release_id de FRED).
+# CPI/NFP/GDP/PCE se publican a 8:30 AM ET; FOMC anuncia a 2:00 PM ET.
+RELEASE_TIMES_ET: Dict[int, time] = {
+    10: time(8, 30),   # CPI
+    50: time(8, 30),   # NFP
+    53: time(8, 30),   # GDP
+    21: time(8, 30),   # PCE
+    677: time(14, 0),  # FOMC
+}
 
 
-def _release_datetime(release_day: date) -> datetime:
-    return datetime.combine(
-        release_day,
-        time(US_RELEASE_HOUR_UTC, US_RELEASE_MINUTE_UTC),
-        tzinfo=timezone.utc,
-    )
+def _release_datetime(release_day: date, release_id: int) -> datetime:
+    """Convierte fecha + release_id en un datetime UTC correcto (respeta DST)."""
+    local_time = RELEASE_TIMES_ET.get(release_id, time(8, 30))
+    local_dt = datetime.combine(release_day, local_time, tzinfo=_US_EASTERN)
+    return local_dt.astimezone(timezone.utc)
 
 
 def fetch_fred_release_events(lookahead_hours: int, now: datetime) -> List[Dict]:
@@ -73,7 +82,7 @@ def fetch_fred_release_events(lookahead_hours: int, now: datetime) -> List[Dict]
                 release_day = datetime.strptime(raw_date, "%Y-%m-%d").date()
             except ValueError:
                 continue
-            event_time = _release_datetime(release_day)
+            event_time = _release_datetime(release_day, release["release_id"])
             if event_time < now - timedelta(hours=2) or event_time > horizon:
                 continue
             hours_until = (event_time - now).total_seconds() / 3600

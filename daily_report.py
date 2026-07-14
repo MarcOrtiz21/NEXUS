@@ -19,7 +19,7 @@ def _now_stamp() -> str:
 
 def build_daily_report(snapshot: Dict[str, Any] | None = None) -> Dict[str, str]:
     if snapshot is None:
-        from nexus_desktop import build_snapshot
+        from utils import build_snapshot
         snap = build_snapshot(use_news=True, export=False)
     else:
         snap = snapshot

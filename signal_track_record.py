@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from config import normalize_action
 from history_view import load_history_jsonl
 
 BUY_ACTIONS = {"COMPRAR", "COMPRAR PARCIAL"}
@@ -24,8 +25,10 @@ def _parse_ts(value: str | None) -> datetime | None:
 
 def _action_label(row: Dict[str, Any], layer: str = "operational") -> str:
     if layer == "macro":
-        return row.get("macro_action") or row.get("action") or "DESCONOCIDO"
-    return row.get("operational_action") or row.get("action") or "DESCONOCIDO"
+        raw = row.get("macro_action") or row.get("action") or "DESCONOCIDO"
+    else:
+        raw = row.get("operational_action") or row.get("action") or "DESCONOCIDO"
+    return normalize_action(raw)
 
 
 def _forward_return(rows: List[Dict[str, Any]], start_idx: int, forward_days: int) -> float | None:

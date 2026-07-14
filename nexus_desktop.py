@@ -10,8 +10,6 @@ Interfaz local nativa (tkinter) con estilo funcional tipo terminal/Bloomberg:
 from __future__ import annotations
 
 import ctypes
-import hashlib
-import json
 import sys
 import threading
 import tkinter as tk
@@ -22,17 +20,28 @@ from typing import Any, Dict
 from config import CALENDAR_BLOCK_HOURS
 from macos_notifications import notify_snapshot_change
 from user_settings import get_setting, load_user_settings, save_user_settings
-from decision_engine import DecisionEngine
-from history import export_decision_snapshot
 from history_view import format_history_report
 from paper_trading import format_paper_report
 from signal_track_record import format_track_record_report
 from daily_report import export_daily_report, format_daily_report
 from risk_filters.calendar import check_macro_events
-from logic_engine import LogicEngine
-from risk_filters.news_feed import fetch_news_items
-from rotation_engine import RotationEngine
-from data_ingestion import fetch_market_data
+from forex_engine import (
+    forex_signal,
+    forex_dual_perspective,
+    directional_forex_semaphore,
+    forex_news_bias,
+    forex_bidirectional_rates,
+)
+from utils import (
+    build_snapshot,
+    snapshot_signature,
+    fmt,
+    signed,
+    score_bar,
+    metric_bar,
+    to_float as _to_float,
+    trend_from_metrics,
+)
 
 
 REFRESH_MS = 5 * 60 * 1000  # fallback; se sobreescribe con user_settings
@@ -64,77 +73,6 @@ def _configure_windows_dpi_awareness() -> None:
         pass
 
 
-def _now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def build_snapshot(use_news: bool = True, export: bool = False) -> Dict[str, Any]:
-    data = fetch_market_data()
-    news_items = fetch_news_items() if use_news else []
-    headlines = [item["title"] for item in news_items]
-
-    logic = LogicEngine(data, news_items=news_items if news_items else None)
-    status, alerts = logic.evaluate()
-    decision = DecisionEngine(data, status, alerts).evaluate()
-    rotation = RotationEngine(data).evaluate()
-    export_paths = export_decision_snapshot(data, decision, news_items, market_status=status.value) if export else None
-
-    return {
-        "captured_at_utc": _now_utc_iso(),
-        "status": status.value,
-        "alerts": alerts,
-        "data": data,
-        "decision": decision.to_dict(),
-        "rotation": rotation.to_dict(),
-        "news_items": news_items,
-        "export_paths": export_paths,
-    }
-
-
-def snapshot_signature(snapshot: Dict[str, Any]) -> str:
-    payload = {
-        "status": snapshot["status"],
-        "alerts": snapshot["alerts"],
-        "decision": snapshot["decision"],
-        "rotation": snapshot["rotation"],
-        "market": {
-            key: snapshot["data"].get(key)
-            for key in (
-                "VIX",
-                "US10Y",
-                "Correlation_Proxy",
-                "PE_Forward",
-                "PE_Trailing",
-                "M2_Change_Pct",
-                "CPI_YoY_Pct",
-            )
-        },
-        "forex": snapshot["data"].get("Forex", {}).get("EURUSD"),
-        "news_titles": [item.get("title") for item in snapshot["news_items"][:30]],
-    }
-    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def fmt(value, decimals: int = 2, suffix: str = "") -> str:
-    if value is None:
-        return "—"
-    return f"{float(value):.{decimals}f}{suffix}"
-
-
-def signed(value, decimals: int = 2, suffix: str = "%") -> str:
-    if value is None:
-        return "—"
-    value = float(value)
-    return f"{value:+.{decimals}f}{suffix}"
-
-
-def score_bar(score: int, width: int = 14) -> str:
-    score = max(0, min(100, int(score)))
-    filled = round((score / 100.0) * width)
-    return "█" * filled + "░" * (width - filled)
-
-
 def score_tag(score: int) -> str:
     if score >= 75:
         return "score_green"
@@ -142,167 +80,6 @@ def score_tag(score: int) -> str:
         return "score_yellow"
     return "score_red"
 
-
-def metric_bar(value: float | None, low: float, high: float, width: int = 12) -> str:
-    if value is None:
-        return "·" * width
-    span = max(0.0001, high - low)
-    pct = max(0.0, min(1.0, (float(value) - low) / span))
-    filled = round(width * pct)
-    return "█" * filled + "░" * (width - filled)
-
-
-def trend_from_metrics(metrics: Dict[str, Any]) -> str:
-    price = metrics.get("price")
-    ma20 = metrics.get("ma20")
-    ma50 = metrics.get("ma50")
-    if price is None or ma20 is None or ma50 is None:
-        return "n/d"
-    if price > ma20 > ma50:
-        return "alcista"
-    if price < ma20 < ma50:
-        return "bajista"
-    return "mixta"
-
-
-def _to_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def forex_news_bias(news_items: list[Dict[str, Any]]) -> Dict[str, Any]:
-    usd_pos = ["hawkish", "higher rates", "inflation sticky", "risk-off", "safe haven", "strong dollar", "dollar strength", "fed hold"]
-    usd_neg = ["dovish", "rate cuts", "disinflation", "soft data", "weak dollar", "dollar falls", "fed cut"]
-    eur_pos = ["ecb hawkish", "euro strength", "eurozone inflation up", "eur rallies"]
-    eur_neg = ["ecb cuts", "eurozone weak", "eurozone recession", "eur weak", "eur drops"]
-
-    usd_score = 0
-    eur_score = 0
-    for item in news_items[:60]:
-        title = (item.get("title") or "").lower()
-        usd_score += sum(1 for k in usd_pos if k in title)
-        usd_score -= sum(1 for k in usd_neg if k in title)
-        eur_score += sum(1 for k in eur_pos if k in title)
-        eur_score -= sum(1 for k in eur_neg if k in title)
-
-    net = eur_score - usd_score
-    if net >= 2:
-        expectation = "Sesgo noticias: favorece EUR. Esperar soporte en EUR/USD."
-    elif net <= -2:
-        expectation = "Sesgo noticias: favorece USD. Esperar presion bajista en EUR/USD."
-    else:
-        expectation = "Sesgo noticias mixto. Esperar lateralidad y volatilidad por eventos."
-
-    return {
-        "usd_score": usd_score,
-        "eur_score": eur_score,
-        "net_eur_minus_usd": net,
-        "expectation": expectation,
-    }
-
-
-def forex_signal(fx_metrics: Dict[str, Any], uup_metrics: Dict[str, Any], news_items: list[Dict[str, Any]]) -> Dict[str, Any]:
-    eur_1m = _to_float(fx_metrics.get("momentum_1m"))
-    eur_3m = _to_float(fx_metrics.get("momentum_3m"))
-    usd_1m = _to_float(uup_metrics.get("momentum_1m"))
-    usd_3m = _to_float(uup_metrics.get("momentum_3m"))
-    eur_trend = trend_from_metrics(fx_metrics)
-    usd_trend = trend_from_metrics(uup_metrics)
-
-    rel_1m = (eur_1m if eur_1m is not None else 0.0) - (usd_1m if usd_1m is not None else 0.0)
-    rel_3m = (eur_3m if eur_3m is not None else 0.0) - (usd_3m if usd_3m is not None else 0.0)
-    rel_change = rel_1m - rel_3m
-
-    evolution = "estable"
-    if rel_change > 0.7:
-        evolution = "EUR gana fuerza frente a USD"
-    elif rel_change < -0.7:
-        evolution = "USD gana fuerza frente a EUR"
-
-    news = forex_news_bias(news_items)
-
-    score = 0
-    if rel_1m > 0.7:
-        score += 2
-    elif rel_1m < -0.7:
-        score -= 2
-    if rel_change > 0.5:
-        score += 1
-    elif rel_change < -0.5:
-        score -= 1
-    if eur_trend == "alcista" and usd_trend != "alcista":
-        score += 1
-    elif usd_trend == "alcista" and eur_trend != "alcista":
-        score -= 1
-    if news["net_eur_minus_usd"] >= 2:
-        score += 1
-    elif news["net_eur_minus_usd"] <= -2:
-        score -= 1
-
-    if score >= 3:
-        action = "COMPRAR EUR / REDUCIR USD"
-        confidence = "ALTA"
-    elif score <= -3:
-        action = "COMPRAR USD / REDUCIR EUR"
-        confidence = "ALTA"
-    elif score >= 1:
-        action = "MANTENER SESGO EUR"
-        confidence = "MEDIA"
-    elif score <= -1:
-        action = "MANTENER SESGO USD"
-        confidence = "MEDIA"
-    else:
-        action = "MANTENER / ESPERAR"
-        confidence = "BAJA"
-
-    return {
-        "action": action,
-        "confidence": confidence,
-        "score": score,
-        "eur_trend": eur_trend,
-        "usd_trend": usd_trend,
-        "rel_1m": rel_1m,
-        "rel_3m": rel_3m,
-        "rel_change": rel_change,
-        "evolution": evolution,
-        "news": news,
-    }
-
-
-def forex_dual_perspective(sig: Dict[str, Any]) -> Dict[str, str]:
-    score = sig.get("score", 0)
-    if score >= 3:
-        eur_view = "COMPRAR EUR/USD"
-        usd_view = "REDUCIR USD / evitar largos USD"
-    elif score >= 1:
-        eur_view = "MANTENER SESGO EUR/USD"
-        usd_view = "MANTENER USD bajo control"
-    elif score <= -3:
-        eur_view = "REDUCIR EUR/USD"
-        usd_view = "COMPRAR USD (vs EUR)"
-    elif score <= -1:
-        eur_view = "MANTENER EUR/USD defensivo"
-        usd_view = "MANTENER SESGO USD"
-    else:
-        eur_view = "MANTENER / ESPERAR"
-        usd_view = "MANTENER / ESPERAR"
-    return {"eur_view": eur_view, "usd_view": usd_view}
-
-
-def directional_forex_semaphore(score_for_direction: float) -> Dict[str, str]:
-    if score_for_direction >= 2.0:
-        return {"badge": "🟢 VERDE", "strength": "fuerte"}
-    if score_for_direction >= 0.5:
-        return {"badge": "🟡 AMARILLO", "strength": "moderado"}
-    if score_for_direction <= -2.0:
-        return {"badge": "🔴 ROJO", "strength": "fuerte"}
-    if score_for_direction <= -0.5:
-        return {"badge": "🟠 NARANJA", "strength": "moderado"}
-    return {"badge": "⚪ NEUTRO", "strength": "mixto"}
 
 
 class NexusDesktopApp:
@@ -314,7 +91,7 @@ class NexusDesktopApp:
         self.root.minsize(1100, 700)
 
         self._configure_tk_scaling()
-        mono = self._pick_font_family(("Cascadia Mono", "Consolas", "Courier New"))
+        mono = self._pick_font_family(("SF Mono", "Menlo", "Cascadia Mono", "Consolas", "Courier New"))
         self.ui_font = tkfont.Font(family=mono, size=11)
         self.title_font = tkfont.Font(family=mono, size=12, weight="bold")
         self.current_snapshot: Dict[str, Any] | None = None
@@ -591,8 +368,19 @@ class NexusDesktopApp:
 
     def _fetch_worker(self):
         try:
-            snap = build_snapshot(use_news=True, export=True)
-            sig = snapshot_signature(snap)
+            raw_snap = build_snapshot(use_news=True, export=True)
+            # Adaptar al formato que esperan los renderers del desktop (dicts, no objetos)
+            snap = {
+                "captured_at_utc": raw_snap["captured_at_utc"],
+                "status": raw_snap["status_value"],
+                "alerts": raw_snap["alerts"],
+                "data": raw_snap["data"],
+                "decision": raw_snap["decision_dict"],
+                "rotation": raw_snap["rotation_dict"],
+                "news_items": raw_snap["news_items"],
+                "export_paths": raw_snap["export_paths"],
+            }
+            sig = snapshot_signature(raw_snap)
             self.root.after(0, lambda: self._on_fetch_success(snap, sig))
         except Exception as exc:
             self.root.after(0, lambda: self._on_fetch_error(exc))
@@ -670,6 +458,7 @@ class NexusDesktopApp:
         dual = forex_dual_perspective(fx_sig)
         eur_sem = directional_forex_semaphore(fx_sig["rel_1m"])
         usd_sem = directional_forex_semaphore(-fx_sig["rel_1m"])
+        rates = forex_bidirectional_rates(fx)
         ranked = sorted(
             dec.get("asset_scores", {}).values(),
             key=lambda item: item.get("score", 0),
@@ -711,6 +500,7 @@ class NexusDesktopApp:
             f"  Receivers 1M : {signed(rot.get('receivers_avg_1m'))}",
             "",
             "FOREX (USD / EUR)",
+            f"  {rates['eur_label']}   |   {rates['usd_label']}",
             f"  EUR/USD spot : {fmt(fx.get('price'), 4)}",
             f"  EUR/USD 1M   : {signed(fx.get('momentum_1m'))}",
             f"  EUR/USD 3M   : {signed(fx.get('momentum_3m'))}",
@@ -773,8 +563,12 @@ class NexusDesktopApp:
         dual = forex_dual_perspective(fx_sig)
         eur_sem = directional_forex_semaphore(fx_sig["rel_1m"])
         usd_sem = directional_forex_semaphore(-fx_sig["rel_1m"])
+        rates = forex_bidirectional_rates(fx)
         lines = [
             "FOREX DASHBOARD (USD / EUR)",
+            "",
+            "TIPO DE CAMBIO",
+            f"  {rates['eur_label']}   |   {rates['usd_label']}",
             "",
             "EUR/USD",
             f"  Spot           : {fmt(fx.get('price'), 4)}",

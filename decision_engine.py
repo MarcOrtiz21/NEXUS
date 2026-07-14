@@ -9,11 +9,14 @@ from dataclasses import dataclass, asdict
 from typing import Any, Dict, List
 
 from config import (
+    ACTION_ESPERAR,
+    ACTION_MANTENER,
     GLOBAL_MARKET_MOMENTUM_STRONG,
     GLOBAL_MARKET_MOMENTUM_WEAK,
     GLOBAL_MARKET_SCORE_WEIGHTS,
 )
 from logic_engine import MarketStatus
+from utils import trend_label
 
 
 ASSET_LABELS = {
@@ -56,10 +59,12 @@ class DecisionResult:
 class DecisionEngine:
     """Genera una decisión final a partir de datos y estado de mercado."""
 
-    def __init__(self, data: Dict[str, Any], status: MarketStatus, alerts: List[str]):
+    def __init__(self, data: Dict[str, Any], status: MarketStatus, alerts: List[str],
+                 sentiment_result: Dict[str, Any] | None = None):
         self.data = data
         self.status = status
         self.alerts = alerts
+        self.sentiment_result = sentiment_result
 
     def evaluate(self) -> DecisionResult:
         missing = self._missing_required_inputs()
@@ -97,7 +102,7 @@ class DecisionEngine:
 
         if self.status == MarketStatus.BLOCKED:
             operational_pause_reason = "Filtro de riesgo activo (calendario macro US o sentimiento extremo)"
-            action = "ESPERAR"
+            action = ACTION_ESPERAR
             confidence = "MEDIA"
             allocation = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
             favored_assets = self._favored_assets(allocation)
@@ -256,13 +261,19 @@ class DecisionEngine:
             score += 5
             reasons.append("el motor lógico confirma entorno saludable")
 
-        sentiment_text = " ".join(self.alerts).lower()
-        if "sentimiento" in sentiment_text and "optimismo" in sentiment_text:
-            score += 4
-            reasons.append("sentimiento de noticias favorable")
-        elif "sentimiento" in sentiment_text and ("miedo" in sentiment_text or "mixto" in sentiment_text):
-            score -= 4
-            reasons.append("sentimiento de noticias prudente")
+        # ─── Sentimiento (fuente estructurada, sin string parsing) ───
+        if self.sentiment_result:
+            sentiment_label = self.sentiment_result.get("dominant_sentiment", "NEUTRAL")
+            if sentiment_label == "BULLISH":
+                score += 4
+                reasons.append("sentimiento de noticias positivo")
+            elif sentiment_label == "PANIC":
+                score -= 6
+                reasons.append("sentimiento de noticias negativo (miedo)")
+            elif sentiment_label == "MIXED":
+                score -= 2
+                reasons.append("sentimiento de noticias mixto")
+            # NEUTRAL → sin ajuste
 
         global_adj, global_reasons = self._global_markets_adjustment()
         score += global_adj
@@ -348,7 +359,7 @@ class DecisionEngine:
                 "label": ASSET_LABELS[asset],
                 "score": score,
                 "action": self._action_from_score(score),
-                "trend": self._trend_label(metrics),
+                "trend": trend_label(metrics),
                 "momentum_1m": metrics.get("momentum_1m"),
                 "momentum_3m": metrics.get("momentum_3m"),
                 "volatility_20d": metrics.get("volatility_20d"),
@@ -365,18 +376,6 @@ class DecisionEngine:
             "volatility_20d": None,
         }
         return result
-
-    def _trend_label(self, metrics: Dict[str, Any]) -> str:
-        price = metrics.get("price")
-        ma50 = metrics.get("ma50")
-        ma200 = metrics.get("ma200")
-        if price is None or ma50 is None:
-            return "sin datos"
-        if ma200 is not None and price > ma50 > ma200:
-            return "alcista"
-        if ma200 is not None and price < ma50 < ma200:
-            return "bajista"
-        return "mixta"
 
     def _build_allocation(self, score: int, asset_scores: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
         spy_score = asset_scores.get("SPY", {}).get("score", 50)
@@ -430,9 +429,9 @@ class DecisionEngine:
         if score >= 60:
             return "COMPRAR PARCIAL"
         if score >= 45:
-            return "MANTENER"
+            return ACTION_MANTENER
         if score >= 30:
-            return "ESPERAR"
+            return ACTION_ESPERAR
         return "REDUCIR RIESGO"
 
     def _confidence(self, score: int) -> str:
@@ -446,6 +445,7 @@ class DecisionEngine:
 
     def _build_rationale(self, reasons: List[str]) -> str:
         if not reasons:
-            return "La decisión se basa en las señales disponibles, sin catalizadores dominantes."
-        main_reasons = reasons[:5]
-        return "La decisión se apoya en " + ", ".join(main_reasons) + "."
+            return "Sin catalizadores dominantes. Se recomienda esperar datos más claros."
+        # Agrupar en positivos y negativos para claridad
+        main_reasons = reasons[:6]
+        return "Factores clave: " + "; ".join(main_reasons) + "."

@@ -1,7 +1,7 @@
 # NEXUS-Macro: Seguimiento del Proyecto (TRACKING)
 
 Registro vivo del desarrollo de **NEXUS** (Networked Economic cross-asset Utility System).  
-Última actualización: **2026-07-13** — commit `58dade8` (local, pendiente de push).
+Última actualización: **2026-07-14** — oleada refactor + hardening (local, pendiente de commit).
 
 ---
 
@@ -22,6 +22,7 @@ Registro vivo del desarrollo de **NEXUS** (Networked Economic cross-asset Utilit
 | Notificaciones | `macos_notifications.py` | Alertas nativas macOS |
 | Ajustes | `user_settings.json` | Refresco, calendario, filtros, FinBERT, notificaciones |
 | UI | `main_cli.py`, `nexus_desktop.py`, `web_dashboard.py` | Terminal, desktop, web |
+| Utilidades | `utils.py` | `build_snapshot()`, formatters, `trend_label()` compartidos |
 
 ### Diagnóstico macro vs señal operativa
 
@@ -110,6 +111,14 @@ Variables de entorno útiles:
 - [x] Informe diario exportable TXT/HTML (`daily_report.py`, pestaña **Informe** en desktop).
 - [x] ~~Envío por email del informe~~ — descartado por decisión del usuario.
 
+### Oleada refactor + hardening (2026-07-14)
+- [x] **Fase 1 bugs:** FRED calendar con `zoneinfo` + hora ET (DST); paper trading CASH/`entry_prices`; forex sin fabricar momentum parcial; FRED YoY por fecha (`_find_obs_near_date`).
+- [x] **Fase 2 DRY:** `utils.py` con `build_snapshot()` canónico; CLI/desktop ~534 líneas menos; `daily_report` usa `utils`.
+- [x] **Fase 4 calidad:** sentimiento estructurado (`logic_engine.sentiment_result` → `DecisionEngine`); escritura atómica de caché; `user_settings` thread-safe (fix deadlock lock).
+- [x] **Fase 5 UX:** `forex_bidirectional_rates()`; etiquetas claras (`ESPERAR / NO ABRIR`, `MANTENER POSICIONES`); `normalize_action()` en `config.py` para historial/track record.
+- [x] **Fase 7 packaging:** `requirements.txt` pinned; fuentes macOS; `build_mac_app.sh` corregido; `CONTEXT_AND_RULES.md` actualizado.
+- [x] `_trend_label` unificado en `utils.trend_label` (decision + rotation).
+
 ---
 
 ## Bugs corregidos (histórico)
@@ -128,6 +137,8 @@ Variables de entorno útiles:
 | Backtest usaba calendario de hoy en fechas pasadas | `_as_of` en snapshots |
 | Import faltante `check_macro_events` en CLI | Import restaurado |
 | Paréntesis sin cerrar en desktop overview | SyntaxError corregido |
+| Deadlock en `save_user_settings` (lock reentrante) | Lectura disco vía `_read_settings_from_disk()` sin re-lock |
+| Track record no reconocía `ESPERAR / NO ABRIR` | `normalize_action()` en config + signal_track_record |
 
 ---
 
@@ -140,7 +151,7 @@ python -m unittest discover -s tests -v   # solo unitarios
 
 Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `test_backtest`, `test_calendar`, `test_sentiment`, `test_signal_track_record`, `test_data_cache`, `test_medium_priority`, `test_macos_notifications`, `test_next_wave`, `test_daily_report`.
 
-**37 tests** en local (commit `58dade8`).
+**37+ tests** en local (oleada refactor 2026-07-14).
 
 ---
 
@@ -150,7 +161,10 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 - [ ] Paridad Windows: `.bat` con historial, dashboard, paper, track record, ajustes.
 - [ ] App macOS empaquetada (icono, firma, `.app` en Applications) — `scripts/build_mac_app.sh` existe.
 - [ ] Gráfico visual de track record en desktop (ahora es texto).
-- [ ] Actualizar `CONTEXT_AND_RULES.md` (sigue describiendo solo CLI básica).
+- [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
+- [ ] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
+- [ ] Caché FRED release calendar (5 HTTP por evaluación).
+- [ ] Rediseño UI desktop estilo Bloomberg/Trade Republic (task 6.1).
 
 ### Prioridad baja
 - [ ] README.md de usuario (instalación, launchers, keys, flujo diario).
@@ -166,8 +180,10 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 ## Commits de referencia recientes
 
 ```
-58dade8  FRED calendar, global score, track record UI, daily reports
-c0b5f2a  Merge macOS launchers, analytics, notifications, CI
+(pendiente)  Refactor DRY, utils.py, action labels, FRED DST, user_settings fix
+e5a86d1      Update TRACKING.md with current architecture, launchers, and backlog.
+58dade8      FRED calendar, global score weights, track record UI, daily reports
+c0b5f2a      Merge macOS launchers, analytics, notifications, CI
 67396b9  macOS notifications + GitHub Actions
 1de8382  Prioridad alta/media: UX dual, cache, track record, tests
 01a4321  macOS .command launchers + fix calendario Mauritius

@@ -7,6 +7,7 @@ Se guardan en data/user_settings.json y pueden editarse desde la app desktop.
 from __future__ import annotations
 
 import json
+import threading
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
@@ -25,6 +26,7 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 _settings_cache: Dict[str, Any] | None = None
+_settings_lock = threading.Lock()
 
 
 def _merge_defaults(raw: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -37,20 +39,24 @@ def _merge_defaults(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     return merged
 
 
-def load_user_settings(force: bool = False) -> Dict[str, Any]:
-    global _settings_cache
-    if _settings_cache is not None and not force:
-        return _settings_cache
-
+def _read_settings_from_disk() -> Dict[str, Any]:
     raw: Dict[str, Any] | None = None
     if USER_SETTINGS_FILE.exists():
         try:
             raw = json.loads(USER_SETTINGS_FILE.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             raw = None
+    return _merge_defaults(raw)
 
-    _settings_cache = _merge_defaults(raw)
-    return _settings_cache
+
+def load_user_settings(force: bool = False) -> Dict[str, Any]:
+    global _settings_cache
+    with _settings_lock:
+        if _settings_cache is not None and not force:
+            return _settings_cache
+
+        _settings_cache = _read_settings_from_disk()
+        return _settings_cache
 
 
 def get_setting(key: str) -> Any:
@@ -60,10 +66,13 @@ def get_setting(key: str) -> Any:
 
 def save_user_settings(updates: Dict[str, Any]) -> Dict[str, Any]:
     global _settings_cache
-    current = load_user_settings(force=True)
-    current.update({k: v for k, v in updates.items() if k in DEFAULTS})
-    merged = _merge_defaults(current)
-    USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    USER_SETTINGS_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
-    _settings_cache = merged
-    return merged
+    with _settings_lock:
+        current = _read_settings_from_disk()
+        current.update({k: v for k, v in updates.items() if k in DEFAULTS})
+        merged = _merge_defaults(current)
+        USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = USER_SETTINGS_FILE.with_suffix('.tmp')
+        tmp.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.rename(USER_SETTINGS_FILE)
+        _settings_cache = merged
+        return merged

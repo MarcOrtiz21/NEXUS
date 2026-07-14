@@ -82,6 +82,23 @@ def _mark_quality(data: Dict[str, Any], key: str, source: str, status: str = "OK
     data.setdefault("DataQuality", {})[key] = _quality(source, status, detail=detail)
 
 
+def _find_obs_near_date(observations: list, target_date: str) -> float | None:
+    """Busca la observación más cercana a target_date (formato YYYY-MM-DD)."""
+    if not observations:
+        return None
+    best = None
+    best_delta = None
+    for obs in observations:
+        try:
+            delta = abs((datetime.strptime(obs["date"], "%Y-%m-%d") - datetime.strptime(target_date, "%Y-%m-%d")).days)
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best = obs["value"]
+        except (ValueError, KeyError):
+            continue
+    return best
+
+
 def _load_market_cache() -> Dict[str, Any] | None:
     if not MARKET_CACHE_FILE.exists():
         return None
@@ -98,7 +115,9 @@ def _load_market_cache() -> Dict[str, Any] | None:
 def _save_market_cache(data: Dict[str, Any]) -> None:
     try:
         MARKET_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MARKET_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp = MARKET_CACHE_FILE.with_suffix('.tmp')
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.rename(MARKET_CACHE_FILE)
     except Exception as e:
         logging.warning(f"No se pudo guardar cache de mercado: {e}")
 
@@ -143,7 +162,9 @@ def _save_tier_cache(path, payload: Dict[str, Any]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         clean = {k: v for k, v in payload.items() if not k.startswith("_")}
-        path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.rename(path)
     except Exception as exc:
         logging.warning(f"No se pudo guardar cache {path.name}: {exc}")
 
@@ -608,8 +629,14 @@ def fetch_market_data() -> Dict[str, Any]:
                 data["CPI_Latest"] = cpi_obs[0]["value"]
                 _mark_quality(data, "CPI_Latest", "FRED:CPIAUCSL")
                 if len(cpi_obs) >= 13:
-                    cpi_12m_ago = cpi_obs[12]["value"]
-                    if cpi_12m_ago > 0:
+                    # Buscar por fecha: ~12 meses atrás en lugar de índice fijo
+                    try:
+                        latest_dt = datetime.strptime(cpi_obs[0]["date"], "%Y-%m-%d")
+                        target_dt = latest_dt.replace(year=latest_dt.year - 1)
+                        cpi_12m_ago = _find_obs_near_date(cpi_obs, target_dt.strftime("%Y-%m-%d"))
+                    except (ValueError, KeyError):
+                        cpi_12m_ago = cpi_obs[12]["value"]
+                    if cpi_12m_ago is not None and cpi_12m_ago > 0:
                         data["CPI_YoY_Pct"] = round(
                             ((data["CPI_Latest"] - cpi_12m_ago) / cpi_12m_ago) * 100, 2
                         )
@@ -626,8 +653,14 @@ def fetch_market_data() -> Dict[str, Any]:
             china_obs = _fetch_fred_series("MYAGM2CNM189N", limit=24)
             if china_obs and len(china_obs) >= 13:
                 latest = china_obs[0]["value"]
-                year_ago = china_obs[12]["value"]
-                if year_ago > 0:
+                # Buscar por fecha: ~12 meses atrás en lugar de índice fijo
+                try:
+                    latest_dt = datetime.strptime(china_obs[0]["date"], "%Y-%m-%d")
+                    target_dt = latest_dt.replace(year=latest_dt.year - 1)
+                    year_ago = _find_obs_near_date(china_obs, target_dt.strftime("%Y-%m-%d"))
+                except (ValueError, KeyError):
+                    year_ago = china_obs[12]["value"]
+                if year_ago is not None and year_ago > 0:
                     data["China_M2_YoY_Pct"] = round(((latest - year_ago) / year_ago) * 100, 2)
                     _mark_quality(data, "China_M2_YoY_Pct", "FRED:MYAGM2CNM189N")
             else:

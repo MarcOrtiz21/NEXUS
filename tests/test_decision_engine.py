@@ -61,7 +61,7 @@ class DecisionEngineTests(unittest.TestCase):
 
         decision = DecisionEngine(data, MarketStatus.HEALTHY, []).evaluate()
 
-        self.assertEqual(decision.action, "ESPERAR")
+        self.assertEqual(decision.action, "ESPERAR / NO ABRIR")
         self.assertLess(decision.score, 45)
         self.assertGreater(decision.allocation["CASH"], decision.allocation["SPY"])
 
@@ -80,8 +80,8 @@ class DecisionEngineTests(unittest.TestCase):
         decision = DecisionEngine(_base_data(), MarketStatus.BLOCKED, ["calendario"]).evaluate()
 
         self.assertEqual(decision.macro_action, "COMPRAR")
-        self.assertEqual(decision.operational_action, "ESPERAR")
-        self.assertEqual(decision.action, "ESPERAR")
+        self.assertEqual(decision.operational_action, "ESPERAR / NO ABRIR")
+        self.assertEqual(decision.action, "ESPERAR / NO ABRIR")
         self.assertIsNotNone(decision.operational_pause_reason)
         self.assertGreater(decision.macro_allocation["SPY"], decision.allocation["SPY"])
 

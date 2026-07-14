@@ -63,7 +63,6 @@ def update_paper_portfolio(
 
     for asset, weight in allocation.items():
         if asset == "CASH":
-            new_holdings["CASH"] = (weight / 100.0) * total_value
             continue
         price = prices.get(asset)
         if price is None or price <= 0:
@@ -74,7 +73,8 @@ def update_paper_portfolio(
         previous_price = entry_prices.get(asset)
         if previous_price:
             pnl_by_asset[asset] = (price - previous_price) / previous_price * 100
-        entry_prices[asset] = price
+        if asset not in entry_prices:
+            entry_prices[asset] = price
 
     cash_weight = allocation.get("CASH", 0)
     new_holdings["CASH"] = (cash_weight / 100.0) * total_value

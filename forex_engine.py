@@ -7,6 +7,7 @@ divergan en umbrales, textos o sesgo de noticias.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 
@@ -55,10 +56,10 @@ def forex_news_bias(news_items: List[Dict[str, Any]]) -> Dict[str, Any]:
     eur_score = 0
     for item in news_items[:60]:
         title = (item.get("title") or "").lower()
-        usd_score += sum(1 for keyword in usd_pos if keyword in title)
-        usd_score -= sum(1 for keyword in usd_neg if keyword in title)
-        eur_score += sum(1 for keyword in eur_pos if keyword in title)
-        eur_score -= sum(1 for keyword in eur_neg if keyword in title)
+        usd_score += sum(1 for keyword in usd_pos if re.search(rf'\b{re.escape(keyword)}\b', title))
+        usd_score -= sum(1 for keyword in usd_neg if re.search(rf'\b{re.escape(keyword)}\b', title))
+        eur_score += sum(1 for keyword in eur_pos if re.search(rf'\b{re.escape(keyword)}\b', title))
+        eur_score -= sum(1 for keyword in eur_neg if re.search(rf'\b{re.escape(keyword)}\b', title))
 
     net = eur_score - usd_score
     if net >= 2:
@@ -88,27 +89,41 @@ def forex_signal(
     eur_trend = trend_from_metrics(fx_metrics)
     usd_trend = trend_from_metrics(uup_metrics)
 
-    rel_1m = (eur_1m if eur_1m is not None else 0.0) - (usd_1m if usd_1m is not None else 0.0)
-    rel_3m = (eur_3m if eur_3m is not None else 0.0) - (usd_3m if usd_3m is not None else 0.0)
-    rel_change = rel_1m - rel_3m
+    # Si falta algún dato clave de momentum, no fabricar señal falsa.
+    if eur_1m is None or usd_1m is None:
+        rel_1m = None
+    else:
+        rel_1m = eur_1m - usd_1m
+
+    if eur_3m is None or usd_3m is None:
+        rel_3m = None
+    else:
+        rel_3m = eur_3m - usd_3m
+
+    rel_change = None
+    if rel_1m is not None and rel_3m is not None:
+        rel_change = rel_1m - rel_3m
 
     evolution = "estable"
-    if rel_change > 0.7:
-        evolution = "EURO gana fuerza frente a DOLAR"
-    elif rel_change < -0.7:
-        evolution = "DOLAR gana fuerza frente a EURO"
+    if rel_change is not None:
+        if rel_change > 0.7:
+            evolution = "EURO gana fuerza frente a DOLAR"
+        elif rel_change < -0.7:
+            evolution = "DOLAR gana fuerza frente a EURO"
 
     news = forex_news_bias(news_items)
 
     score = 0
-    if rel_1m > 0.7:
-        score += 2
-    elif rel_1m < -0.7:
-        score -= 2
-    if rel_change > 0.5:
-        score += 1
-    elif rel_change < -0.5:
-        score -= 1
+    if rel_1m is not None:
+        if rel_1m > 0.7:
+            score += 2
+        elif rel_1m < -0.7:
+            score -= 2
+    if rel_change is not None:
+        if rel_change > 0.5:
+            score += 1
+        elif rel_change < -0.5:
+            score -= 1
     if eur_trend == "alcista" and usd_trend != "alcista":
         score += 1
     elif usd_trend == "alcista" and eur_trend != "alcista":
@@ -190,3 +205,28 @@ def directional_forex_semaphore(score_for_direction: float) -> Dict[str, str]:
     if score_for_direction <= -0.5:
         return {"color": "orange", "label": "NARANJA", "strength": "moderado"}
     return {"color": "neutral", "label": "NEUTRO", "strength": "mixto"}
+
+
+def forex_bidirectional_rates(fx_metrics: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Calcula tipos de cambio bidireccionales a partir del spot EUR/USD.
+
+    Si EUR/USD = 1.12, entonces USD/EUR = 1/1.12 ≈ 0.8929.
+    El usuario pidió ver ambos lados del tipo de cambio real.
+    """
+    eur_usd = _to_float(fx_metrics.get("price"))
+    if eur_usd is None or eur_usd <= 0:
+        return {
+            "eur_usd": None,
+            "usd_eur": None,
+            "eur_label": "1 EUR = — USD",
+            "usd_label": "1 USD = — EUR",
+        }
+
+    usd_eur = 1.0 / eur_usd
+    return {
+        "eur_usd": round(eur_usd, 4),
+        "usd_eur": round(usd_eur, 4),
+        "eur_label": f"1 EUR = {eur_usd:.4f} USD",
+        "usd_label": f"1 USD = {usd_eur:.4f} EUR",
+    }

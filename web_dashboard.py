@@ -28,7 +28,8 @@ def _build_live_snapshot() -> dict:
     news_items = fetch_news_items(max_per_feed=6)
     logic = LogicEngine(data, news_items=news_items)
     status, alerts = logic.evaluate()
-    decision = DecisionEngine(data, status, alerts).evaluate()
+    sentiment_result = getattr(logic, "sentiment_result", None)
+    decision = DecisionEngine(data, status, alerts, sentiment_result=sentiment_result).evaluate()
     rotation = RotationEngine(data).evaluate()
     calendar = check_macro_events()
     return {

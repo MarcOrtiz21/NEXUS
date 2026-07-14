@@ -151,3 +151,18 @@ GLOBAL_MARKET_SCORE_WEIGHTS = {
 }
 CHINA_M2_EXPANSION_THRESHOLD = 8.0
 CHINA_M2_CONTRACTION_THRESHOLD = 4.0
+
+# ─── Acciones (etiquetas UX vs canónicas para historial/tests) ───
+ACTION_ESPERAR = "ESPERAR / NO ABRIR"
+ACTION_MANTENER = "MANTENER POSICIONES"
+ACTION_DISPLAY_ALIASES: dict[str, str] = {
+    ACTION_ESPERAR: "ESPERAR",
+    ACTION_MANTENER: "MANTENER",
+}
+
+
+def normalize_action(action: str | None) -> str:
+    """Mapea etiquetas UX a acciones canónicas para comparación y track record."""
+    if not action:
+        return "DESCONOCIDO"
+    return ACTION_DISPLAY_ALIASES.get(action, action)
