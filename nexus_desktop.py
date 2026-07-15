@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from tkinter import font as tkfont
 from typing import Any, Dict
 
-from config import CALENDAR_BLOCK_HOURS
+from config import CALENDAR_BLOCK_HOURS, SCORE_BUY, SCORE_HOLD
 from macos_notifications import notify_snapshot_change
 from user_settings import get_setting, load_user_settings, save_user_settings
 from history_view import format_history_report
@@ -74,9 +74,9 @@ def _configure_windows_dpi_awareness() -> None:
 
 
 def score_tag(score: int) -> str:
-    if score >= 75:
+    if score >= SCORE_BUY:
         return "score_green"
-    if score >= 45:
+    if score >= SCORE_HOLD:
         return "score_yellow"
     return "score_red"
 

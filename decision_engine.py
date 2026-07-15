@@ -11,9 +11,34 @@ from typing import Any, Dict, List
 from config import (
     ACTION_ESPERAR,
     ACTION_MANTENER,
+    ALLOCATION_BLOCKED,
+    ALLOCATION_EMPTY,
+    ALLOCATION_PANIC,
+    ALLOCATION_RELATIVE_TILT,
+    ALLOCATION_STRONG_ASSET_SCORE,
+    CORR_HIGH_THRESHOLD,
+    CORR_LOW_THRESHOLD,
+    CPI_CONTROLLED_THRESHOLD,
+    CPI_HIGH_THRESHOLD,
     GLOBAL_MARKET_MOMENTUM_STRONG,
     GLOBAL_MARKET_MOMENTUM_WEAK,
     GLOBAL_MARKET_SCORE_WEIGHTS,
+    M2_CONTRACTION_THRESHOLD,
+    M2_EXPANSION_THRESHOLD,
+    PE_FORWARD_ATTRACTIVE,
+    PE_FORWARD_EXPENSIVE,
+    PE_TRAILING_HIGH,
+    SCORE_BUY,
+    SCORE_BUY_PARTIAL,
+    SCORE_HOLD,
+    SCORE_WAIT,
+    US10Y_BENIGN_THRESHOLD,
+    US10Y_DANGER_THRESHOLD,
+    US10Y_WARNING_THRESHOLD,
+    VIX_CALM_THRESHOLD,
+    VIX_ELEVATED_THRESHOLD,
+    VIX_PANIC_THRESHOLD,
+    allocation_for_score,
 )
 from logic_engine import MarketStatus
 from utils import trend_label
@@ -76,7 +101,7 @@ class DecisionEngine:
                 score=0,
                 confidence="BAJA",
                 favored_assets=["Liquidez"],
-                allocation={"SPY": 0, "QQQ": 0, "TLT": 0, "GLD": 0, "UUP": 0, "CASH": 100},
+                allocation=dict(ALLOCATION_EMPTY),
                 asset_scores=self._asset_scores(0),
                 rationale="No se emite señal operativa porque faltan datos críticos: " + ", ".join(missing) + ".",
                 inputs_used=inputs_used,
@@ -84,7 +109,7 @@ class DecisionEngine:
                 macro_action="DATOS INSUFICIENTES",
                 operational_action="DATOS INSUFICIENTES",
                 operational_pause_reason="Datos críticos incompletos",
-                macro_allocation={"SPY": 0, "QQQ": 0, "TLT": 0, "GLD": 0, "UUP": 0, "CASH": 100},
+                macro_allocation=dict(ALLOCATION_EMPTY),
             )
 
         score, reasons = self._macro_score()
@@ -104,14 +129,14 @@ class DecisionEngine:
             operational_pause_reason = "Filtro de riesgo activo (calendario macro US o sentimiento extremo)"
             action = ACTION_ESPERAR
             confidence = "MEDIA"
-            allocation = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
+            allocation = dict(ALLOCATION_BLOCKED)
             favored_assets = self._favored_assets(allocation)
             reasons.insert(0, "la señal operativa está pausada por un filtro de riesgo")
         elif self.status == MarketStatus.PANIC:
             operational_pause_reason = "Entorno de pánico o estrés extremo detectado por el motor lógico"
             action = "REDUCIR RIESGO"
             confidence = "ALTA"
-            allocation = {"SPY": 5, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 45}
+            allocation = dict(ALLOCATION_PANIC)
             favored_assets = self._favored_assets(allocation)
             reasons.insert(0, "el motor lógico detecta pánico o estrés extremo")
 
@@ -167,13 +192,13 @@ class DecisionEngine:
         reasons: List[str] = []
 
         vix = self.data.get("VIX")
-        if vix < 16:
+        if vix < VIX_CALM_THRESHOLD:
             score += 12
             reasons.append("VIX contenido")
-        elif vix < 25:
+        elif vix < VIX_ELEVATED_THRESHOLD:
             score += 4
             reasons.append("VIX en zona normal")
-        elif vix < 30:
+        elif vix < VIX_PANIC_THRESHOLD:
             score -= 15
             reasons.append("VIX elevado")
         else:
@@ -183,10 +208,10 @@ class DecisionEngine:
         corr = self.data.get("Correlation_Proxy")
         if corr is not None:
             abs_corr = abs(corr)
-            if abs_corr < 0.3:
+            if abs_corr < CORR_LOW_THRESHOLD:
                 score += 8
                 reasons.append("correlación sectorial baja")
-            elif abs_corr > 0.6:
+            elif abs_corr > CORR_HIGH_THRESHOLD:
                 score -= 18
                 reasons.append("correlación sectorial alta")
             else:
@@ -194,12 +219,12 @@ class DecisionEngine:
                 reasons.append("correlación sectorial moderada")
 
         us10y = self.data.get("US10Y")
-        if us10y < 4.0:
+        if us10y < US10Y_BENIGN_THRESHOLD:
             score += 8
             reasons.append("tipos largos benignos")
-        elif us10y < 4.5:
+        elif us10y < US10Y_WARNING_THRESHOLD:
             reasons.append("bono 10Y estable")
-        elif us10y < 5.0:
+        elif us10y < US10Y_DANGER_THRESHOLD:
             score -= 8
             reasons.append("tipos cerca de zona de presión")
         else:
@@ -208,10 +233,10 @@ class DecisionEngine:
 
         m2_chg = self.data.get("M2_Change_Pct")
         if m2_chg is not None:
-            if m2_chg > 1.0:
+            if m2_chg > M2_EXPANSION_THRESHOLD:
                 score += 10
                 reasons.append("liquidez M2 expansiva")
-            elif m2_chg < -1.0:
+            elif m2_chg < M2_CONTRACTION_THRESHOLD:
                 score -= 12
                 reasons.append("liquidez M2 contractiva")
             else:
@@ -220,10 +245,10 @@ class DecisionEngine:
 
         cpi_yoy = self.data.get("CPI_YoY_Pct")
         if cpi_yoy is not None:
-            if cpi_yoy < 3.0:
+            if cpi_yoy < CPI_CONTROLLED_THRESHOLD:
                 score += 8
                 reasons.append("inflación controlada")
-            elif cpi_yoy <= 4.0:
+            elif cpi_yoy <= CPI_HIGH_THRESHOLD:
                 score -= 4
                 reasons.append("inflación pegajosa")
             else:
@@ -233,13 +258,13 @@ class DecisionEngine:
         pe_fwd = self.data.get("PE_Forward")
         pe_trail = self.data.get("PE_Trailing")
         if pe_fwd is not None:
-            if pe_fwd < 18:
+            if pe_fwd < PE_FORWARD_ATTRACTIVE:
                 score += 6
                 reasons.append("PER forward atractivo")
-            elif pe_fwd > 25:
+            elif pe_fwd > PE_FORWARD_EXPENSIVE:
                 score -= 8
                 reasons.append("PER forward exigente")
-        elif pe_trail is not None and pe_trail > 28:
+        elif pe_trail is not None and pe_trail > PE_TRAILING_HIGH:
             score -= 5
             reasons.append("PER trailing exigente")
 
@@ -381,28 +406,19 @@ class DecisionEngine:
         spy_score = asset_scores.get("SPY", {}).get("score", 50)
         qqq_score = asset_scores.get("QQQ", {}).get("score", 50)
 
-        if score >= 75:
-            raw = {"SPY": 35, "QQQ": 30, "TLT": 10, "GLD": 10, "UUP": 0, "CASH": 15}
-        elif score >= 60:
-            raw = {"SPY": 30, "QQQ": 20, "TLT": 10, "GLD": 10, "UUP": 5, "CASH": 25}
-        elif score >= 45:
-            raw = {"SPY": 20, "QQQ": 10, "TLT": 15, "GLD": 15, "UUP": 5, "CASH": 35}
-        elif score >= 30:
-            raw = {"SPY": 10, "QQQ": 5, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 35}
-        else:
-            raw = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
+        raw = allocation_for_score(score)
 
         if qqq_score - spy_score > 10 and raw["QQQ"] > 0:
-            raw["QQQ"] += 5
-            raw["SPY"] -= 5
+            raw["QQQ"] += ALLOCATION_RELATIVE_TILT
+            raw["SPY"] -= ALLOCATION_RELATIVE_TILT
         elif spy_score - qqq_score > 10 and raw["SPY"] > 0:
-            raw["SPY"] += 5
-            raw["QQQ"] = max(0, raw["QQQ"] - 5)
+            raw["SPY"] += ALLOCATION_RELATIVE_TILT
+            raw["QQQ"] = max(0, raw["QQQ"] - ALLOCATION_RELATIVE_TILT)
 
         for asset in ["TLT", "GLD", "UUP"]:
-            if asset_scores.get(asset, {}).get("score", 0) >= 70 and raw["CASH"] >= 5:
-                raw[asset] += 5
-                raw["CASH"] -= 5
+            if asset_scores.get(asset, {}).get("score", 0) >= ALLOCATION_STRONG_ASSET_SCORE and raw["CASH"] >= ALLOCATION_RELATIVE_TILT:
+                raw[asset] += ALLOCATION_RELATIVE_TILT
+                raw["CASH"] -= ALLOCATION_RELATIVE_TILT
 
         return self._normalize_allocation(raw)
 
@@ -424,20 +440,20 @@ class DecisionEngine:
         ]
 
     def _action_from_score(self, score: int) -> str:
-        if score >= 75:
+        if score >= SCORE_BUY:
             return "COMPRAR"
-        if score >= 60:
+        if score >= SCORE_BUY_PARTIAL:
             return "COMPRAR PARCIAL"
-        if score >= 45:
+        if score >= SCORE_HOLD:
             return ACTION_MANTENER
-        if score >= 30:
+        if score >= SCORE_WAIT:
             return ACTION_ESPERAR
         return "REDUCIR RIESGO"
 
     def _confidence(self, score: int) -> str:
         optional_inputs = ["Correlation_Proxy", "M2_Change_Pct", "CPI_YoY_Pct", "PE_Forward"]
         available = sum(1 for key in optional_inputs if self.data.get(key) is not None)
-        if available >= 3 and score not in range(45, 60):
+        if available >= 3 and score not in range(SCORE_HOLD, SCORE_BUY_PARTIAL):
             return "ALTA"
         if available >= 2:
             return "MEDIA"

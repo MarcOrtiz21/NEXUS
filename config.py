@@ -43,11 +43,13 @@ NEWSAPI_KEY: str | None = _load_key("NEWSAPI.txt", "NEWSAPI_KEY")
 # ─── Constantes del Motor Lógico ───
 VIX_PANIC_THRESHOLD = 30       # VIX > 30 = pánico extremo
 VIX_ELEVATED_THRESHOLD = 25    # VIX > 25 = elevado
+VIX_CALM_THRESHOLD = 16        # VIX < 16 = contenido
 VIX_ACCELERATION_PCT = 0.15    # 15% por encima de la MA = aceleración
 CORR_HIGH_THRESHOLD = 0.6      # |corr| > 0.6 = riesgo sistémico
 CORR_LOW_THRESHOLD = 0.3       # |corr| < 0.3 = rotación sana
 US10Y_DANGER_THRESHOLD = 5.0   # Bono > 5% = riesgo estructural
 US10Y_WARNING_THRESHOLD = 4.5  # Bono > 4.5% = presión sobre múltiplos
+US10Y_BENIGN_THRESHOLD = 4.0   # Bono < 4% = tipos benignos
 
 # ─── Feeds RSS gratuitos de noticias financieras ───
 RSS_FEEDS = [
@@ -140,10 +142,23 @@ GLOBAL_MARKET_TICKERS = {
     "Asia_EM": "AAXJ",
 }
 
-# ─── Umbrales adicionales ───
+# ─── Umbrales macro (PE / M2 / CPI / curva) ───
 YIELD_CURVE_INVERSION_THRESHOLD = -0.2   # 2Y-10Y spread (%)
+YIELD_CURVE_FLAT_THRESHOLD = 0.5
 PE_PERCENTILE_HIGH = 80
 PE_PERCENTILE_LOW = 30
+PE_FORWARD_ATTRACTIVE = 18
+PE_FORWARD_EXPENSIVE = 25
+PE_TRAILING_HIGH = 28
+M2_EXPANSION_THRESHOLD = 1.0
+M2_CONTRACTION_THRESHOLD = -1.0
+CPI_CONTROLLED_THRESHOLD = 3.0
+CPI_HIGH_THRESHOLD = 4.0
+CPI_VERY_LOW_THRESHOLD = 2.0
+CHINA_M2_EXPANSION_THRESHOLD = 8.0
+CHINA_M2_CONTRACTION_THRESHOLD = 4.0
+
+# ─── Mercados globales ───
 GLOBAL_MARKET_MOMENTUM_STRONG = 4.0
 GLOBAL_MARKET_MOMENTUM_WEAK = -4.0
 GLOBAL_MARKET_SCORE_WEIGHTS = {
@@ -152,8 +167,33 @@ GLOBAL_MARKET_SCORE_WEIGHTS = {
     "Japon": 0.15,
     "Asia_EM": 0.15,
 }
-CHINA_M2_EXPANSION_THRESHOLD = 8.0
-CHINA_M2_CONTRACTION_THRESHOLD = 4.0
+
+# ─── Score → acción / asignación ───
+SCORE_BUY = 75
+SCORE_BUY_PARTIAL = 60
+SCORE_HOLD = 45
+SCORE_WAIT = 30
+ALLOCATION_BY_SCORE: dict[int, dict[str, int]] = {
+    SCORE_BUY: {"SPY": 35, "QQQ": 30, "TLT": 10, "GLD": 10, "UUP": 0, "CASH": 15},
+    SCORE_BUY_PARTIAL: {"SPY": 30, "QQQ": 20, "TLT": 10, "GLD": 10, "UUP": 5, "CASH": 25},
+    SCORE_HOLD: {"SPY": 20, "QQQ": 10, "TLT": 15, "GLD": 15, "UUP": 5, "CASH": 35},
+    SCORE_WAIT: {"SPY": 10, "QQQ": 5, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 35},
+}
+ALLOCATION_DEFENSIVE = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
+ALLOCATION_BLOCKED = {"SPY": 0, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 50}
+ALLOCATION_PANIC = {"SPY": 5, "QQQ": 0, "TLT": 20, "GLD": 20, "UUP": 10, "CASH": 45}
+ALLOCATION_EMPTY = {"SPY": 0, "QQQ": 0, "TLT": 0, "GLD": 0, "UUP": 0, "CASH": 100}
+ALLOCATION_RELATIVE_TILT = 5
+ALLOCATION_STRONG_ASSET_SCORE = 70
+
+# ─── Forex ───
+FOREX_REL_MOMENTUM_STRONG = 0.7
+FOREX_REL_CHANGE_MODERATE = 0.5
+FOREX_NEWS_BIAS_STRONG = 2
+FOREX_SCORE_STRONG = 3
+FOREX_SCORE_MODERATE = 1
+FOREX_DIR_STRONG = 2.0
+FOREX_DIR_MODERATE = 0.5
 
 # ─── Acciones (etiquetas UX vs canónicas para historial/tests) ───
 ACTION_ESPERAR = "ESPERAR / NO ABRIR"
@@ -169,3 +209,16 @@ def normalize_action(action: str | None) -> str:
     if not action:
         return "DESCONOCIDO"
     return ACTION_DISPLAY_ALIASES.get(action, action)
+
+
+def allocation_for_score(score: int) -> dict[str, int]:
+    """Tabla de asignación según score macro (copia mutable)."""
+    if score >= SCORE_BUY:
+        return dict(ALLOCATION_BY_SCORE[SCORE_BUY])
+    if score >= SCORE_BUY_PARTIAL:
+        return dict(ALLOCATION_BY_SCORE[SCORE_BUY_PARTIAL])
+    if score >= SCORE_HOLD:
+        return dict(ALLOCATION_BY_SCORE[SCORE_HOLD])
+    if score >= SCORE_WAIT:
+        return dict(ALLOCATION_BY_SCORE[SCORE_WAIT])
+    return dict(ALLOCATION_DEFENSIVE)

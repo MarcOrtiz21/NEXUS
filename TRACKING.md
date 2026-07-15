@@ -118,6 +118,7 @@ Variables de entorno útiles:
 - [x] **Fase 5 UX:** `forex_bidirectional_rates()`; etiquetas claras (`ESPERAR / NO ABRIR`, `MANTENER POSICIONES`); `normalize_action()` en `config.py` para historial/track record.
 - [x] **Fase 7 packaging:** `requirements.txt` pinned; fuentes macOS; `build_mac_app.sh` corregido; `CONTEXT_AND_RULES.md` actualizado.
 - [x] `_trend_label` unificado en `utils.trend_label` (decision + rotation).
+- [x] **Fase 3 config:** umbrales PE/M2/CPI/curva, tablas de asignación y thresholds forex en `config.py`.
 
 ---
 
@@ -162,7 +163,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 - [ ] App macOS empaquetada (icono, firma, `.app` en Applications) — `scripts/build_mac_app.sh` existe.
 - [ ] Gráfico visual de track record en desktop (ahora es texto).
 - [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
-- [ ] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
+- [x] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
 - [x] Caché FRED release calendar (5 HTTP por evaluación → 1 refresh cada 6 h).
 - [ ] Rediseño UI desktop estilo Bloomberg/Trade Republic (task 6.1).
 

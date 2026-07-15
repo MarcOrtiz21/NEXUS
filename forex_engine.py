@@ -10,6 +10,16 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from config import (
+    FOREX_DIR_MODERATE,
+    FOREX_DIR_STRONG,
+    FOREX_NEWS_BIAS_STRONG,
+    FOREX_REL_CHANGE_MODERATE,
+    FOREX_REL_MOMENTUM_STRONG,
+    FOREX_SCORE_MODERATE,
+    FOREX_SCORE_STRONG,
+)
+
 
 def _to_float(value: Any) -> float | None:
     try:
@@ -62,9 +72,9 @@ def forex_news_bias(news_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         eur_score -= sum(1 for keyword in eur_neg if re.search(rf'\b{re.escape(keyword)}\b', title))
 
     net = eur_score - usd_score
-    if net >= 2:
+    if net >= FOREX_NEWS_BIAS_STRONG:
         expectation = "Sesgo noticias favorece EURO; esperar soporte en EUR/USD."
-    elif net <= -2:
+    elif net <= -FOREX_NEWS_BIAS_STRONG:
         expectation = "Sesgo noticias favorece DOLAR; esperar presión bajista en EUR/USD."
     else:
         expectation = "Sesgo noticias mixto; esperar lateralidad y volatilidad."
@@ -106,43 +116,43 @@ def forex_signal(
 
     evolution = "estable"
     if rel_change is not None:
-        if rel_change > 0.7:
+        if rel_change > FOREX_REL_MOMENTUM_STRONG:
             evolution = "EURO gana fuerza frente a DOLAR"
-        elif rel_change < -0.7:
+        elif rel_change < -FOREX_REL_MOMENTUM_STRONG:
             evolution = "DOLAR gana fuerza frente a EURO"
 
     news = forex_news_bias(news_items)
 
     score = 0
     if rel_1m is not None:
-        if rel_1m > 0.7:
+        if rel_1m > FOREX_REL_MOMENTUM_STRONG:
             score += 2
-        elif rel_1m < -0.7:
+        elif rel_1m < -FOREX_REL_MOMENTUM_STRONG:
             score -= 2
     if rel_change is not None:
-        if rel_change > 0.5:
+        if rel_change > FOREX_REL_CHANGE_MODERATE:
             score += 1
-        elif rel_change < -0.5:
+        elif rel_change < -FOREX_REL_CHANGE_MODERATE:
             score -= 1
     if eur_trend == "alcista" and usd_trend != "alcista":
         score += 1
     elif usd_trend == "alcista" and eur_trend != "alcista":
         score -= 1
-    if news["net_eur_minus_usd"] >= 2:
+    if news["net_eur_minus_usd"] >= FOREX_NEWS_BIAS_STRONG:
         score += 1
-    elif news["net_eur_minus_usd"] <= -2:
+    elif news["net_eur_minus_usd"] <= -FOREX_NEWS_BIAS_STRONG:
         score -= 1
 
-    if score >= 3:
+    if score >= FOREX_SCORE_STRONG:
         action = "COMPRAR EURO / VENDER DOLAR"
         confidence = "ALTA"
-    elif score <= -3:
+    elif score <= -FOREX_SCORE_STRONG:
         action = "COMPRAR DOLAR / VENDER EURO"
         confidence = "ALTA"
-    elif score >= 1:
+    elif score >= FOREX_SCORE_MODERATE:
         action = "MANTENER SESGO EURO"
         confidence = "MEDIA"
-    elif score <= -1:
+    elif score <= -FOREX_SCORE_MODERATE:
         action = "MANTENER SESGO DOLAR"
         confidence = "MEDIA"
     else:
@@ -164,29 +174,29 @@ def forex_signal(
 
 
 def forex_semaphore(score: int) -> Dict[str, str]:
-    if score >= 3:
+    if score >= FOREX_SCORE_STRONG:
         return {"color": "green", "label": "VERDE", "description": "Sesgo fuerte pro EURO"}
-    if score >= 1:
+    if score >= FOREX_SCORE_MODERATE:
         return {"color": "yellow", "label": "AMARILLO", "description": "Sesgo moderado pro EURO"}
-    if score <= -3:
+    if score <= -FOREX_SCORE_STRONG:
         return {"color": "red", "label": "ROJO", "description": "Sesgo fuerte pro DOLAR"}
-    if score <= -1:
+    if score <= -FOREX_SCORE_MODERATE:
         return {"color": "orange", "label": "NARANJA", "description": "Sesgo moderado pro DOLAR"}
     return {"color": "neutral", "label": "NEUTRO", "description": "Sin ventaja clara"}
 
 
 def forex_dual_perspective(signal: Dict[str, Any]) -> Dict[str, str]:
     score = signal.get("score", 0)
-    if score >= 3:
+    if score >= FOREX_SCORE_STRONG:
         eur_view = "COMPRAR EURO frente a DOLAR"
         usd_view = "VENDER DOLAR frente a EURO"
-    elif score >= 1:
+    elif score >= FOREX_SCORE_MODERATE:
         eur_view = "MANTENER sesgo EURO frente a DOLAR"
         usd_view = "MANTENER DOLAR defensivo"
-    elif score <= -3:
+    elif score <= -FOREX_SCORE_STRONG:
         eur_view = "VENDER EURO frente a DOLAR"
         usd_view = "COMPRAR DOLAR frente a EURO"
-    elif score <= -1:
+    elif score <= -FOREX_SCORE_MODERATE:
         eur_view = "MANTENER EURO defensivo"
         usd_view = "MANTENER sesgo DOLAR frente a EURO"
     else:
@@ -196,13 +206,13 @@ def forex_dual_perspective(signal: Dict[str, Any]) -> Dict[str, str]:
 
 
 def directional_forex_semaphore(score_for_direction: float) -> Dict[str, str]:
-    if score_for_direction >= 2.0:
+    if score_for_direction >= FOREX_DIR_STRONG:
         return {"color": "green", "label": "VERDE", "strength": "fuerte"}
-    if score_for_direction >= 0.5:
+    if score_for_direction >= FOREX_DIR_MODERATE:
         return {"color": "yellow", "label": "AMARILLO", "strength": "moderado"}
-    if score_for_direction <= -2.0:
+    if score_for_direction <= -FOREX_DIR_STRONG:
         return {"color": "red", "label": "ROJO", "strength": "fuerte"}
-    if score_for_direction <= -0.5:
+    if score_for_direction <= -FOREX_DIR_MODERATE:
         return {"color": "orange", "label": "NARANJA", "strength": "moderado"}
     return {"color": "neutral", "label": "NEUTRO", "strength": "mixto"}
 

@@ -16,7 +16,11 @@ from config import (
     VIX_PANIC_THRESHOLD, VIX_ELEVATED_THRESHOLD, VIX_ACCELERATION_PCT,
     CORR_HIGH_THRESHOLD, CORR_LOW_THRESHOLD,
     US10Y_DANGER_THRESHOLD, US10Y_WARNING_THRESHOLD,
-    YIELD_CURVE_INVERSION_THRESHOLD, PE_PERCENTILE_HIGH, PE_PERCENTILE_LOW,
+    YIELD_CURVE_INVERSION_THRESHOLD, YIELD_CURVE_FLAT_THRESHOLD,
+    PE_PERCENTILE_HIGH, PE_PERCENTILE_LOW,
+    PE_FORWARD_ATTRACTIVE, PE_FORWARD_EXPENSIVE, PE_TRAILING_HIGH,
+    M2_EXPANSION_THRESHOLD, M2_CONTRACTION_THRESHOLD,
+    CPI_CONTROLLED_THRESHOLD, CPI_HIGH_THRESHOLD, CPI_VERY_LOW_THRESHOLD,
     CHINA_M2_EXPANSION_THRESHOLD, CHINA_M2_CONTRACTION_THRESHOLD,
 )
 
@@ -147,11 +151,11 @@ class LogicEngine:
         pe_fwd = d.get("PE_Forward")
         pe_trail = d.get("PE_Trailing")
         if pe_fwd is not None:
-            if pe_fwd > 25:
+            if pe_fwd > PE_FORWARD_EXPENSIVE:
                 self.alerts.append(f"⚠️ PER FORWARD ELEVADO: {pe_fwd:.1f}x. Expectativas altas.")
-            elif pe_fwd < 18:
+            elif pe_fwd < PE_FORWARD_ATTRACTIVE:
                 self.alerts.append(f"✅ PER FORWARD ATRACTIVO: {pe_fwd:.1f}x.")
-        if pe_trail is not None and pe_trail > 28:
+        if pe_trail is not None and pe_trail > PE_TRAILING_HIGH:
             self.alerts.append(f"⚠️ PER TRAILING ALTO: {pe_trail:.1f}x.")
 
         pe_pct = d.get("PE_Forward_Percentile")
@@ -166,15 +170,15 @@ class LogicEngine:
         if spread is not None:
             if spread <= YIELD_CURVE_INVERSION_THRESHOLD:
                 self.alerts.append(f"🚨 CURVA INVERTIDA: spread 2Y-10Y = {spread:+.2f} pp.")
-            elif spread < 0.5:
+            elif spread < YIELD_CURVE_FLAT_THRESHOLD:
                 self.alerts.append(f"⚠️ CURVA PLANA: spread 2Y-10Y = {spread:+.2f} pp.")
 
         # ─── 6. Liquidez Global (M2) ───
         m2_chg = d.get("M2_Change_Pct")
         if m2_chg is not None:
-            if m2_chg < -1.0:
+            if m2_chg < M2_CONTRACTION_THRESHOLD:
                 self.alerts.append(f"🚨 CONTRACCIÓN M2: {m2_chg:+.2f}% en 14 semanas. Liquidez cayendo.")
-            elif m2_chg > 1.0:
+            elif m2_chg > M2_EXPANSION_THRESHOLD:
                 self.alerts.append(f"✅ EXPANSIÓN M2: {m2_chg:+.2f}% en 14 semanas. Liquidez creciente.")
             else:
                 self.alerts.append(f"ℹ️ M2 ESTABLE: {m2_chg:+.2f}% en 14 semanas.")
@@ -182,11 +186,11 @@ class LogicEngine:
         # ─── 7. Inflación (IPC) ───
         cpi_yoy = d.get("CPI_YoY_Pct")
         if cpi_yoy is not None:
-            if cpi_yoy > 4.0:
+            if cpi_yoy > CPI_HIGH_THRESHOLD:
                 self.alerts.append(f"🚨 INFLACIÓN ALTA: IPC interanual = {cpi_yoy:.1f}%.")
-            elif cpi_yoy > 3.0:
+            elif cpi_yoy > CPI_CONTROLLED_THRESHOLD:
                 self.alerts.append(f"⚠️ INFLACIÓN PEGAJOSA: IPC interanual = {cpi_yoy:.1f}%.")
-            elif cpi_yoy < 2.0:
+            elif cpi_yoy < CPI_VERY_LOW_THRESHOLD:
                 self.alerts.append(f"✅ INFLACIÓN CONTROLADA: IPC interanual = {cpi_yoy:.1f}%.")
 
         # ─── 7b. Liquidez China ───

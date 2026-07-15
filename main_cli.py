@@ -16,7 +16,14 @@ from rich.columns import Columns
 from rich.text import Text
 from rich import box
 
-from config import REFRESH_INTERVAL_SECONDS, FRED_API_KEY
+from config import (
+    FRED_API_KEY,
+    REFRESH_INTERVAL_SECONDS,
+    SCORE_BUY,
+    SCORE_BUY_PARTIAL,
+    SCORE_HOLD,
+    SCORE_WAIT,
+)
 from decision_engine import DecisionEngine, ASSET_LABELS
 from forex_engine import (
     directional_forex_semaphore,
@@ -62,13 +69,13 @@ def _fmt(val, decimals: int = 2, suffix: str = "") -> str:
 
 
 def _score_style(score: int) -> str:
-    if score >= 75:
+    if score >= SCORE_BUY:
         return "green"
-    if score >= 60:
+    if score >= SCORE_BUY_PARTIAL:
         return "bright_green"
-    if score >= 45:
+    if score >= SCORE_HOLD:
         return "yellow"
-    if score >= 30:
+    if score >= SCORE_WAIT:
         return "bright_yellow"
     return "red"
 

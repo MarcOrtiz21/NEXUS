@@ -10,6 +10,7 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Tuple
 
+from config import VIX_PANIC_THRESHOLD
 from user_settings import get_setting
 
 Notification = Tuple[str, str]
@@ -79,8 +80,8 @@ def detect_notification_events(
         else:
             events.append(("NEXUS — Pánico", "El motor detecta estrés extremo. Revisa liquidez y riesgo."))
 
-    if curr_vix is not None and curr_vix >= 30 and (prev_vix is None or prev_vix < 30):
-        events.append(("NEXUS — VIX elevado", f"VIX en {curr_vix:.1f} (umbral 30)."))
+    if curr_vix is not None and curr_vix >= VIX_PANIC_THRESHOLD and (prev_vix is None or prev_vix < VIX_PANIC_THRESHOLD):
+        events.append(("NEXUS — VIX elevado", f"VIX en {curr_vix:.1f} (umbral {VIX_PANIC_THRESHOLD})."))
 
     if (
         curr_macro
