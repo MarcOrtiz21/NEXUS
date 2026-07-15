@@ -22,7 +22,7 @@ from macos_notifications import notify_snapshot_change
 from user_settings import get_setting, load_user_settings, save_user_settings
 from history_view import format_history_report
 from paper_trading import format_paper_report
-from signal_track_record import format_track_record_report
+from signal_track_record import format_track_record_report, track_record_chart_payload
 from daily_report import export_daily_report, format_daily_report
 from risk_filters.calendar import check_macro_events
 from forex_engine import (
@@ -175,6 +175,17 @@ class NexusDesktopApp:
 
         self.view_title = tk.Label(body, text="Overview", fg=ACCENT, bg=BG, font=self.title_font, anchor="w")
         self.view_title.pack(fill="x", pady=(0, 8))
+
+        self.chart_frame = tk.Frame(body, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
+        self.track_canvas = tk.Canvas(
+            self.chart_frame,
+            bg=PANEL,
+            highlightthickness=0,
+            height=230,
+        )
+        self.track_canvas.pack(fill="both", expand=True, padx=8, pady=8)
+        self.track_canvas.bind("<Configure>", lambda _e: self._redraw_track_chart_if_visible())
+        self._track_chart_payload: Dict[str, Any] | None = None
 
         self.text = tk.Text(
             body,
@@ -423,15 +434,23 @@ class NexusDesktopApp:
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         if not self.current_snapshot:
+            self._hide_track_chart()
             self.text.insert("1.0", "Cargando snapshot...\n")
             self.text.configure(state="disabled")
             return
 
         if self.current_view == "assets":
+            self._hide_track_chart()
             self._render_assets_colored(self.current_snapshot)
             self.text.configure(state="disabled")
             return
 
+        if self.current_view == "track":
+            self._render_track_view()
+            self.text.configure(state="disabled")
+            return
+
+        self._hide_track_chart()
         view_renderers = {
             "overview": self._render_overview,
             "rotation": self._render_rotation,
@@ -440,13 +459,148 @@ class NexusDesktopApp:
             "news": self._render_news,
             "history": lambda snap: format_history_report(limit=25),
             "paper": lambda snap: format_paper_report(limit=12),
-            "track": lambda snap: format_track_record_report(forward_days=5, limit=100),
             "report": lambda snap: format_daily_report(snap),
             "quality": self._render_quality,
         }
         content = view_renderers[self.current_view](self.current_snapshot)
         self.text.insert("1.0", content)
         self.text.configure(state="disabled")
+
+    def _hide_track_chart(self) -> None:
+        self._track_chart_payload = None
+        if self.chart_frame.winfo_ismapped():
+            self.chart_frame.pack_forget()
+
+    def _show_track_chart(self) -> None:
+        if not self.chart_frame.winfo_ismapped():
+            self.chart_frame.pack(fill="x", before=self.text, pady=(0, 8))
+
+    def _redraw_track_chart_if_visible(self) -> None:
+        if self.current_view == "track" and self._track_chart_payload is not None:
+            self._draw_track_chart(self._track_chart_payload)
+
+    def _render_track_view(self) -> None:
+        payload = track_record_chart_payload(forward_days=5, limit=100, chart_limit=40)
+        self._track_chart_payload = payload
+        self._show_track_chart()
+        self._draw_track_chart(payload)
+        self.text.insert("1.0", format_track_record_report(forward_days=5, limit=100))
+
+    def _draw_track_chart(self, payload: Dict[str, Any]) -> None:
+        canvas = self.track_canvas
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 640)
+        height = max(canvas.winfo_height(), 220)
+        pad = 16
+
+        if payload.get("sample_size", 0) == 0:
+            canvas.create_text(
+                width // 2,
+                height // 2,
+                text=payload.get("message", "Sin datos de track record."),
+                fill=MUTED,
+                font=self.ui_font,
+            )
+            return
+
+        # Panel izquierdo: hit rates
+        left_w = int(width * 0.28)
+        canvas.create_text(pad, pad, text="ACIERTO %", anchor="nw", fill=ACCENT, font=self.title_font)
+        bar_top = pad + 28
+        bar_h = 22
+        bar_gap = 36
+        max_bar_w = left_w - pad * 2 - 70
+        for idx, item in enumerate(payload.get("hit_bars", [])):
+            y = bar_top + idx * bar_gap
+            value = item.get("value")
+            color = GOOD if item.get("color") == "good" else WARN
+            label = f"{item.get('label')} (n={item.get('count', 0)})"
+            canvas.create_text(pad, y, text=label, anchor="nw", fill=MUTED, font=self.ui_font)
+            canvas.create_rectangle(pad, y + 16, pad + max_bar_w, y + 16 + bar_h, outline=LINE, fill=PANEL_ALT)
+            if value is not None:
+                fill_w = max(2, int(max_bar_w * max(0.0, min(100.0, float(value))) / 100.0))
+                canvas.create_rectangle(pad, y + 16, pad + fill_w, y + 16 + bar_h, outline="", fill=color)
+                canvas.create_text(
+                    pad + max_bar_w + 8,
+                    y + 16 + bar_h // 2,
+                    text=f"{value:.0f}%",
+                    anchor="w",
+                    fill=TEXT,
+                    font=self.ui_font,
+                )
+            else:
+                canvas.create_text(
+                    pad + max_bar_w + 8,
+                    y + 16 + bar_h // 2,
+                    text="—",
+                    anchor="w",
+                    fill=MUTED,
+                    font=self.ui_font,
+                )
+
+        # Panel derecho: barras de retorno forward SPY
+        right_x0 = left_w + 8
+        right_x1 = width - pad
+        chart_top = pad + 24
+        chart_bottom = height - pad - 18
+        zero_y = (chart_top + chart_bottom) / 2
+        samples = payload.get("chart_samples") or []
+        canvas.create_text(
+            right_x0,
+            pad,
+            text=f"SPY forward {payload.get('forward_days', 5)}d  (últimas {len(samples)} muestras)",
+            anchor="nw",
+            fill=ACCENT,
+            font=self.title_font,
+        )
+        canvas.create_line(right_x0, chart_top, right_x0, chart_bottom, fill=LINE)
+        canvas.create_line(right_x0, chart_bottom, right_x1, chart_bottom, fill=LINE)
+        canvas.create_line(right_x0, zero_y, right_x1, zero_y, fill="#3A4660", dash=(3, 3))
+        canvas.create_text(right_x0 - 4, zero_y, text="0%", anchor="e", fill=MUTED, font=self.ui_font)
+
+        if not samples:
+            canvas.create_text(
+                (right_x0 + right_x1) / 2,
+                (chart_top + chart_bottom) / 2,
+                text="Sin series para graficar",
+                fill=MUTED,
+                font=self.ui_font,
+            )
+            return
+
+        returns = [float(s.get("spy_forward_return_pct") or 0.0) for s in samples]
+        max_abs = max(1.0, max(abs(v) for v in returns))
+        usable_w = max(40, right_x1 - right_x0 - 10)
+        bar_gap = 2
+        bar_w = max(3, int((usable_w - bar_gap * len(samples)) / max(1, len(samples))))
+        half_h = (chart_bottom - chart_top) / 2 - 4
+
+        for idx, sample in enumerate(samples):
+            value = float(sample.get("spy_forward_return_pct") or 0.0)
+            x0 = right_x0 + 6 + idx * (bar_w + bar_gap)
+            x1 = x0 + bar_w
+            bar_h = (abs(value) / max_abs) * half_h
+            if value >= 0:
+                y0 = zero_y - bar_h
+                y1 = zero_y
+                fill = GOOD
+            else:
+                y0 = zero_y
+                y1 = zero_y + bar_h
+                fill = BAD
+            # Borde sutil según capa: compra macro vs defensiva
+            action = sample.get("macro_action") or ""
+            outline = ACCENT if action in {"COMPRAR", "COMPRAR PARCIAL"} else LINE
+            canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline=outline)
+
+        canvas.create_text(
+            right_x1,
+            height - pad + 2,
+            text="verde=+ / rojo=−  ·  borde cian=macro COMPRAR",
+            anchor="se",
+            fill=MUTED,
+            font=self.ui_font,
+        )
 
     def _render_overview(self, s: Dict[str, Any]) -> str:
         d = s["data"]

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from signal_track_record import evaluate_track_record, format_track_record_report
+from signal_track_record import evaluate_track_record, format_track_record_report, track_record_chart_payload
 
 
 def _row(captured_at: str, action: str, spy_price: float, macro_action: str | None = None):
@@ -61,6 +61,20 @@ class SignalTrackRecordTests(unittest.TestCase):
         with patch("signal_track_record.load_history_jsonl", return_value=[]):
             report = format_track_record_report()
         self.assertIn("Historial insuficiente", report)
+
+    def test_chart_payload_includes_series_and_hit_bars(self):
+        rows = [
+            _row("2026-01-01T12:00:00+00:00", "COMPRAR", 100.0),
+            _row("2026-01-06T12:00:00+00:00", "ESPERAR", 105.0),
+            _row("2026-01-11T12:00:00+00:00", "ESPERAR", 103.0),
+        ]
+        with patch("signal_track_record.load_history_jsonl", return_value=rows):
+            payload = track_record_chart_payload(forward_days=5, limit=10, chart_limit=10)
+
+        self.assertEqual(payload["sample_size"], 2)
+        self.assertEqual(len(payload["chart_samples"]), 2)
+        self.assertEqual(len(payload["hit_bars"]), 2)
+        self.assertIn("Macro COMPRAR", payload["hit_bars"][0]["label"])
 
 
 if __name__ == "__main__":

@@ -119,7 +119,37 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
         "defensive_avg_return_pct": _avg(defensive_ops),
         "defensive_hit_rate_pct": _hit_rate(defensive_ops, "defensive_correct"),
         "overall_avg_return_pct": _avg(evaluated),
+        "samples": evaluated,
         "recent_samples": evaluated[-5:],
+    }
+
+
+def track_record_chart_payload(
+    forward_days: int = 5,
+    limit: int | None = 100,
+    chart_limit: int = 40,
+) -> Dict[str, Any]:
+    """Datos listos para dibujar hit-rates y barras de retorno forward."""
+    summary = evaluate_track_record(forward_days=forward_days, limit=limit)
+    samples = summary.get("samples") or []
+    chart_samples = samples[-chart_limit:]
+    return {
+        **summary,
+        "chart_samples": chart_samples,
+        "hit_bars": [
+            {
+                "label": "Macro COMPRAR",
+                "value": summary.get("macro_buy_hit_rate_pct"),
+                "count": summary.get("macro_buy_count", 0),
+                "color": "good",
+            },
+            {
+                "label": "Ops DEFENSIVA",
+                "value": summary.get("defensive_hit_rate_pct"),
+                "count": summary.get("defensive_count", 0),
+                "color": "warn",
+            },
+        ],
     }
 
 

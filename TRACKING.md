@@ -161,7 +161,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 ### Prioridad media-baja
 - [ ] Paridad Windows: `.bat` con historial, dashboard, paper, track record, ajustes.
 - [ ] App macOS empaquetada (icono, firma, `.app` en Applications) — `scripts/build_mac_app.sh` existe.
-- [ ] Gráfico visual de track record en desktop (ahora es texto).
+- [x] Gráfico visual de track record en desktop (ahora es texto).
 - [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
 - [x] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
 - [x] Caché FRED release calendar (5 HTTP por evaluación → 1 refresh cada 6 h).
