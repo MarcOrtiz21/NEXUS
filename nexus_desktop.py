@@ -972,10 +972,40 @@ class NexusDesktopApp:
                 tk.Frame(panel, bg=PANEL, height=8).pack()
 
 
+def _bring_window_to_front(root: tk.Tk) -> None:
+    """Asegura que la ventana sea visible al lanzar desde .app / Finder."""
+    try:
+        root.lift()
+        root.attributes("-topmost", True)
+        root.after(400, lambda: root.attributes("-topmost", False))
+        root.focus_force()
+    except Exception:
+        pass
+    if sys.platform == "darwin":
+        try:
+            import os
+            import subprocess
+
+            pid = os.getpid()
+            subprocess.Popen(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to set frontmost of first process whose unix id is {pid} to true',
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+
 def main():
     _configure_windows_dpi_awareness()
     root = tk.Tk()
+    root.title("NEXUS Workstation")
     NexusDesktopApp(root)
+    root.after(100, lambda: _bring_window_to_front(root))
     root.mainloop()
 
 

@@ -23,38 +23,69 @@ mkdir -p "$MACOS" "$RESOURCES"
 printf '%s\n' "$NEXUS_ROOT" > "$RESOURCES/nexus_root.txt"
 
 cat > "$MACOS/launch_nexus" <<'LAUNCHER'
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
+
+# PATH mínimo de Finder no incluye Homebrew.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 APP_CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
 RESOURCES="$APP_CONTENTS/Resources"
 ROOT_FILE="$RESOURCES/nexus_root.txt"
+LOG_DIR="${HOME}/Library/Logs/NEXUS"
+LOG_FILE="${LOG_DIR}/launch.log"
+mkdir -p "$LOG_DIR"
+
+exec >>"$LOG_FILE" 2>&1
+echo "----- $(date '+%Y-%m-%d %H:%M:%S') launch -----"
 
 die() {
   local msg="$1"
+  echo "ERROR: $msg"
   if command -v osascript >/dev/null 2>&1; then
     osascript -e "display dialog \"${msg}\" with title \"NEXUS Workstation\" buttons {\"OK\"} default button 1 with icon stop" >/dev/null 2>&1 || true
   fi
-  echo "ERROR: $msg" >&2
   exit 1
 }
 
-[[ -f "$ROOT_FILE" ]] || die "No se encontró nexus_root.txt dentro de la app. Vuelve a ejecutar scripts/build_mac_app.sh"
+[[ -f "$ROOT_FILE" ]] || die "No se encontró nexus_root.txt. Vuelve a ejecutar scripts/build_mac_app.sh"
 NEXUS_ROOT="$(tr -d '\r\n' < "$ROOT_FILE")"
-[[ -d "$NEXUS_ROOT" ]] || die "La carpeta del proyecto no existe:\n${NEXUS_ROOT}\n\nReconstruye la app desde el repo NEXUS."
+[[ -d "$NEXUS_ROOT" ]] || die "La carpeta del proyecto no existe: ${NEXUS_ROOT}. Reconstruye la app."
 
 export NEXUS_ROOT
 export NEXUS_NO_PAUSE=1
-# shellcheck source=/dev/null
-source "$NEXUS_ROOT/scripts/nexus_env.sh"
 
-cd "$NEXUS_ROOT" || die "No se pudo entrar en ${NEXUS_ROOT}"
+# Importante: NO hacer source de scripts del repo.
+# macOS bloquea leer .sh fuera del .app al lanzar desde Finder ("Operation not permitted").
+# El venv + nexus_desktop.py sí son accesibles vía el intérprete Python.
+VENV_PY="${NEXUS_ROOT}/.venv/bin/python"
+DESKTOP="${NEXUS_ROOT}/nexus_desktop.py"
 
-if ! python_cmd="$(nexus_prepare_python "tkinter, yfinance, pandas, numpy, requests, feedparser")"; then
-  die "No se pudo preparar Python/venv. Abre Terminal y ejecuta setup.command en el repo."
+if [[ ! -x "$VENV_PY" ]]; then
+  die "No hay entorno .venv. Abre Terminal, ve al repo NEXUS y ejecuta setup.command (o run_program.command) una vez."
+fi
+if [[ ! -f "$DESKTOP" ]]; then
+  die "No se encuentra nexus_desktop.py en ${NEXUS_ROOT}"
 fi
 
-exec "$python_cmd" "$NEXUS_ROOT/nexus_desktop.py"
+if ! "$VENV_PY" -c "import tkinter, yfinance, pandas, numpy, requests, feedparser" 2>/dev/null; then
+  die "Faltan dependencias en .venv. Abre Terminal en el repo y ejecuta: ./setup.command"
+fi
+
+echo "Using python: $VENV_PY"
+echo "Starting: $DESKTOP"
+
+"$VENV_PY" "$DESKTOP" &
+APP_PID=$!
+sleep 0.8
+osascript >/dev/null 2>&1 <<OSA || true
+tell application "System Events"
+  try
+    set frontmost of first process whose unix id is ${APP_PID} to true
+  end try
+end tell
+OSA
+wait "$APP_PID"
 LAUNCHER
 chmod +x "$MACOS/launch_nexus"
 
