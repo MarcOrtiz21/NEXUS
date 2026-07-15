@@ -6,6 +6,7 @@ El objetivo de este proyecto es construir, optimizar y mantener **NEXUS-Macro** 
 ## Interfaces
 - **CLI** (`main_cli.py`): Dashboard interactivo en terminal con `rich`. Ideal para consultas rápidas.
 - **Desktop** (`nexus_desktop.py`): App local tkinter. Shell denso tipo Bloomberg + paneles tipados limpios (Trade Republic). Refresco automático.
+- **macOS .app**: `install_mac_app.command` / `scripts/build_mac_app.sh` — lanza el desktop desde Finder/Applications (apunta al repo; no congela dependencias).
 - **Web API** (`web_dashboard.py`): Dashboard con FastAPI (uso interno/opcional).
 
 ## Arquitectura Modular

@@ -49,6 +49,7 @@ Campos en `DecisionResult`: `macro_action`, `operational_action`, `operational_p
 | `run_paper.command` | Paper trading + alpha vs SPY |
 | `run_dashboard.command` | Dashboard web FastAPI (puerto 8765) |
 | `run_daily_report.command` | Exporta informe diario TXT/HTML en `data/reports/` |
+| `install_mac_app.command` | Construye e instala `NEXUS Workstation.app` en Applications |
 
 En terminal también existen los `.sh` equivalentes. Windows mantiene `.bat` (paridad parcial).
 
@@ -120,6 +121,7 @@ Variables de entorno útiles:
 - [x] `_trend_label` unificado en `utils.trend_label` (decision + rotation).
 - [x] **Fase 3 config:** umbrales PE/M2/CPI/curva, tablas de asignación y thresholds forex en `config.py`.
 - [x] **Fase 6.1 UI:** shell Bloomberg + vistas tipadas Trade Republic en todas las pestañas (`nexus_desktop.py`).
+- [x] **App macOS:** `build_mac_app.sh` + `install_mac_app.command` (icono, diálogo de error, install a Applications).
 
 ---
 
@@ -161,7 +163,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 
 ### Prioridad media-baja
 - [ ] Paridad Windows: `.bat` con historial, dashboard, paper, track record, ajustes.
-- [ ] App macOS empaquetada (icono, firma, `.app` en Applications) — `scripts/build_mac_app.sh` existe.
+- [x] App macOS empaquetada (icono, launcher robusto, install a Applications) — `scripts/build_mac_app.sh` + `install_mac_app.command`. Sin firma Apple Developer (opcional).
 - [x] Gráfico visual de track record en desktop (ahora es texto).
 - [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
 - [x] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).

@@ -7,8 +7,9 @@ APIKEYS/
 apikeys/
 .env
 .env.*
-data/cache/
-data/history/
+dist/
+scripts/dist/
+*.app/
 
 gemini context.html
 gemini context_files/
