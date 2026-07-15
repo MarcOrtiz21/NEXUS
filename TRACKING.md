@@ -119,6 +119,7 @@ Variables de entorno útiles:
 - [x] **Fase 7 packaging:** `requirements.txt` pinned; fuentes macOS; `build_mac_app.sh` corregido; `CONTEXT_AND_RULES.md` actualizado.
 - [x] `_trend_label` unificado en `utils.trend_label` (decision + rotation).
 - [x] **Fase 3 config:** umbrales PE/M2/CPI/curva, tablas de asignación y thresholds forex en `config.py`.
+- [x] **Fase 6.1 UI:** shell Bloomberg + vistas tipadas Trade Republic en todas las pestañas (`nexus_desktop.py`).
 
 ---
 
@@ -165,7 +166,7 @@ Suites: `test_logic_engine`, `test_decision_engine`, `test_rotation_engine`, `te
 - [x] Actualizar `CONTEXT_AND_RULES.md` (desktop, utils, ajustes, launchers).
 - [x] Centralizar umbrales/allocation/forex en `config.py` (task 3.1–3.3).
 - [x] Caché FRED release calendar (5 HTTP por evaluación → 1 refresh cada 6 h).
-- [ ] Rediseño UI desktop estilo Bloomberg/Trade Republic (task 6.1).
+- [x] Rediseño UI desktop estilo Bloomberg/Trade Republic (task 6.1).
 
 ### Prioridad baja
 - [ ] README.md de usuario (instalación, launchers, keys, flujo diario).
