@@ -40,22 +40,25 @@ from utils import (
 )
 
 
-# ─── Theme ───
-BG = "#05070B"
-HEADER_BG = "#070B13"
-PANEL = "#0B0F17"
-PANEL_ALT = "#101625"
-TEXT = "#D7DEE9"
-MUTED = "#8D9BB0"
-LINE = "#293245"
-ACCENT = "#3ED6FF"
-GOOD = "#36C26A"
-WARN = "#F7C948"
-BAD = "#EF4F68"
-CHIP_OK = "#143726"
-CHIP_WARN = "#3A3218"
-CHIP_BAD = "#4A1F2A"
-CHIP_NEUTRAL = "#243148"
+# ─── Theme (Apple HIG system colors — dark appearance) ───
+# Reference: https://developer.apple.com/design/human-interface-guidelines/color
+# Values are the commonly measured dark-mode system colors (adaptive in native apps).
+BG = "#000000"                 # pure black (systemBackground / edgeless)
+HEADER_BG = "#1C1C1E"          # secondarySystemBackground
+PANEL = "#1C1C1E"              # secondarySystemBackground
+PANEL_ALT = "#2C2C2E"          # tertiarySystemBackground
+TEXT = "#FFFFFF"               # label
+MUTED = "#98989D"              # secondaryLabel / systemGray
+LINE = "#38383A"               # separator
+ACCENT = "#0A84FF"             # systemBlue (dark)
+GOOD = "#30D158"               # systemGreen (dark)
+WARN = "#FF9F0A"               # systemOrange (dark)
+BAD = "#FF453A"                # systemRed (dark)
+CYAN = "#64D2FF"               # systemCyan (dark) — secondary accent
+CHIP_OK = "#0F2A18"            # green tint on black
+CHIP_WARN = "#2A1F0A"          # orange tint on black
+CHIP_BAD = "#2A1010"           # red tint on black
+CHIP_NEUTRAL = "#2C2C2E"       # tertiarySystemBackground
 
 NAV_ITEMS: List[Tuple[str, str]] = [
     ("overview", "Overview"),
@@ -895,7 +898,7 @@ class NexusDesktopApp:
         )
         canvas.create_line(right_x0, chart_top, right_x0, chart_bottom, fill=LINE)
         canvas.create_line(right_x0, chart_bottom, right_x1, chart_bottom, fill=LINE)
-        canvas.create_line(right_x0, zero_y, right_x1, zero_y, fill="#3A4660", dash=(3, 3))
+        canvas.create_line(right_x0, zero_y, right_x1, zero_y, fill=LINE, dash=(3, 3))
         canvas.create_text(right_x0 - 4, zero_y, text="0%", anchor="e", fill=MUTED, font=self.ui_font)
 
         if not samples:
