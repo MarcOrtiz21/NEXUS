@@ -1,0 +1,401 @@
+{
+  "VIX": 17.510000228881836,
+  "VIX_MA5": 16.48799991607666,
+  "VIX_MA10": 16.332999897003173,
+  "VIX_MA20": 17.056499910354614,
+  "US10Y": 4.609000205993652,
+  "Correlation_Proxy": -0.027391919429178273,
+  "PE_Trailing": 26.947767,
+  "PE_Forward": 20.55,
+  "PE_Forward_Date": "2026-06-30",
+  "PE_Forward_Source": "Siblis USA Large Cap proxy",
+  "PE_Forward_Percentile": 25.0,
+  "US2Y": 4.21,
+  "Yield_Curve_Spread": 0.4,
+  "China_M2_YoY_Pct": 8.21,
+  "M2_Latest": 23062.9,
+  "M2_Previous": 22654.3,
+  "M2_Change_Pct": 1.8,
+  "CPI_Latest": 333.979,
+  "CPI_YoY_Pct": 4.17,
+  "DataQuality": {
+    "VIX": {
+      "source": "yfinance:^VIX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "VIX_MA5": {
+      "source": "yfinance:^VIX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "VIX_MA10": {
+      "source": "yfinance:^VIX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "VIX_MA20": {
+      "source": "yfinance:^VIX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "US10Y": {
+      "source": "yfinance:^TNX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Correlation_Proxy": {
+      "source": "yfinance:sector_etfs",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Assets.SPY": {
+      "source": "yfinance:SPY",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Assets.QQQ": {
+      "source": "yfinance:QQQ",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Assets.TLT": {
+      "source": "yfinance:TLT",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Assets.GLD": {
+      "source": "yfinance:GLD",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Assets.UUP": {
+      "source": "yfinance:UUP",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.AIQ": {
+      "source": "yfinance:AIQ",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.SMH": {
+      "source": "yfinance:SMH",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.XLK": {
+      "source": "yfinance:XLK",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.XBI": {
+      "source": "yfinance:XBI",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.XLV": {
+      "source": "yfinance:XLV",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.KIE": {
+      "source": "yfinance:KIE",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "RotationAssets.PJP": {
+      "source": "yfinance:PJP",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "Forex.EURUSD": {
+      "source": "yfinance:EURUSD=X",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "GlobalMarkets.Europa": {
+      "source": "yfinance:FEZ",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "GlobalMarkets.Japon": {
+      "source": "yfinance:EWJ",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "GlobalMarkets.China": {
+      "source": "yfinance:FXI",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "GlobalMarkets.Asia_EM": {
+      "source": "yfinance:AAXJ",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:54+00:00",
+      "detail": ""
+    },
+    "PE_Trailing": {
+      "source": "yfinance:SPY/IVV/VOO",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:55+00:00",
+      "detail": ""
+    },
+    "PE_Forward": {
+      "source": "Siblis:USA/pe-forward",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:58+00:00",
+      "detail": "Proxy U.S. Large Cap; fecha EOD 2026-06-30"
+    },
+    "PE_Forward_Percentile": {
+      "source": "Siblis:USA/pe-forward",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:58+00:00",
+      "detail": ""
+    },
+    "US2Y": {
+      "source": "FRED:DGS2",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:58+00:00",
+      "detail": ""
+    },
+    "Yield_Curve_Spread": {
+      "source": "FRED:DGS2+^TNX",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:58+00:00",
+      "detail": ""
+    },
+    "M2_Latest": {
+      "source": "FRED:WM2NS",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:59+00:00",
+      "detail": ""
+    },
+    "M2_Previous": {
+      "source": "FRED:WM2NS",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:59+00:00",
+      "detail": ""
+    },
+    "M2_Change_Pct": {
+      "source": "FRED:WM2NS",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:59+00:00",
+      "detail": ""
+    },
+    "CPI_Latest": {
+      "source": "FRED:CPIAUCSL",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:59+00:00",
+      "detail": ""
+    },
+    "CPI_YoY_Pct": {
+      "source": "FRED:CPIAUCSL",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:59+00:00",
+      "detail": ""
+    },
+    "China_M2_YoY_Pct": {
+      "source": "FRED:MYAGM2CNM189N",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:33:00+00:00",
+      "detail": ""
+    },
+    "China_M2_Change_Pct": {
+      "source": "cache",
+      "status": "STALE",
+      "captured_at": "2026-07-14T12:33:00+00:00",
+      "detail": "fallback desde cache local"
+    },
+    "snapshot": {
+      "source": "NEXUS",
+      "status": "OK",
+      "captured_at": "2026-07-14T12:32:53+00:00",
+      "detail": "snapshot de ejecución"
+    }
+  },
+  "Assets": {
+    "SPY": {
+      "price": 749.1699829101562,
+      "ma20": 743.9981262207032,
+      "ma50": 740.6941333007812,
+      "ma200": 691.5513778686524,
+      "momentum_1m": 3.5385946609099497,
+      "momentum_3m": 10.54366994255141,
+      "volatility_20d": 14.060161049811532
+    },
+    "QQQ": {
+      "price": 711.739990234375,
+      "ma20": 722.0952087402344,
+      "ma50": 715.6094836425781,
+      "ma200": 637.2107666015625,
+      "momentum_1m": 2.7147767261364257,
+      "momentum_3m": 16.602373354641003,
+      "volatility_20d": 28.48906899195065
+    },
+    "TLT": {
+      "price": 83.97000122070312,
+      "ma20": 85.67533721923829,
+      "ma50": 84.98152542114258,
+      "ma200": 86.05804721832276,
+      "momentum_1m": -0.7067286044697019,
+      "momentum_3m": -1.8105354061803576,
+      "volatility_20d": 9.139922367494451
+    },
+    "GLD": {
+      "price": 367.1300048828125,
+      "ma20": 378.47200164794924,
+      "ma50": 400.1261981201172,
+      "ma200": 410.96370025634764,
+      "momentum_1m": -1.988889411211467,
+      "momentum_3m": -16.01354270310634,
+      "volatility_20d": 24.090870182124547
+    },
+    "UUP": {
+      "price": 28.5,
+      "ma20": 28.32750005722046,
+      "ma50": 27.939200172424318,
+      "ma200": 27.38457405090332,
+      "momentum_1m": 1.604280838428323,
+      "momentum_3m": 3.86297173947481,
+      "volatility_20d": 4.911726383614526
+    }
+  },
+  "RotationAssets": {
+    "AIQ": {
+      "price": 61.29999923706055,
+      "ma20": 63.99250030517578,
+      "ma50": 63.29500030517578,
+      "ma200": 53.79571405410766,
+      "momentum_1m": -0.09778580947551892,
+      "momentum_3m": 24.16447349256675,
+      "volatility_20d": 41.95668496456317
+    },
+    "SMH": {
+      "price": 585.6199951171875,
+      "ma20": 620.4514953613282,
+      "ma50": 591.9240002441406,
+      "ma200": 434.23890014648435,
+      "momentum_1m": 2.576592223750183,
+      "momentum_3m": 34.04595966214398,
+      "volatility_20d": 60.54427268659304
+    },
+    "XLK": {
+      "price": 181.27999877929688,
+      "ma20": 185.1460090637207,
+      "ma50": 181.3227047729492,
+      "ma200": 152.62515384674072,
+      "momentum_1m": 2.7549944913602835,
+      "momentum_3m": 27.258566444278102,
+      "volatility_20d": 36.77807398790184
+    },
+    "XBI": {
+      "price": 155.33999633789062,
+      "ma20": 151.7203796386719,
+      "ma50": 140.04884857177734,
+      "ma200": 125.31761795043946,
+      "momentum_1m": 20.67712395150659,
+      "momentum_3m": 20.127070569548447,
+      "volatility_20d": 27.94210833467275
+    },
+    "XLV": {
+      "price": 161.41000366210938,
+      "ma20": 157.1887008666992,
+      "ma50": 151.26605560302735,
+      "ma200": 149.7938916015625,
+      "momentum_1m": 6.065980467240485,
+      "momentum_3m": 10.054893412395161,
+      "volatility_20d": 20.484318523642372
+    },
+    "KIE": {
+      "price": 64.45999908447266,
+      "ma20": 61.04306259155273,
+      "ma50": 58.2302953338623,
+      "ma200": 57.66655809402466,
+      "momentum_1m": 11.39621410605864,
+      "momentum_3m": 15.740470631829961,
+      "volatility_20d": 20.37157018478617
+    },
+    "PJP": {
+      "price": 117.5999984741211,
+      "ma20": 116.6635643005371,
+      "ma50": 111.34346328735352,
+      "ma200": 104.5307317352295,
+      "momentum_1m": 5.474018941584385,
+      "momentum_3m": 13.835754935889199,
+      "volatility_20d": 19.41553675411477
+    }
+  },
+  "Forex": {
+    "EURUSD": {
+      "price": 1.145737886428833,
+      "ma20": 1.142917424440384,
+      "ma50": 1.1555496406555177,
+      "ma200": 1.1644586169719695,
+      "momentum_1m": -1.2557212969403198,
+      "momentum_3m": -2.978909059780882,
+      "volatility_20d": 5.254363215050607
+    }
+  },
+  "GlobalMarkets": {
+    "Europa": {
+      "price": 67.47000122070312,
+      "ma20": 68.14303169250488,
+      "ma50": 66.80006103515625,
+      "ma200": 63.98741830825806,
+      "momentum_1m": 2.86295997192604,
+      "momentum_3m": 3.970522379856254,
+      "volatility_20d": 16.152233508273355
+    },
+    "Japon": {
+      "price": 92.72000122070312,
+      "ma20": 93.69794998168945,
+      "ma50": 92.10498153686524,
+      "ma200": 85.30413303375244,
+      "momentum_1m": 4.405621427995836,
+      "momentum_3m": 5.779848327332206,
+      "volatility_20d": 24.676921056725572
+    },
+    "China": {
+      "price": 33.439998626708984,
+      "ma20": 32.97335023880005,
+      "ma50": 34.682955284118655,
+      "ma200": 37.30057034492493,
+      "momentum_1m": -3.0472432192700087,
+      "momentum_3m": -7.059085967929477,
+      "volatility_20d": 21.468054450926065
+    },
+    "Asia_EM": {
+      "price": 111.83000183105469,
+      "ma20": 117.57845039367676,
+      "ma50": 116.16931930541992,
+      "ma200": 101.4376127243042,
+      "momentum_1m": 0.0010984047138345302,
+      "momentum_3m": 9.376507325902365,
+      "volatility_20d": 38.96113584860596
+    }
+  },
+  "China_M2_Change_Pct": 0.84
+}
