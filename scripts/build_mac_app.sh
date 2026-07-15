@@ -68,7 +68,7 @@ if [[ ! -f "$DESKTOP" ]]; then
   die "No se encuentra nexus_desktop.py en ${NEXUS_ROOT}"
 fi
 
-if ! "$VENV_PY" -c "import tkinter, yfinance, pandas, numpy, requests, feedparser" 2>/dev/null; then
+if ! "$VENV_PY" -c "import customtkinter, PIL, tkinter, yfinance, pandas, numpy, requests, feedparser, Quartz" 2>/dev/null; then
   die "Faltan dependencias en .venv. Abre Terminal en el repo y ejecuta: ./setup.command"
 fi
 

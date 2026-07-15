@@ -1,8 +1,8 @@
 """
 NEXUS Workstation Desktop (local app).
 
-Shell Bloomberg (denso, mono, status strip) + vistas tipadas limpias
-estilo Trade Republic. Refresco automático; solo redibuja si cambia la lectura.
+UI estilo macOS (sidebar + cards redondeadas), colores Apple HIG dark.
+Prioriza información: sin logo en panel, overview orientado a decisión.
 """
 
 from __future__ import annotations
@@ -10,13 +10,23 @@ from __future__ import annotations
 import ctypes
 import sys
 import threading
+import time
 import tkinter as tk
-from datetime import datetime, timezone
-from tkinter import font as tkfont
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
+
+import customtkinter as ctk
 
 from config import CALENDAR_BLOCK_HOURS, SCORE_BUY, SCORE_HOLD
 from macos_notifications import notify_snapshot_change
+from macos_vibrancy import (
+    TRANSPARENT,
+    bind_vibrancy_keep_alive,
+    enable_window_transparency,
+    glass_frame,
+    glass_label,
+    schedule_vibrancy,
+)
 from user_settings import get_setting, load_user_settings, save_user_settings
 from history_view import summarize_history
 from paper_trading import summarize_paper_trading
@@ -34,45 +44,53 @@ from utils import (
     snapshot_signature,
     fmt,
     signed,
-    score_bar,
-    metric_bar,
     trend_from_metrics,
 )
 
 
-# ─── Theme (Apple HIG system colors — dark appearance) ───
-# Reference: https://developer.apple.com/design/human-interface-guidelines/color
-# Values are the commonly measured dark-mode system colors (adaptive in native apps).
-BG = "#000000"                 # pure black (systemBackground / edgeless)
-HEADER_BG = "#1C1C1E"          # secondarySystemBackground
-PANEL = "#1C1C1E"              # secondarySystemBackground
-PANEL_ALT = "#2C2C2E"          # tertiarySystemBackground
-TEXT = "#FFFFFF"               # label
-MUTED = "#98989D"              # secondaryLabel / systemGray
-LINE = "#38383A"               # separator
-ACCENT = "#0A84FF"             # systemBlue (dark)
-GOOD = "#30D158"               # systemGreen (dark)
-WARN = "#FF9F0A"               # systemOrange (dark)
-BAD = "#FF453A"                # systemRed (dark)
-CYAN = "#64D2FF"               # systemCyan (dark) — secondary accent
-CHIP_OK = "#0F2A18"            # green tint on black
-CHIP_WARN = "#2A1F0A"          # orange tint on black
-CHIP_BAD = "#2A1010"           # red tint on black
-CHIP_NEUTRAL = "#2C2C2E"       # tertiarySystemBackground
+# Cards opacas. Chrome de texto SIEMPRE sobre fondo sólido (si no, macOS
+# con systemTransparent deja fantasmas al cambiar el texto).
+CARD = "#2C2C30"
+CARD_INNER = "#1C1C1F"
+CHROME_BG = "#141416"  # sólido para títulos/nav/status que se actualizan
+TEXT = "#FFFFFF"
+MUTED = "#98989D"
+LINE = "#3A3A3E"
+ACCENT = "#0A84FF"
+NAV_ACTIVE = "#3A4558"
+NAV_ACTIVE_HOVER = "#455468"
+NAV_IDLE = "#141416"
+GOOD = "#30D158"
+WARN = "#FF9F0A"
+BAD = "#FF453A"
+CHIP_OK = "#0F2A18"
+CHIP_WARN = "#2A1F0A"
+CHIP_BAD = "#2A1010"
+CHIP_NEUTRAL = "#3A3A3C"
+BTN_FG = "#FFFFFF"
+BTN_BG = "#3A3A3C"
+BTN_HOVER = "#48484A"
+BAR_HEIGHT = 4
+BLUR_RADIUS = 52
 
-NAV_ITEMS: List[Tuple[str, str]] = [
-    ("overview", "Overview"),
-    ("rotation", "Rotación"),
-    ("forex", "Forex"),
-    ("assets", "Activos"),
-    ("global", "Global"),
-    ("news", "Noticias"),
-    ("history", "Historial"),
-    ("paper", "Paper"),
-    ("track", "Track Record"),
-    ("report", "Informe"),
-    ("quality", "Data Quality"),
+# key, label, icon glyph
+NAV_ITEMS: List[Tuple[str, str, str]] = [
+    ("overview", "Overview", "◉"),
+    ("rotation", "Rotación", "⟳"),
+    ("forex", "Forex", "⇄"),
+    ("assets", "Activos", "▣"),
+    ("global", "Global", "◎"),
+    ("news", "Noticias", "☰"),
+    ("history", "Historial", "◷"),
+    ("paper", "Paper", "◈"),
+    ("track", "Track Record", "▤"),
+    ("report", "Informe", "▦"),
+    ("quality", "Data Quality", "✓"),
 ]
+
+NAV_LABELS = {k: label for k, label, _ in NAV_ITEMS}
+CORNER = 14
+INNER_CORNER = 10
 
 
 def _configure_windows_dpi_awareness() -> None:
@@ -99,274 +117,720 @@ def score_color(score: int) -> str:
 
 def status_color(status: str) -> str:
     value = (status or "").upper()
-    if value in {"HEALTHY"}:
+    if value == "HEALTHY":
         return GOOD
     if value in {"CAUTION", "BLOCKED"}:
         return WARN
-    if value in {"PANIC"}:
+    if value == "PANIC":
         return BAD
     return MUTED
 
 
-class NexusDesktopApp:
-    def __init__(self, root: tk.Tk):
-        self.root = root
-        self.root.title("NEXUS Workstation")
-        self.root.configure(bg=BG)
-        self.root.geometry("1440x900")
-        self.root.minsize(1180, 720)
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
-        self._configure_tk_scaling()
-        mono = self._pick_font_family(("SF Mono", "Menlo", "Cascadia Mono", "Consolas", "Courier New"))
-        sans = self._pick_font_family(("SF Pro Text", "Helvetica Neue", "Segoe UI", "Arial"))
-        self.mono = mono
-        self.ui_font = tkfont.Font(family=mono, size=11)
-        self.small_font = tkfont.Font(family=mono, size=10)
-        self.title_font = tkfont.Font(family=mono, size=12, weight="bold")
-        self.brand_font = tkfont.Font(family=sans, size=18, weight="bold")
-        self.section_font = tkfont.Font(family=sans, size=11, weight="bold")
-        self.hero_font = tkfont.Font(family=mono, size=16, weight="bold")
+
+def _norm(value: float | None, low: float, high: float) -> float:
+    if value is None or high == low:
+        return 0.0
+    return _clamp01((float(value) - low) / (high - low))
+
+
+def _relative_age(ts: float | None) -> str:
+    if ts is None:
+        return "sin datos"
+    seconds = max(0, int(time.time() - ts))
+    if seconds < 5:
+        return "ahora"
+    if seconds < 60:
+        return f"hace {seconds}s"
+    if seconds < 3600:
+        return f"hace {seconds // 60}m"
+    return f"hace {seconds // 3600}h"
+
+
+def rotation_trade_action(theme: Dict[str, Any]) -> Tuple[str, str]:
+    """Mapa señal de rotación → COMPRAR / ESPERAR / VENDER + color."""
+    signal = str(theme.get("signal") or "")
+    if signal in {"Entrada clara de flujo", "Liderazgo aún fuerte"}:
+        return "COMPRAR", GOOD
+    if signal in {"Corrección activa", "Descanso sano tras liderazgo"}:
+        return "VENDER", BAD
+    if signal in {"Mejora incipiente"}:
+        return "COMPRAR", WARN
+    return "ESPERAR", MUTED
+
+
+class NexusDesktopApp(ctk.CTk):
+    def __init__(self) -> None:
+        super().__init__()
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("dark-blue")
+
+        settings = load_user_settings(force=True)
+        self.title("NEXUS Workstation")
+        self.geometry(str(settings.get("window_geometry") or "1440x900"))
+        self.minsize(980, 640)
+        enable_window_transparency(self)
+        self.configure(fg_color=CHROME_BG)
 
         self.current_snapshot: Dict[str, Any] | None = None
         self.current_signature: str | None = None
-        self.current_view = "overview"
+        self.current_view = str(settings.get("last_view") or "overview")
         self.fetch_in_progress = False
-        self.compact_mode = False
+        self.compact_mode = bool(settings.get("compact_mode"))
+        self.auto_refresh_enabled = True
         self.refresh_job = None
+        self._next_refresh_at: float | None = None
         self._track_chart_payload: Dict[str, Any] | None = None
-        self.nav_buttons: Dict[str, tk.Button] = {}
-        self.nav_underlines: Dict[str, tk.Frame] = {}
+        self.nav_buttons: Dict[str, ctk.CTkButton] = {}
+        self.last_success_at: float | None = None
+        self.last_error: str | None = None
+        self._toast_job = None
+        self._persist_job = None
+        self._wrap_job = None
+        self._render_gen = 0
+        self._wrap_labels: List[Any] = []
+        self._content_slot: tk.Frame | None = None
+        self._view_job = None
+        self._alive = True
+        self._switching = False
+        self._pending_render = False
+
+        if self.compact_mode:
+            self.geometry("1040x700")
 
         self._build_ui()
-        self.root.bind("<Command-r>", lambda _event: self._schedule_fetch(immediate=True))
-        self.root.bind("<Control-r>", lambda _event: self._schedule_fetch(immediate=True))
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Command-r>", lambda _e: self._schedule_fetch(immediate=True))
+        self.bind("<Control-r>", lambda _e: self._schedule_fetch(immediate=True))
+        self.bind("<Up>", lambda _e: self._nav_step(-1))
+        self.bind("<Down>", lambda _e: self._nav_step(1))
+        for idx in range(1, 10):
+            self.bind(str(idx), lambda _e, i=idx: self._nav_by_index(i - 1))
+            self.bind(f"<KP_{idx}>", lambda _e, i=idx: self._nav_by_index(i - 1))
+        self.bind("<Configure>", self._on_configure)
+        schedule_vibrancy(self, radius=BLUR_RADIUS, title_hint="NEXUS Workstation")
+        bind_vibrancy_keep_alive(self, radius=BLUR_RADIUS, title_hint="NEXUS Workstation")
+        self.after(80, self._bring_to_front)
+        self.after(1000, self._tick_status)
         self._schedule_fetch(immediate=True)
 
-    # ─── Fonts / DPI ───
-    def _pick_font_family(self, candidates: tuple[str, ...]) -> str:
-        available = set(tkfont.families(self.root))
-        for family in candidates:
-            if family in available:
-                return family
-        return "TkFixedFont"
+    def _safe_after(self, delay_ms: int, fn: Callable[[], None]) -> None:
+        """after() que no crashea si la ventana/vista ya no existe."""
+        gen = self._render_gen
 
-    def _configure_tk_scaling(self) -> None:
+        def runner() -> None:
+            if not self._alive:
+                return
+            try:
+                if not self.winfo_exists():
+                    return
+            except Exception:
+                return
+            if gen != self._render_gen:
+                return
+            try:
+                fn()
+            except Exception:
+                pass
+
+        self.after(delay_ms, runner)
+
+    def _bring_to_front(self) -> None:
         try:
-            pixels_per_inch = float(self.root.winfo_fpixels("1i"))
-            scaling = max(1.0, pixels_per_inch / 96.0)
-            self.root.tk.call("tk", "scaling", scaling)
+            self.lift()
+            self.attributes("-topmost", True)
+            self.after(350, lambda: self.attributes("-topmost", False))
+            self.focus_force()
+        except Exception:
+            pass
+        if sys.platform == "darwin":
+            try:
+                import os
+                import subprocess
+
+                pid = os.getpid()
+                subprocess.Popen(
+                    [
+                        "osascript",
+                        "-e",
+                        f'tell application "System Events" to set frontmost of first process whose unix id is {pid} to true',
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
+
+    # ─── UI helpers ───
+    def make_card(self, parent: Any, **pack) -> ctk.CTkFrame:
+        # bg_color = CARD (no transparent): evita solapes/fantasmas de CTk al redimensionar
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=CARD,
+            corner_radius=CORNER,
+            border_width=0,
+            bg_color=CARD,
+        )
+        if pack:
+            card.pack(**pack)
+        return card
+
+    def make_row(self, parent: Any, **pack) -> tk.Frame:
+        """Fila tipo mini-recuadro con tk (estable al resize; sin CTk place)."""
+        row = tk.Frame(parent, bg=CARD_INNER, highlightthickness=0, bd=0)
+        if pack:
+            row.pack(**pack)
+        return row
+
+    def layout(self, parent: Any | None = None, **pack) -> tk.Frame:
+        """Contenedor de layout ligero."""
+        frame = tk.Frame(parent or self.content, bg=CHROME_BG, highlightthickness=0, bd=0)
+        if pack:
+            frame.pack(**pack)
+        return frame
+
+    def _grid_cols(self, preferred: int = 2) -> int:
+        try:
+            width = int(self.winfo_width())
+        except Exception:
+            width = 1100
+        if width < 50:
+            width = 1100
+        if width < 900:
+            return 1
+        if width < 1200:
+            return min(2, preferred)
+        return preferred
+
+    def wire_click(self, widget: Any, command: Callable[[], None]) -> None:
+        def handler(_event=None) -> None:
+            if self._alive:
+                command()
+
+        try:
+            widget.bind("<Button-1>", handler)
+        except Exception:
+            return
+        try:
+            widget.configure(cursor="hand2")
+        except Exception:
+            pass
+        try:
+            children = widget.winfo_children()
+        except Exception:
+            return
+        for child in children:
+            self.wire_click(child, command)
+
+    def section_title(self, parent: Any, text: str, hint: str | None = None) -> ctk.CTkLabel:
+        row = ctk.CTkFrame(parent, fg_color=CARD, bg_color=CARD)
+        row.pack(fill="x", padx=14, pady=(12, 6))
+        label = ctk.CTkLabel(
+            row,
+            text=text,
+            text_color=ACCENT,
+            fg_color=CARD,
+            font=ctk.CTkFont(family="SF Pro Text", size=12, weight="bold"),
+            anchor="w",
+        )
+        label.pack(side="left")
+        if hint:
+            ctk.CTkLabel(
+                row, text=hint, text_color=MUTED, fg_color=CARD, font=ctk.CTkFont(size=11), anchor="e"
+            ).pack(side="right")
+        return label
+
+    def kv_row(self, parent: Any, key: str, value: str, value_color: str = TEXT) -> None:
+        row = ctk.CTkFrame(parent, fg_color=CARD, bg_color=CARD)
+        row.pack(fill="x", padx=14, pady=1)
+        ctk.CTkLabel(
+            row, text=key, text_color=MUTED, fg_color=CARD, font=ctk.CTkFont(size=12), width=100, anchor="w"
+        ).pack(side="left")
+        ctk.CTkLabel(
+            row,
+            text=value,
+            text_color=value_color,
+            fg_color=CARD,
+            font=ctk.CTkFont(family="Menlo", size=12),
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+
+    def progress_row(
+        self,
+        parent: Any,
+        label: str,
+        ratio: float,
+        value: str,
+        color: str = ACCENT,
+        label_width: int = 78,
+    ) -> None:
+        row = ctk.CTkFrame(parent, fg_color=CARD, bg_color=CARD)
+        row.pack(fill="x", padx=14, pady=3)
+        ctk.CTkLabel(row, text=label, text_color=MUTED, font=ctk.CTkFont(size=12), width=label_width, anchor="w").pack(
+            side="left"
+        )
+        bar = ctk.CTkProgressBar(
+            row,
+            height=BAR_HEIGHT,
+            corner_radius=2,
+            progress_color=color,
+            fg_color=CARD_INNER,
+        )
+        bar.pack(side="left", fill="x", expand=True, padx=(6, 8))
+        bar.set(_clamp01(ratio))
+        ctk.CTkLabel(row, text=value, text_color=TEXT, font=ctk.CTkFont(family="Menlo", size=11), width=72, anchor="e").pack(
+            side="right"
+        )
+
+    def metric_progress(self, parent: Any, label: str, value: float | None, low: float, high: float, display: str) -> None:
+        ratio = _norm(value, low, high)
+        if value is None:
+            color = MUTED
+        elif ratio >= 0.75:
+            color = BAD if label in {"VIX", "IPC YoY", "Corr"} else GOOD
+        elif ratio >= 0.45:
+            color = WARN
+        else:
+            color = GOOD if label in {"VIX", "IPC YoY", "Corr"} else ACCENT
+        self.progress_row(parent, label, ratio, display, color=color)
+
+    def body_text(self, parent: Any, text: str, color: str = TEXT, wrap: int | None = None) -> None:
+        wraplength = wrap if wrap is not None else self._content_wrap()
+        # Fondo sólido del padre card → sin fantasmas al cambiar de vista
+        label = ctk.CTkLabel(
+            parent,
+            text=text,
+            text_color=color,
+            font=ctk.CTkFont(size=12),
+            anchor="w",
+            justify="left",
+            wraplength=wraplength,
+            fg_color=CARD,
+        )
+        label.pack(fill="x", padx=14, pady=(0, 8))
+        self._wrap_labels.append(label)
+
+    def _content_wrap(self) -> int:
+        try:
+            width = int(self.winfo_width())
+        except Exception:
+            width = 1100
+        return max(240, width - 220)
+
+    def _refresh_wraplengths(self) -> None:
+        wrap = self._content_wrap()
+        alive: List[Any] = []
+        for label in self._wrap_labels:
+            try:
+                if label.winfo_exists():
+                    label.configure(wraplength=wrap)
+                    alive.append(label)
+            except Exception:
+                pass
+        self._wrap_labels = alive
+
+    def _arm_content_scroll(self) -> None:
+        """Trackpad sobre el contenido CTkScrollableFrame."""
+        try:
+            canvas = self.content._parent_canvas  # type: ignore[attr-defined]
+        except Exception:
+            return
+
+        def on_wheel(event: Any) -> str:
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+            delta = getattr(event, "delta", 0) or 0
+            if sys.platform == "darwin":
+                steps = int(-delta)
+            else:
+                steps = int(-delta / 120) if delta else 0
+            if steps == 0 and getattr(event, "num", None) in (4, 5):
+                steps = -3 if event.num == 4 else 3
+            if steps:
+                canvas.yview_scroll(steps, "units")
+            return "break"
+
+        def bind_tree(widget: Any) -> None:
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                try:
+                    widget.bind(seq, on_wheel, add="+")
+                except Exception:
+                    pass
+            try:
+                children = widget.winfo_children()
+            except Exception:
+                return
+            for child in children:
+                bind_tree(child)
+
+        try:
+            canvas.bind("<MouseWheel>", on_wheel, add="+")
+            bind_tree(self.content)
         except Exception:
             pass
 
-    # ─── Theme helpers ───
-    def make_panel(self, parent: tk.Misc, **pack_opts) -> tk.Frame:
-        frame = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        if pack_opts:
-            frame.pack(**pack_opts)
-        return frame
-
-    def section_title(self, parent: tk.Misc, text: str) -> tk.Label:
-        label = tk.Label(parent, text=text, fg=ACCENT, bg=PANEL, font=self.section_font, anchor="w")
-        label.pack(fill="x", padx=14, pady=(12, 6))
-        return label
-
-    def kv_row(self, parent: tk.Misc, key: str, value: str, value_fg: str = TEXT) -> None:
-        row = tk.Frame(parent, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=2)
-        tk.Label(row, text=key, fg=MUTED, bg=PANEL, font=self.small_font, width=16, anchor="w").pack(side="left")
-        tk.Label(row, text=value, fg=value_fg, bg=PANEL, font=self.ui_font, anchor="w").pack(side="left", fill="x", expand=True)
-
-    def metric_row(self, parent: tk.Misc, label: str, bar: str, value: str) -> None:
-        row = tk.Frame(parent, bg=PANEL)
-        row.pack(fill="x", padx=14, pady=1)
-        tk.Label(row, text=label, fg=MUTED, bg=PANEL, font=self.small_font, width=12, anchor="w").pack(side="left")
-        tk.Label(row, text=bar, fg=ACCENT, bg=PANEL, font=self.small_font, anchor="w").pack(side="left", padx=(0, 8))
-        tk.Label(row, text=value, fg=TEXT, bg=PANEL, font=self.ui_font, anchor="w").pack(side="left")
-
-    def body_text(self, parent: tk.Misc, text: str, fg: str = TEXT, wrap: str = "word") -> tk.Label:
-        label = tk.Label(parent, text=text, fg=fg, bg=PANEL, font=self.ui_font, anchor="nw", justify="left", wraplength=520)
-        label.pack(fill="x", padx=14, pady=(0, 10))
-        return label
-
-    def action_button(self, parent: tk.Misc, text: str, command: Callable[[], None]) -> tk.Button:
-        btn = tk.Button(
+    def action_button(self, parent: Any, text: str, command: Callable[[], None], primary: bool = False, width: int = 96) -> ctk.CTkButton:
+        return ctk.CTkButton(
             parent,
             text=text,
             command=command,
-            fg=TEXT,
-            bg=PANEL_ALT,
-            activeforeground=TEXT,
-            activebackground=LINE,
-            relief="flat",
-            padx=12,
-            pady=5,
-            font=self.small_font,
-            cursor="hand2",
-            highlightthickness=0,
-            bd=0,
+            width=width,
+            height=30,
+            corner_radius=9,
+            fg_color=ACCENT if primary else BTN_BG,
+            bg_color=CHROME_BG,
+            hover_color="#0060DF" if primary else BTN_HOVER,
+            text_color=BTN_FG,
+            font=ctk.CTkFont(size=12, weight="bold"),
         )
-        return btn
 
-    def _scrollable(self, parent: tk.Misc) -> Tuple[tk.Canvas, tk.Frame]:
-        wrap = tk.Frame(parent, bg=BG)
-        wrap.pack(fill="both", expand=True)
-        canvas = tk.Canvas(wrap, bg=BG, highlightthickness=0, bd=0)
-        scroll = tk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
-        inner = tk.Frame(canvas, bg=BG)
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=scroll.set)
-
-        def _on_canvas_configure(event):
-            canvas.itemconfigure(window_id, width=event.width)
-
-        canvas.bind("<Configure>", _on_canvas_configure)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-
-        def _on_mousewheel(event):
-            delta = -1 if getattr(event, "delta", 0) > 0 or getattr(event, "num", None) == 4 else 1
-            if sys.platform == "darwin":
-                delta = -1 * int(getattr(event, "delta", 0))
-            canvas.yview_scroll(delta, "units")
-
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        canvas.bind_all("<Button-4>", _on_mousewheel)
-        canvas.bind_all("<Button-5>", _on_mousewheel)
-        return canvas, inner
+    def show_toast(self, message: str, ok: bool = True) -> None:
+        if hasattr(self, "_toast") and self._toast.winfo_exists():
+            self._toast.destroy()
+        self._toast = ctk.CTkFrame(self, fg_color=CHIP_OK if ok else CHIP_BAD, corner_radius=10)
+        self._toast.place(relx=0.5, rely=0.94, anchor="center")
+        ctk.CTkLabel(
+            self._toast,
+            text=message,
+            text_color=GOOD if ok else BAD,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(padx=16, pady=8)
+        if self._toast_job is not None:
+            self.after_cancel(self._toast_job)
+        self._toast_job = self.after(2600, self._toast.destroy)
 
     # ─── Shell ───
     def _build_ui(self) -> None:
-        header = tk.Frame(self.root, bg=HEADER_BG, height=64)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        brand_wrap = tk.Frame(header, bg=HEADER_BG)
-        brand_wrap.pack(side="left", padx=16, pady=10)
-        tk.Label(brand_wrap, text="NEXUS", fg=ACCENT, bg=HEADER_BG, font=self.brand_font).pack(anchor="w")
-        tk.Label(brand_wrap, text="WORKSTATION", fg=MUTED, bg=HEADER_BG, font=self.small_font).pack(anchor="w")
-
-        chips = tk.Frame(header, bg=HEADER_BG)
-        chips.pack(side="right", padx=16)
-        self.status_label = tk.Label(chips, text="Cargando…", fg=TEXT, bg=CHIP_NEUTRAL, font=self.small_font, padx=10, pady=4)
-        self.status_label.pack(side="left", padx=4)
-        self.macro_label = tk.Label(chips, text="Macro: —", fg=MUTED, bg=PANEL, font=self.small_font, padx=10, pady=4)
-        self.macro_label.pack(side="left", padx=4)
-        self.updated_label = tk.Label(chips, text="—", fg=MUTED, bg=HEADER_BG, font=self.small_font, padx=8)
-        self.updated_label.pack(side="left", padx=4)
-
-        nav_bar = tk.Frame(self.root, bg=HEADER_BG)
-        nav_bar.pack(fill="x")
-        nav_inner = tk.Frame(nav_bar, bg=HEADER_BG)
-        nav_inner.pack(fill="x", padx=12, pady=(0, 0))
-        for key, label in NAV_ITEMS:
-            col = tk.Frame(nav_inner, bg=HEADER_BG)
-            col.pack(side="left", padx=2)
-            btn = tk.Button(
-                col,
-                text=label,
-                command=lambda k=key: self._set_view(k),
-                fg=MUTED,
-                bg=HEADER_BG,
-                activeforeground=TEXT,
-                activebackground=HEADER_BG,
-                relief="flat",
-                padx=10,
-                pady=8,
-                font=self.small_font,
-                cursor="hand2",
-                highlightthickness=0,
-                bd=0,
-            )
-            btn.pack()
-            underline = tk.Frame(col, bg=HEADER_BG, height=2)
-            underline.pack(fill="x")
-            self.nav_buttons[key] = btn
-            self.nav_underlines[key] = underline
-        tk.Frame(self.root, bg=LINE, height=1).pack(fill="x")
-
-        body = tk.Frame(self.root, bg=BG, padx=14, pady=12)
-        body.pack(fill="both", expand=True)
-        self.view_title = tk.Label(body, text="Overview", fg=TEXT, bg=BG, font=self.section_font, anchor="w")
-        self.view_title.pack(fill="x", pady=(0, 10))
-        self.content = tk.Frame(body, bg=BG)
-        self.content.pack(fill="both", expand=True)
-
-        footer = tk.Frame(self.root, bg=HEADER_BG)
-        footer.pack(fill="x")
-        tk.Frame(footer, bg=LINE, height=1).pack(fill="x")
-        foot_inner = tk.Frame(footer, bg=HEADER_BG)
-        foot_inner.pack(fill="x", padx=12, pady=8)
-        self.footer_left = tk.Label(foot_inner, text="Auto-refresh", fg=MUTED, bg=HEADER_BG, font=self.small_font)
-        self.footer_left.pack(side="left")
-        self.footer_right = tk.Label(foot_inner, text="sig: —", fg=MUTED, bg=HEADER_BG, font=self.small_font)
-        self.footer_right.pack(side="right", padx=(12, 0))
-        for text, cmd in (
-            ("Ajustes", self._open_settings_dialog),
-            ("Exportar", self._export_daily_report),
-            ("Compacto", self._toggle_compact_mode),
-            ("Refrescar", lambda: self._schedule_fetch(immediate=True)),
-        ):
-            self.action_button(foot_inner, text, cmd).pack(side="right", padx=4)
-
-        self._set_view("overview")
-        self._update_footer_refresh_label()
-
-    def _clear_content(self) -> None:
-        self._track_chart_payload = None
-        for child in self.content.winfo_children():
-            child.destroy()
+        enable_window_transparency(self)
         try:
-            self.root.unbind_all("<MouseWheel>")
-            self.root.unbind_all("<Button-4>")
-            self.root.unbind_all("<Button-5>")
+            self.configure(fg_color=CHROME_BG)
+            tk.Tk.configure(self, bg=CHROME_BG)
         except Exception:
             pass
 
-    # ─── Settings / refresh ───
+        root = tk.Frame(self, bg=CHROME_BG, highlightthickness=0, bd=0)
+        root.pack(fill="both", expand=True)
+
+        self.sidebar = tk.Frame(root, bg=CHROME_BG, width=176, highlightthickness=0, bd=0)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+
+        brand = tk.Frame(self.sidebar, bg=CHROME_BG)
+        brand.pack(fill="x", padx=12, pady=(14, 8))
+        ctk.CTkLabel(
+            brand,
+            text="NEXUS",
+            text_color=TEXT,
+            fg_color=CHROME_BG,
+            font=ctk.CTkFont(family="SF Pro Display", size=15, weight="bold"),
+            anchor="w",
+        ).pack(fill="x")
+
+        nav_wrap = tk.Frame(self.sidebar, bg=CHROME_BG)
+        nav_wrap.pack(fill="both", expand=True, padx=6, pady=2)
+        for key, label, icon in NAV_ITEMS:
+            btn = ctk.CTkButton(
+                nav_wrap,
+                text=f"  {icon}  {label}",
+                anchor="w",
+                height=30,
+                corner_radius=8,
+                fg_color=NAV_IDLE,
+                bg_color=CHROME_BG,
+                hover_color=CARD,
+                text_color=MUTED,
+                font=ctk.CTkFont(size=12),
+                command=lambda k=key: self._set_view(k),
+            )
+            btn.pack(fill="x", pady=1)
+            self.nav_buttons[key] = btn
+
+        self.sidebar_status = ctk.CTkLabel(
+            self.sidebar,
+            text="Cargando…",
+            text_color=MUTED,
+            fg_color=CHROME_BG,
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+        )
+        self.sidebar_status.pack(fill="x", padx=12, pady=(4, 12))
+
+        main = tk.Frame(root, bg=CHROME_BG, highlightthickness=0, bd=0)
+        main.pack(side="left", fill="both", expand=True)
+
+        # Footer primero (side=bottom) para layout estable
+        footer = tk.Frame(main, bg=CHROME_BG, highlightthickness=0, bd=0)
+        footer.pack(side="bottom", fill="x", padx=12, pady=6)
+        self.footer_left = ctk.CTkLabel(
+            footer,
+            text="Auto-refresh",
+            text_color=MUTED,
+            fg_color=CHROME_BG,
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+        )
+        self.footer_left.pack(side="left")
+        self.action_button(footer, "Ajustes", self._open_settings_dialog, width=80).pack(side="right", padx=3)
+        self.action_button(footer, "Exportar", self._export_daily_report, width=80).pack(side="right", padx=3)
+
+        header = tk.Frame(main, bg=CHROME_BG, highlightthickness=0, bd=0)
+        header.pack(fill="x", padx=14, pady=(10, 4))
+        self._head_left = tk.Frame(header, bg=CHROME_BG)
+        self._head_left.pack(side="left", fill="y")
+        self.view_title = None
+        self.view_subtitle = None
+        self._paint_header_labels("overview")
+
+        head_right = tk.Frame(header, bg=CHROME_BG)
+        head_right.pack(side="right")
+        self.macro_chip = ctk.CTkLabel(
+            head_right,
+            text="Macro: —",
+            text_color=MUTED,
+            fg_color=CHIP_NEUTRAL,
+            corner_radius=8,
+            padx=9,
+            pady=4,
+            font=ctk.CTkFont(size=11),
+        )
+        self.macro_chip.pack(side="left", padx=3)
+        self.status_chip = ctk.CTkLabel(
+            head_right,
+            text="Cargando…",
+            text_color=TEXT,
+            fg_color=CHIP_NEUTRAL,
+            corner_radius=8,
+            padx=9,
+            pady=4,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        )
+        self.status_chip.pack(side="left", padx=3)
+        self.auto_chip = ctk.CTkButton(
+            head_right,
+            text="Auto ON",
+            width=72,
+            height=28,
+            corner_radius=8,
+            fg_color=CHIP_OK,
+            hover_color="#163820",
+            text_color=GOOD,
+            bg_color=CHROME_BG,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._toggle_auto_refresh,
+        )
+        self.auto_chip.pack(side="left", padx=3)
+        self.action_button(head_right, "↻", lambda: self._schedule_fetch(immediate=True), primary=True, width=36).pack(
+            side="left", padx=(4, 0)
+        )
+
+        self._content_slot = tk.Frame(main, bg=CHROME_BG, highlightthickness=0, bd=0)
+        self._content_slot.pack(fill="both", expand=True, padx=12, pady=(0, 2))
+        self._mount_content_host()
+
+        self._apply_view(self.current_view)
+        self._update_footer_status()
+
+    def _paint_header_labels(self, key: str) -> None:
+        """Recrea título/subtítulo (única forma fiable de no dejar texto fantasma)."""
+        subtitles = {
+            "overview": "Qué hacer ahora y por qué",
+            "rotation": "Líderes y receptores de flujo",
+            "forex": "EUR/USD y sesgo relativo",
+            "assets": "Ranking y momentum por activo",
+            "global": "Proxies regionales",
+            "news": "Flujo de titulares",
+            "history": "Evolución de señales",
+            "paper": "Cartera virtual vs SPY",
+            "track": "Acierto retrospectivo vs SPY",
+            "report": "Informe diario exportable",
+            "quality": "Estado de fuentes de datos",
+        }
+        for child in list(self._head_left.winfo_children()):
+            try:
+                child.destroy()
+            except Exception:
+                pass
+        self.view_title = ctk.CTkLabel(
+            self._head_left,
+            text=NAV_LABELS.get(key, key),
+            text_color=TEXT,
+            fg_color=CHROME_BG,
+            font=ctk.CTkFont(family="SF Pro Display", size=22, weight="bold"),
+            anchor="w",
+        )
+        self.view_title.pack(anchor="w")
+        self.view_subtitle = ctk.CTkLabel(
+            self._head_left,
+            text=subtitles.get(key, ""),
+            text_color=MUTED,
+            fg_color=CHROME_BG,
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+        )
+        self.view_subtitle.pack(anchor="w")
+
+    def _mount_content_host(self) -> None:
+        """Destruye y crea de cero el área scrollable de contenido."""
+        if self._content_slot is None:
+            return
+        for child in list(self._content_slot.winfo_children()):
+            try:
+                child.destroy()
+            except Exception:
+                pass
+        self._wrap_labels = []
+        self._track_chart_payload = None
+        self.content = ctk.CTkScrollableFrame(
+            self._content_slot,
+            fg_color=CHROME_BG,
+            bg_color=CHROME_BG,
+            corner_radius=0,
+            scrollbar_button_color=LINE,
+            scrollbar_button_hover_color=MUTED,
+            scrollbar_fg_color=CHROME_BG,
+        )
+        self.content.pack(fill="both", expand=True)
+        try:
+            self.content._parent_canvas.configure(bg=CHROME_BG)  # type: ignore[attr-defined]
+            tk.Frame.configure(self.content, bg=CHROME_BG)
+        except Exception:
+            pass
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+
+    # ─── Settings / persistence ───
     def _export_daily_report(self) -> None:
         if not self.current_snapshot:
+            self.show_toast("Sin snapshot para exportar", ok=False)
             return
         paths = export_daily_report(self.current_snapshot)
-        self.footer_left.configure(text=f"Informe exportado: {paths['html_path']}")
+        name = Path(paths["html_path"]).name
+        self.show_toast(f"Informe guardado · {name}")
 
     def _refresh_interval_ms(self) -> int:
         return int(get_setting("refresh_interval_seconds")) * 1000
 
-    def _update_footer_refresh_label(self) -> None:
+    def _update_footer_status(self) -> None:
         seconds = int(get_setting("refresh_interval_seconds"))
-        self.footer_left.configure(text=f"Auto-refresh {seconds}s · Cmd/Ctrl+R · solo redibuja con cambios")
+        age = _relative_age(self.last_success_at)
+        if not self.auto_refresh_enabled:
+            next_txt = "auto OFF"
+            if hasattr(self, "auto_chip"):
+                self.auto_chip.configure(text="Auto OFF", fg_color=CHIP_NEUTRAL, text_color=MUTED)
+        else:
+            if hasattr(self, "auto_chip"):
+                self.auto_chip.configure(text="Auto ON", fg_color=CHIP_OK, text_color=GOOD)
+            if self._next_refresh_at is None:
+                next_txt = f"auto {seconds}s"
+            else:
+                remain = max(0, int(self._next_refresh_at - time.time()))
+                next_txt = f"próx. {remain}s" if remain < 120 else f"próx. {remain // 60}m"
+        try:
+            self.footer_left.configure(text=f"Actualizado {age} · {next_txt} · ↑↓ · Cmd+R")
+        except Exception:
+            pass
+
+    def _tick_status(self) -> None:
+        self._update_footer_status()
+        self.after(1000, self._tick_status)
+
+    def _toggle_auto_refresh(self) -> None:
+        self.auto_refresh_enabled = not self.auto_refresh_enabled
+        if self.auto_refresh_enabled:
+            self._schedule_refresh_loop()
+            self.show_toast(f"Auto-refresh ON · cada {get_setting('refresh_interval_seconds')}s")
+        else:
+            if self.refresh_job is not None:
+                self.after_cancel(self.refresh_job)
+                self.refresh_job = None
+            self._next_refresh_at = None
+            self.show_toast("Auto-refresh OFF", ok=False)
+        self._update_footer_status()
+
+    def _persist_ui_state(self) -> None:
+        save_user_settings({
+            "last_view": self.current_view,
+            "window_geometry": self.geometry().split("+")[0],
+            "compact_mode": self.compact_mode,
+        })
+
+    def _schedule_persist(self) -> None:
+        if self._persist_job is not None:
+            self.after_cancel(self._persist_job)
+        # Debounce largo: no tocar disco/UI en cada pixel del resize
+        self._persist_job = self.after(900, self._persist_ui_state)
+
+    def _schedule_wrap_refresh(self) -> None:
+        if self._wrap_job is not None:
+            self.after_cancel(self._wrap_job)
+        self._wrap_job = self.after(250, self._refresh_wraplengths)
+
+    def _on_configure(self, event=None) -> None:
+        # Ignorar Configure de widgets hijos (solo ventana)
+        if event is not None and event.widget is not self:
+            return
+        self._schedule_persist()
+        self._schedule_wrap_refresh()
+
+    def _on_close(self) -> None:
+        self._alive = False
+        self._render_gen += 1
+        try:
+            self._persist_ui_state()
+        except Exception:
+            pass
+        self.destroy()
+
+    def _set_status_text(self, text: str, color: str = MUTED) -> None:
+        try:
+            self.sidebar_status.configure(text=text, text_color=color, fg_color=CHROME_BG)
+        except Exception:
+            pass
 
     def _open_settings_dialog(self) -> None:
         settings = load_user_settings(force=True)
-        dialog = tk.Toplevel(self.root)
+        dialog = ctk.CTkToplevel(self)
         dialog.title("Ajustes NEXUS")
-        dialog.configure(bg=PANEL)
-        dialog.geometry("440x380")
-        dialog.transient(self.root)
+        dialog.geometry("440x460")
+        dialog.configure(fg_color=CARD_INNER)
+        dialog.transient(self)
         dialog.grab_set()
 
-        def add_row(row: int, label: str, widget) -> None:
-            tk.Label(dialog, text=label, fg=MUTED, bg=PANEL, font=self.ui_font, anchor="w").grid(
-                row=row, column=0, sticky="w", padx=16, pady=8
-            )
-            widget.grid(row=row, column=1, sticky="ew", padx=16, pady=8)
+        ctk.CTkLabel(dialog, text="Ajustes", font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w", padx=20, pady=(16, 10))
 
-        dialog.grid_columnconfigure(1, weight=1)
-        refresh_var = tk.StringVar(value=str(settings["refresh_interval_seconds"]))
-        add_row(0, "Refresco (segundos)", tk.OptionMenu(dialog, refresh_var, "60", "120", "300", "600"))
-        block_var = tk.StringVar(value=str(settings["calendar_block_hours"]))
-        add_row(1, "Bloqueo calendario (h)", tk.OptionMenu(dialog, block_var, "3", "6"))
-        cal_var = tk.BooleanVar(value=bool(settings["calendar_blocks_signals"]))
-        add_row(2, "Bloquear por calendario", tk.Checkbutton(dialog, variable=cal_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
-        sent_var = tk.BooleanVar(value=bool(settings["sentiment_blocks_signals"]))
-        add_row(3, "Bloquear por sentimiento", tk.Checkbutton(dialog, variable=sent_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
-        finbert_var = tk.BooleanVar(value=bool(settings["use_finbert"]))
-        add_row(4, "FinBERT (opcional)", tk.Checkbutton(dialog, variable=finbert_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
-        notify_var = tk.BooleanVar(value=bool(settings.get("macos_notifications", True)))
-        add_row(5, "Notificaciones macOS", tk.Checkbutton(dialog, variable=notify_var, bg=PANEL, fg=TEXT, selectcolor=PANEL_ALT))
+        refresh_var = ctk.StringVar(value=str(settings["refresh_interval_seconds"]))
+        block_var = ctk.StringVar(value=str(settings["calendar_block_hours"]))
+        cal_var = ctk.BooleanVar(value=bool(settings["calendar_blocks_signals"]))
+        sent_var = ctk.BooleanVar(value=bool(settings["sentiment_blocks_signals"]))
+        finbert_var = ctk.BooleanVar(value=bool(settings["use_finbert"]))
+        notify_var = ctk.BooleanVar(value=bool(settings.get("macos_notifications", True)))
+        compact_var = ctk.BooleanVar(value=bool(self.compact_mode))
+
+        def add_menu(label: str, var: ctk.StringVar, values: List[str]) -> None:
+            row = ctk.CTkFrame(dialog, fg_color="transparent")
+            row.pack(fill="x", padx=20, pady=5)
+            ctk.CTkLabel(row, text=label, text_color=MUTED, width=180, anchor="w").pack(side="left")
+            ctk.CTkOptionMenu(row, variable=var, values=values, width=140).pack(side="right")
+
+        def add_check(label: str, var: ctk.BooleanVar) -> None:
+            ctk.CTkCheckBox(dialog, text=label, variable=var, text_color=TEXT).pack(anchor="w", padx=20, pady=5)
+
+        add_menu("Refresco (segundos)", refresh_var, ["60", "120", "300", "600"])
+        add_menu("Bloqueo calendario (h)", block_var, ["3", "6"])
+        add_check("Bloquear por calendario", cal_var)
+        add_check("Bloquear por sentimiento", sent_var)
+        add_check("FinBERT (opcional)", finbert_var)
+        add_check("Notificaciones macOS", notify_var)
+        add_check("Modo compacto", compact_var)
 
         def on_save() -> None:
+            self.compact_mode = bool(compact_var.get())
             save_user_settings({
                 "refresh_interval_seconds": int(refresh_var.get()),
                 "calendar_block_hours": int(block_var.get()),
@@ -374,54 +838,100 @@ class NexusDesktopApp:
                 "sentiment_blocks_signals": sent_var.get(),
                 "use_finbert": finbert_var.get(),
                 "macos_notifications": notify_var.get(),
+                "compact_mode": self.compact_mode,
             })
-            self._update_footer_refresh_label()
+            self.geometry("1040x700" if self.compact_mode else "1440x900")
+            self._update_footer_status()
             self._schedule_refresh_loop()
+            self._render_current()
             dialog.destroy()
 
-        btn_row = tk.Frame(dialog, bg=PANEL)
-        btn_row.grid(row=7, column=0, columnspan=2, pady=16)
-        self.action_button(btn_row, "Guardar", on_save).pack(side="left", padx=8)
-        self.action_button(btn_row, "Cancelar", dialog.destroy).pack(side="left", padx=8)
+        actions = ctk.CTkFrame(dialog, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=16)
+        self.action_button(actions, "Guardar", on_save, primary=True).pack(side="left", padx=(0, 8))
+        self.action_button(actions, "Cancelar", dialog.destroy).pack(side="left")
 
     def _schedule_refresh_loop(self) -> None:
         if self.refresh_job is not None:
-            self.root.after_cancel(self.refresh_job)
-        self.refresh_job = self.root.after(self._refresh_interval_ms(), self._schedule_fetch)
+            self.after_cancel(self.refresh_job)
+            self.refresh_job = None
+        if not self.auto_refresh_enabled:
+            self._next_refresh_at = None
+            return
+        interval = self._refresh_interval_ms()
+        self._next_refresh_at = time.time() + interval / 1000.0
+        self.refresh_job = self.after(interval, self._auto_refresh_tick)
 
-    def _toggle_compact_mode(self) -> None:
-        self.compact_mode = not self.compact_mode
-        if self.compact_mode:
-            self.root.geometry("1040x680")
-            self.ui_font.configure(size=10)
-            self.small_font.configure(size=9)
-        else:
-            self.root.geometry("1440x900")
-            self.ui_font.configure(size=11)
-            self.small_font.configure(size=10)
-        self._render_current()
+    def _auto_refresh_tick(self) -> None:
+        """Timer real: sí dispara fetch (antes solo reprogramaba sin refrescar)."""
+        self._start_fetch()
+        self._schedule_refresh_loop()
+
+    def _nav_keys(self) -> List[str]:
+        return [k for k, _, _ in NAV_ITEMS]
+
+    def _nav_by_index(self, idx: int) -> None:
+        keys = self._nav_keys()
+        if 0 <= idx < len(keys):
+            self._set_view(keys[idx])
+
+    def _nav_step(self, delta: int) -> None:
+        keys = self._nav_keys()
+        try:
+            idx = keys.index(self.current_view)
+        except ValueError:
+            idx = 0
+        self._set_view(keys[(idx + delta) % len(keys)])
 
     def _set_view(self, key: str) -> None:
-        self.current_view = key
+        """Clic de menú: un solo render, sin debounce que deje estados a medias."""
+        if key not in NAV_LABELS:
+            key = "overview"
+        if self._view_job is not None:
+            try:
+                self.after_cancel(self._view_job)
+            except Exception:
+                pass
+            self._view_job = None
+        self._apply_view(key)
+
+    def _update_chrome(self, key: str) -> None:
+        # 1) Nav: colores sólidos → un solo item activo, sin fantasmas
         for k, btn in self.nav_buttons.items():
             active = k == key
-            btn.configure(fg=ACCENT if active else MUTED)
-            self.nav_underlines[k].configure(bg=ACCENT if active else HEADER_BG)
-        label = dict(NAV_ITEMS).get(key, key)
-        self.view_title.configure(text=label)
+            try:
+                btn.configure(
+                    fg_color=NAV_ACTIVE if active else NAV_IDLE,
+                    bg_color=CHROME_BG,
+                    text_color=TEXT if active else MUTED,
+                    hover_color=NAV_ACTIVE_HOVER if active else CARD,
+                )
+            except Exception:
+                pass
+        # 2) Título: destruir y recrear (configure sobre transparent deja basura)
+        self._paint_header_labels(key)
+
+    def _apply_view(self, key: str) -> None:
+        if key not in NAV_LABELS:
+            key = "overview"
+        self.current_view = key
+        self._update_chrome(key)
+        self._schedule_persist()
         self._render_current()
 
     # ─── Data fetch ───
     def _schedule_fetch(self, immediate: bool = False) -> None:
         if immediate:
             self._start_fetch()
+        # Reprograma el ciclo de auto-refresh desde ahora
         self._schedule_refresh_loop()
 
     def _start_fetch(self) -> None:
         if self.fetch_in_progress:
             return
         self.fetch_in_progress = True
-        self.status_label.configure(text="Actualizando…", fg=TEXT, bg=CHIP_NEUTRAL)
+        self.status_chip.configure(text="Actualizando…", fg_color=CHIP_NEUTRAL, text_color=TEXT)
+        self._set_status_text("Actualizando…", MUTED)
         threading.Thread(target=self._fetch_worker, daemon=True).start()
 
     def _fetch_worker(self) -> None:
@@ -438,69 +948,118 @@ class NexusDesktopApp:
                 "export_paths": raw_snap["export_paths"],
             }
             sig = snapshot_signature(raw_snap)
-            self.root.after(0, lambda: self._on_fetch_success(snap, sig))
+            self.after(0, lambda: self._on_fetch_success(snap, sig))
         except Exception as exc:
-            self.root.after(0, lambda: self._on_fetch_error(exc))
+            self.after(0, lambda: self._on_fetch_error(exc))
 
     def _on_fetch_success(self, snap: Dict[str, Any], sig: str) -> None:
         changed = sig != self.current_signature
         notify_snapshot_change(self.current_snapshot, snap)
         self.fetch_in_progress = False
-        self.updated_label.configure(text=snap.get("captured_at_utc", "—"))
-        self.footer_right.configure(text=f"sig: {sig[:12]}")
+        self.last_error = None
+        self.last_success_at = time.time()
+        self._update_footer_status()
         status = snap["status"]
         if changed:
             self.current_snapshot = snap
             self.current_signature = sig
-            self.status_label.configure(text=f"{status} · actualizado", fg=TEXT, bg=CHIP_OK)
+            self.status_chip.configure(text=str(status), fg_color=CHIP_OK, text_color=GOOD)
+            self._set_status_text("Listo", GOOD)
             self._update_macro_label(snap)
-            self._render_current()
+            # Si hay cambio de menú pendiente, el flush ya pintará con el snapshot nuevo
+            if self._view_job is not None:
+                pass
+            else:
+                self._render_current()
         else:
-            self.status_label.configure(text=f"{status} · sin cambios", fg=TEXT, bg=CHIP_NEUTRAL)
+            self.status_chip.configure(text=f"{status} · sin cambios", fg_color=CHIP_NEUTRAL, text_color=TEXT)
+            self._set_status_text("Listo", GOOD)
             self._update_macro_label(snap)
 
     def _update_macro_label(self, snap: Dict[str, Any]) -> None:
         cal = check_macro_events()
         if cal.get("should_block_signals"):
-            self.macro_label.configure(
+            self.macro_chip.configure(
                 text=f"Macro: BLOQUEO {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
-                fg=BAD,
-                bg=CHIP_BAD,
+                text_color=BAD,
+                fg_color=CHIP_BAD,
             )
         elif cal.get("next_event"):
             title = cal["next_event"].get("title", "Evento macro")
-            self.macro_label.configure(text=f"Macro: {title[:40]}", fg=WARN, bg=CHIP_WARN)
+            self.macro_chip.configure(text=f"Macro: {title[:34]}", text_color=WARN, fg_color=CHIP_WARN)
         else:
-            self.macro_label.configure(text="Macro: sin eventos", fg=GOOD, bg=CHIP_OK)
+            self.macro_chip.configure(text="Macro: libre", text_color=GOOD, fg_color=CHIP_OK)
 
     def _on_fetch_error(self, exc: Exception) -> None:
         self.fetch_in_progress = False
-        self.status_label.configure(text=f"ERROR: {exc}", fg=TEXT, bg=CHIP_BAD)
+        self.last_error = str(exc)
+        self.status_chip.configure(text="ERROR", fg_color=CHIP_BAD, text_color=BAD)
+        self._set_status_text("Error", BAD)
+        if not self.current_snapshot:
+            self._render_current()
+        else:
+            self.show_toast(f"Error al actualizar: {exc}", ok=False)
 
     # ─── Routing ───
     def _render_current(self) -> None:
-        self._clear_content()
-        if not self.current_snapshot:
-            panel = self.make_panel(self.content, fill="both", expand=True)
-            tk.Label(panel, text="Cargando snapshot…", fg=MUTED, bg=PANEL, font=self.ui_font).pack(padx=20, pady=40)
+        if self._switching:
+            self._pending_render = True
             return
+        self._switching = True
+        self._pending_render = False
+        self._render_gen += 1
+        gen = self._render_gen
+        view = self.current_view
+        try:
+            self._mount_content_host()
+            if gen != self._render_gen or view != self.current_view:
+                return
+            if not self.current_snapshot:
+                card = self.make_card(self.content, fill="both", expand=True, pady=8)
+                msg = self.last_error or "Cargando snapshot…"
+                ctk.CTkLabel(card, text=msg, text_color=BAD if self.last_error else MUTED, wraplength=520).pack(
+                    padx=20, pady=(36, 12)
+                )
+                if self.last_error:
+                    self.action_button(
+                        card, "Reintentar", lambda: self._schedule_fetch(immediate=True), primary=True
+                    ).pack(pady=(0, 28))
+            else:
+                {
+                    "overview": self._view_overview,
+                    "rotation": self._view_rotation,
+                    "forex": self._view_forex,
+                    "assets": self._view_assets,
+                    "global": self._view_global,
+                    "news": self._view_news,
+                    "history": self._view_history,
+                    "paper": self._view_paper,
+                    "track": self._view_track,
+                    "report": self._view_report,
+                    "quality": self._view_quality,
+                }[view](self.current_snapshot)
+            if gen != self._render_gen:
+                return
+            try:
+                self.update_idletasks()
+            except Exception:
+                pass
+            self._safe_after(16, self._arm_content_scroll)
+            self._safe_after(30, self._refresh_wraplengths)
+        except Exception as exc:
+            if gen == self._render_gen:
+                try:
+                    err = self.make_card(self.content, fill="x", pady=8)
+                    self.body_text(err, f"Error al pintar la vista: {exc}", BAD)
+                except Exception:
+                    pass
+        finally:
+            self._switching = False
+            if self._pending_render and self._alive:
+                self._pending_render = False
+                self.after(0, self._render_current)
 
-        renderers = {
-            "overview": self._view_overview,
-            "rotation": self._view_rotation,
-            "forex": self._view_forex,
-            "assets": self._view_assets,
-            "global": self._view_global,
-            "news": self._view_news,
-            "history": self._view_history,
-            "paper": self._view_paper,
-            "track": self._view_track,
-            "report": self._view_report,
-            "quality": self._view_quality,
-        }
-        renderers[self.current_view](self.current_snapshot)
-
-    # ─── Views ───
+    # ─── Overview (decision cockpit) ───
     def _view_overview(self, s: Dict[str, Any]) -> None:
         d = s["data"]
         dec = s["decision"]
@@ -510,109 +1069,288 @@ class NexusDesktopApp:
         fx_sig = forex_signal(fx, uup, s.get("news_items", []))
         dual = forex_dual_perspective(fx_sig)
         rates = forex_bidirectional_rates(fx)
-        ranked = sorted(dec.get("asset_scores", {}).values(), key=lambda m: m.get("score", 0), reverse=True)[:3]
+        ranked = sorted(dec.get("asset_scores", {}).values(), key=lambda m: m.get("score", 0), reverse=True)
+        top_assets = ranked[:6]
+        allocation = dec.get("allocation") or {}
+        alloc_sorted = sorted(
+            ((k, int(v)) for k, v in allocation.items() if int(v or 0) > 0),
+            key=lambda item: item[1],
+            reverse=True,
+        )
         macro_action = dec.get("macro_action", dec.get("action"))
         ops_action = dec.get("operational_action", dec.get("action"))
         pause = dec.get("operational_pause_reason")
         score = int(dec.get("score", 0))
+        rationale = str(dec.get("rationale") or "").strip()
+        alerts = s.get("alerts") or []
+        cal = check_macro_events()
 
-        top = tk.Frame(self.content, bg=BG)
-        top.pack(fill="x")
-        top.columnconfigure(0, weight=1)
-        top.columnconfigure(1, weight=1)
-        top.columnconfigure(2, weight=1)
-
-        macro = self.make_panel(top)
-        macro.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.section_title(macro, "DIAGNÓSTICO MACRO")
-        tk.Label(macro, text=str(macro_action), fg=TEXT, bg=PANEL, font=self.hero_font, anchor="w").pack(fill="x", padx=14)
-        self.kv_row(macro, "Score", f"{score}/100  {score_bar(score, 14)}", score_color(score))
-        self.kv_row(macro, "Status", str(s.get("status")), status_color(str(s.get("status"))))
-        tk.Frame(macro, bg=PANEL, height=8).pack()
-
-        ops = self.make_panel(top)
-        ops.grid(row=0, column=1, sticky="nsew", padx=6)
-        self.section_title(ops, "SEÑAL OPERATIVA")
-        tk.Label(ops, text=str(ops_action), fg=TEXT, bg=PANEL, font=self.hero_font, anchor="w").pack(fill="x", padx=14)
-        self.kv_row(ops, "Confianza", str(dec.get("confidence", "—")))
-        self.kv_row(ops, "Favorecidos", ", ".join(dec.get("favored_assets") or ["—"]))
+        # 1) Acción ahora
+        hero = self.make_card(self.content, fill="x", pady=3)
+        self.section_title(hero, "ACCIÓN AHORA")
+        head = ctk.CTkFrame(hero, fg_color="transparent")
+        head.pack(fill="x", padx=14, pady=(0, 4))
+        ctk.CTkLabel(
+            head,
+            text=str(ops_action),
+            text_color=TEXT,
+            font=ctk.CTkFont(family="SF Pro Display", size=26, weight="bold"),
+            anchor="w",
+        ).pack(side="left")
+        conf = str(dec.get("confidence", "—"))
+        conf_color = GOOD if conf.upper() == "ALTA" else (WARN if conf.upper() == "MEDIA" else MUTED)
+        ctk.CTkLabel(
+            head,
+            text=f"  {conf}",
+            text_color=conf_color,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).pack(side="left", padx=(8, 0))
         if pause:
-            self.kv_row(ops, "Pausa", str(pause), WARN)
-        tk.Frame(ops, bg=PANEL, height=8).pack()
+            self.kv_row(hero, "Pausa", str(pause), WARN)
+        favored = ", ".join(dec.get("favored_assets") or ["—"])
+        self.kv_row(hero, "Favorecidos", favored)
+        self.kv_row(hero, "Macro", f"{macro_action} · score {score}/100", score_color(score))
+        self.progress_row(hero, "Score", score / 100.0, f"{score}/100", color=score_color(score), label_width=78)
+        if rationale:
+            short = rationale if len(rationale) <= 320 else rationale[:317] + "…"
+            self.body_text(hero, short, MUTED)
 
-        pulse = self.make_panel(top)
-        pulse.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
-        self.section_title(pulse, "PULSO MERCADO")
-        for label, bar, value in (
-            ("VIX", metric_bar(d.get("VIX"), 10, 40), fmt(d.get("VIX"))),
-            ("Bono 10Y", metric_bar(d.get("US10Y"), 2, 6), fmt(d.get("US10Y"), 2, "%")),
-            ("IPC YoY", metric_bar(d.get("CPI_YoY_Pct"), 1, 6), fmt(d.get("CPI_YoY_Pct"), 1, "%")),
-            ("M2", metric_bar(d.get("M2_Change_Pct"), -6, 8), signed(d.get("M2_Change_Pct"))),
-            ("Curva", metric_bar(d.get("Yield_Curve_Spread"), -1, 2), signed(d.get("Yield_Curve_Spread"), suffix="pp")),
-            ("Corr", metric_bar(abs(d.get("Correlation_Proxy")) if d.get("Correlation_Proxy") is not None else None, 0, 1), fmt(d.get("Correlation_Proxy"), 3)),
+        # 2) Bloqueos / calendario + estado
+        cols = self._grid_cols(2)
+        risk = self.layout(fill="x", pady=(6, 0))
+        for c in range(cols):
+            risk.columnconfigure(c, weight=1)
+
+        block_card = self.make_card(risk)
+        block_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6 if cols > 1 else 0), pady=3)
+        self.section_title(block_card, "RIESGO / FILTROS")
+        self.kv_row(block_card, "Status", str(s.get("status")), status_color(str(s.get("status"))))
+        if cal.get("should_block_signals"):
+            self.kv_row(
+                block_card,
+                "Calendario",
+                f"BLOQUEO {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
+                BAD,
+            )
+        elif cal.get("next_event"):
+            ev = cal["next_event"]
+            self.kv_row(block_card, "Próximo", str(ev.get("title", "Evento"))[:42], WARN)
+            when = str(ev.get("when") or ev.get("date") or ev.get("time") or "—")
+            self.kv_row(block_card, "Cuándo", when[:42], MUTED)
+        else:
+            self.kv_row(block_card, "Calendario", "sin eventos cercanos", GOOD)
+        if alerts:
+            for alert in alerts[:3]:
+                self.body_text(block_card, f"• {alert}", WARN if "bloque" in str(alert).lower() else MUTED, wrap=420)
+        else:
+            self.body_text(block_card, "Sin alertas activas.", GOOD, wrap=420)
+
+        alloc_card = self.make_card(risk)
+        alloc_card.grid(
+            row=0 if cols > 1 else 1,
+            column=1 if cols > 1 else 0,
+            sticky="nsew",
+            padx=(6 if cols > 1 else 0, 0),
+            pady=3,
+        )
+        self.section_title(alloc_card, "ALLOCATION SUGERIDA", "clic → Activos")
+        if not alloc_sorted:
+            self.body_text(alloc_card, "Sin allocation (liquidez / datos insuficientes).", MUTED)
+        else:
+            for asset, pct in alloc_sorted[:7]:
+                self.progress_row(alloc_card, asset, pct / 100.0, f"{pct}%", color=ACCENT if pct < 40 else GOOD)
+        self.wire_click(alloc_card, lambda: self._set_view("assets"))
+
+        # 3) Ranking + pulso
+        mid = self.layout(fill="x", pady=(6, 0))
+        for c in range(cols):
+            mid.columnconfigure(c, weight=1)
+
+        assets_p = self.make_card(mid)
+        assets_p.grid(row=0, column=0, sticky="nsew", padx=(0, 6 if cols > 1 else 0), pady=3)
+        self.section_title(assets_p, "RANKING ACTIVOS", "clic → detalle")
+        for m in top_assets:
+            sc = int(m.get("score", 0))
+            label = str(m.get("label") or m.get("ticker") or "-")[:16]
+            action = str(m.get("action") or "")
+            self.progress_row(
+                assets_p,
+                label,
+                sc / 100.0,
+                f"{sc} {action[:10]}".strip(),
+                color=score_color(sc),
+                label_width=90,
+            )
+        self.wire_click(assets_p, lambda: self._set_view("assets"))
+
+        pulse = self.make_card(mid)
+        pulse.grid(
+            row=0 if cols > 1 else 1,
+            column=1 if cols > 1 else 0,
+            sticky="nsew",
+            padx=(6 if cols > 1 else 0, 0),
+            pady=3,
+        )
+        self.section_title(pulse, "PULSO MACRO")
+        for label, value, low, high, display in (
+            ("VIX", d.get("VIX"), 10, 40, fmt(d.get("VIX"))),
+            ("Bono 10Y", d.get("US10Y"), 2, 6, fmt(d.get("US10Y"), 2, "%")),
+            ("IPC YoY", d.get("CPI_YoY_Pct"), 1, 6, fmt(d.get("CPI_YoY_Pct"), 1, "%")),
+            ("M2", d.get("M2_Change_Pct"), -6, 8, signed(d.get("M2_Change_Pct"))),
+            ("Curva", d.get("Yield_Curve_Spread"), -1, 2, signed(d.get("Yield_Curve_Spread"), suffix="pp")),
+            (
+                "Corr",
+                abs(d.get("Correlation_Proxy")) if d.get("Correlation_Proxy") is not None else None,
+                0,
+                1,
+                fmt(d.get("Correlation_Proxy"), 3),
+            ),
         ):
-            self.metric_row(pulse, label, bar, value)
-        tk.Frame(pulse, bg=PANEL, height=8).pack()
+            self.metric_progress(pulse, label, value, low, high, display)
 
-        bottom = tk.Frame(self.content, bg=BG)
-        bottom.pack(fill="both", expand=True, pady=(10, 0))
-        bottom.columnconfigure(0, weight=1)
-        bottom.columnconfigure(1, weight=1)
-        bottom.columnconfigure(2, weight=1)
-        bottom.columnconfigure(3, weight=1)
+        # 4) Rotación / Forex / News — drill-down
+        bottom_cols = self._grid_cols(3)
+        if self.winfo_width() >= 1280:
+            bottom_cols = 3
+        bottom = self.layout(fill="x", pady=(6, 8))
+        for c in range(bottom_cols):
+            bottom.columnconfigure(c, weight=1)
 
-        rot_p = self.make_panel(bottom)
-        rot_p.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.section_title(rot_p, "ROTACIÓN")
+        def place(card: Any, idx: int) -> None:
+            r, c = divmod(idx, bottom_cols)
+            pad_l = 0 if c == 0 else 5
+            pad_r = 0 if c == bottom_cols - 1 else 5
+            card.grid(row=r, column=c, sticky="nsew", padx=(pad_l, pad_r), pady=3)
+
+        rot_p = self.make_card(bottom)
+        place(rot_p, 0)
+        self.section_title(rot_p, "ROTACIÓN", "clic →")
         self.kv_row(rot_p, "Estado", str(rot.get("state", "—")))
         self.kv_row(rot_p, "Leaders 1M", signed(rot.get("leaders_avg_1m")))
         self.kv_row(rot_p, "Receivers 1M", signed(rot.get("receivers_avg_1m")))
-        tk.Frame(rot_p, bg=PANEL, height=8).pack()
+        themes = rot.get("themes") or []
+        if themes:
+            t0 = themes[0]
+            action0, _ = rotation_trade_action(t0)
+            self.body_text(
+                rot_p,
+                f"{t0.get('theme', '')}: {action0} · {t0.get('signal', '')}",
+                MUTED,
+            )
+        self.wire_click(rot_p, lambda: self._set_view("rotation"))
 
-        fx_p = self.make_panel(bottom)
-        fx_p.grid(row=0, column=1, sticky="nsew", padx=6)
-        self.section_title(fx_p, "FOREX")
+        fx_p = self.make_card(bottom)
+        place(fx_p, 1)
+        self.section_title(fx_p, "FOREX", "clic →")
         self.kv_row(fx_p, "Spot", rates["eur_label"])
-        self.kv_row(fx_p, "Inverso", rates["usd_label"])
         self.kv_row(fx_p, "Acción", str(fx_sig.get("action", "—")))
-        self.kv_row(fx_p, "EUR vista", dual.get("eur_view", "—"))
-        tk.Frame(fx_p, bg=PANEL, height=8).pack()
+        self.kv_row(fx_p, "EUR", str(dual.get("eur_view", "—")))
+        self.kv_row(fx_p, "Rel 1M", signed(fx_sig.get("rel_1m"), suffix="pp"))
+        self.wire_click(fx_p, lambda: self._set_view("forex"))
 
-        assets_p = self.make_panel(bottom)
-        assets_p.grid(row=0, column=2, sticky="nsew", padx=6)
-        self.section_title(assets_p, "TOP ACTIVOS")
-        for m in ranked:
-            sc = int(m.get("score", 0))
-            self.kv_row(assets_p, str(m.get("label", "-"))[:14], f"{sc}/100 {score_bar(sc, 8)}", score_color(sc))
-        tk.Frame(assets_p, bg=PANEL, height=8).pack()
-
-        news_p = self.make_panel(bottom)
-        news_p.grid(row=0, column=3, sticky="nsew", padx=(6, 0))
-        self.section_title(news_p, "NEWS / ALERTAS")
-        for alert in (s.get("alerts") or [])[:2]:
-            self.body_text(news_p, f"• {alert}", MUTED)
-        for item in (s.get("news_items") or [])[:2]:
-            self.body_text(news_p, f"[{item.get('source', 'RSS')}] {item.get('title', '-')}", TEXT)
+        news_p = self.make_card(bottom)
+        place(news_p, 2)
+        self.section_title(news_p, "NEWS", "clic →")
+        items = s.get("news_items") or []
+        if not items:
+            self.body_text(news_p, "Sin titulares.", MUTED)
+        for item in items[:4]:
+            title = str(item.get("title") or "-")
+            if len(title) > 72:
+                title = title[:69] + "…"
+            self.body_text(news_p, f"[{item.get('source', 'RSS')}] {title}", TEXT)
+        self.wire_click(news_p, lambda: self._set_view("news"))
 
     def _view_rotation(self, s: Dict[str, Any]) -> None:
         r = s["rotation"]
-        head = self.make_panel(self.content, fill="x", pady=(0, 10))
-        self.section_title(head, "ESTADO DE ROTACIÓN")
+        themes = list(r.get("themes") or [])
+        actions = [rotation_trade_action(t)[0] for t in themes]
+        n_buy = actions.count("COMPRAR")
+        n_wait = actions.count("ESPERAR")
+        n_sell = actions.count("VENDER")
+
+        head = self.make_card(self.content, fill="x", pady=3)
+        self.section_title(head, "RESUMEN ROTACIÓN")
         self.kv_row(head, "Estado", str(r.get("state", "—")))
         self.kv_row(head, "Leaders 1M", signed(r.get("leaders_avg_1m")))
         self.kv_row(head, "Receivers 1M", signed(r.get("receivers_avg_1m")))
-        self.body_text(head, str(r.get("summary", "")))
+        counts = tk.Frame(head, bg=CARD)
+        counts.pack(fill="x", padx=14, pady=(4, 8))
+        for label, n, color in (
+            ("COMPRAR", n_buy, GOOD),
+            ("ESPERAR", n_wait, MUTED),
+            ("VENDER", n_sell, BAD),
+        ):
+            chip = ctk.CTkLabel(
+                counts,
+                text=f"  {label} {n}  ",
+                text_color=color,
+                fg_color=CHIP_OK if color == GOOD else (CHIP_BAD if color == BAD else CHIP_NEUTRAL),
+                corner_radius=8,
+                font=ctk.CTkFont(size=12, weight="bold"),
+            )
+            chip.pack(side="left", padx=(0, 8))
+        if r.get("summary"):
+            self.body_text(head, str(r.get("summary")), MUTED)
 
-        _, inner = self._scrollable(self.content)
-        for t in r.get("themes", []):
-            panel = self.make_panel(inner, fill="x", pady=4, padx=2)
-            group = "DESCANSA" if t.get("group") == "Líderes en descanso" else "RECIBE"
-            color = WARN if group == "DESCANSA" else GOOD
-            self.section_title(panel, f"{group} · {t.get('theme', '')} ({t.get('ticker', '')})")
-            self.kv_row(panel, "Señal", str(t.get("signal", "—")), color)
-            self.kv_row(panel, "Mom 1M", signed(t.get("momentum_1m")))
-            self.kv_row(panel, "vs SPY", signed(t.get("relative_1m_vs_spy")))
-            self.body_text(panel, str(t.get("represents", "")), MUTED)
+        # Tabla 100% tk (CTk anidado deformaba los mini-recuadros al resize)
+        table = tk.Frame(self.content, bg=CARD, highlightthickness=0, bd=0)
+        table.pack(fill="x", pady=3)
+        tk.Label(
+            table,
+            text="SECTORES · ACCIÓN",
+            bg=CARD,
+            fg=ACCENT,
+            anchor="w",
+            font=("SF Pro Text", 12, "bold"),
+        ).pack(fill="x", padx=14, pady=(12, 6))
+
+        def add_group(title: str, items: List[Dict[str, Any]]) -> None:
+            if not items:
+                return
+            tk.Label(
+                table,
+                text=title,
+                bg=CARD,
+                fg=ACCENT,
+                anchor="w",
+                font=("SF Pro Text", 11, "bold"),
+            ).pack(fill="x", padx=14, pady=(10, 4))
+            for t in items:
+                action, color = rotation_trade_action(t)
+                row = tk.Frame(table, bg=CARD_INNER, highlightthickness=0, bd=0)
+                row.pack(fill="x", padx=10, pady=3)
+                pad = tk.Frame(row, bg=CARD_INNER)
+                pad.pack(fill="x", padx=10, pady=8)
+                cols = [
+                    (str(t.get("theme", "—"))[:22], TEXT, 22, ("SF Pro Text", 12)),
+                    (str(t.get("ticker", "—")), MUTED, 7, ("Menlo", 11)),
+                    (action, color, 9, ("SF Pro Text", 12, "bold")),
+                    (str(t.get("signal", "—"))[:26], MUTED, 26, ("SF Pro Text", 11)),
+                    (signed(t.get("momentum_1m")), TEXT, 8, ("Menlo", 11)),
+                    (signed(t.get("relative_1m_vs_spy")), TEXT, 8, ("Menlo", 11)),
+                ]
+                for text, fg, width, font in cols:
+                    tk.Label(
+                        pad,
+                        text=text,
+                        bg=CARD_INNER,
+                        fg=fg,
+                        anchor="w",
+                        width=width,
+                        font=font,
+                    ).pack(side="left", padx=2)
+            # spacer inferior del grupo
+            tk.Frame(table, bg=CARD, height=4).pack(fill="x")
+
+        add_group("LÍDERES", [t for t in themes if t.get("group") == "Líderes en descanso"])
+        add_group("RECEPTORES DE FLUJO", [t for t in themes if t.get("group") != "Líderes en descanso"])
+        if not themes:
+            tk.Label(table, text="Sin temas de rotación disponibles.", bg=CARD, fg=MUTED, anchor="w").pack(
+                fill="x", padx=14, pady=10
+            )
+        tk.Frame(table, bg=CARD, height=10).pack(fill="x")
 
     def _view_forex(self, s: Dict[str, Any]) -> None:
         d = s["data"]
@@ -625,48 +1363,48 @@ class NexusDesktopApp:
         usd_sem = directional_forex_semaphore(-(fx_sig.get("rel_1m") or 0.0))
         rates = forex_bidirectional_rates(fx)
 
-        top = tk.Frame(self.content, bg=BG)
-        top.pack(fill="x")
-        top.columnconfigure(0, weight=1)
-        top.columnconfigure(1, weight=1)
-        top.columnconfigure(2, weight=1)
+        top = self.layout(fill="x")
+        top.columnconfigure((0, 1, 2), weight=1)
 
-        spot = self.make_panel(top)
-        spot.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        spot = self.make_card(top)
+        spot.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=3)
         self.section_title(spot, "TIPO DE CAMBIO")
-        tk.Label(spot, text=rates["eur_label"], fg=TEXT, bg=PANEL, font=self.hero_font, anchor="w").pack(fill="x", padx=14)
+        ctk.CTkLabel(spot, text=rates["eur_label"], text_color=TEXT, font=ctk.CTkFont(size=18, weight="bold"), anchor="w").pack(
+            fill="x", padx=14
+        )
         self.kv_row(spot, "USD/EUR", rates["usd_label"])
         self.kv_row(spot, "Acción", str(fx_sig.get("action")))
         self.kv_row(spot, "Confianza", f"{fx_sig.get('confidence')} ({fx_sig.get('score'):+d})")
-        tk.Frame(spot, bg=PANEL, height=8).pack()
 
-        eur = self.make_panel(top)
-        eur.grid(row=0, column=1, sticky="nsew", padx=6)
+        eur = self.make_card(top)
+        eur.grid(row=0, column=1, sticky="nsew", padx=6, pady=3)
         self.section_title(eur, "EUR/USD")
         self.kv_row(eur, "Spot", fmt(fx.get("price"), 4))
         self.kv_row(eur, "MA20/50", f"{fmt(fx.get('ma20'), 4)} / {fmt(fx.get('ma50'), 4)}")
         self.kv_row(eur, "Trend", str(fx_sig.get("eur_trend")))
-        self.metric_row(eur, "Mom 1M", metric_bar(fx.get("momentum_1m"), -5, 5), signed(fx.get("momentum_1m")))
-        self.metric_row(eur, "Mom 3M", metric_bar(fx.get("momentum_3m"), -10, 10), signed(fx.get("momentum_3m")))
+        self.metric_progress(eur, "Mom 1M", fx.get("momentum_1m"), -5, 5, signed(fx.get("momentum_1m")))
+        self.metric_progress(eur, "Mom 3M", fx.get("momentum_3m"), -10, 10, signed(fx.get("momentum_3m")))
         self.kv_row(eur, "Vista", f"{eur_sem['label']} · {dual['eur_view']}")
-        tk.Frame(eur, bg=PANEL, height=8).pack()
 
-        usd = self.make_panel(top)
-        usd.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+        usd = self.make_card(top)
+        usd.grid(row=0, column=2, sticky="nsew", padx=(6, 0), pady=3)
         self.section_title(usd, "USD (UUP)")
         self.kv_row(usd, "Spot", fmt(uup.get("price"), 2))
         self.kv_row(usd, "Trend", str(fx_sig.get("usd_trend")))
-        self.metric_row(usd, "Mom 1M", metric_bar(uup.get("momentum_1m"), -5, 5), signed(uup.get("momentum_1m")))
+        self.metric_progress(usd, "Mom 1M", uup.get("momentum_1m"), -5, 5, signed(uup.get("momentum_1m")))
         self.kv_row(usd, "Score", f"{uup_score if uup_score is not None else '—'}/100")
         self.kv_row(usd, "Vista", f"{usd_sem['label']} · {dual['usd_view']}")
-        tk.Frame(usd, bg=PANEL, height=8).pack()
 
-        rel = self.make_panel(self.content, fill="x", pady=(10, 0))
+        rel = self.make_card(self.content, fill="x", pady=3)
         self.section_title(rel, "RELATIVO EUR vs USD · NEWS")
-        self.metric_row(rel, "Dif 1M", metric_bar(fx_sig.get("rel_1m"), -5, 5), signed(fx_sig.get("rel_1m"), suffix="pp"))
+        self.metric_progress(rel, "Dif 1M", fx_sig.get("rel_1m"), -5, 5, signed(fx_sig.get("rel_1m"), suffix="pp"))
         self.kv_row(rel, "Evolución", f"{signed(fx_sig.get('rel_change'), suffix='pp')} → {fx_sig.get('evolution')}")
         news = fx_sig.get("news", {})
-        self.kv_row(rel, "News neto", f"EUR {news.get('eur_score', 0):+d} / USD {news.get('usd_score', 0):+d} → {news.get('net_eur_minus_usd', 0):+d}")
+        self.kv_row(
+            rel,
+            "News neto",
+            f"EUR {news.get('eur_score', 0):+d} / USD {news.get('usd_score', 0):+d} → {news.get('net_eur_minus_usd', 0):+d}",
+        )
         self.body_text(rel, str(news.get("expectation", "")))
 
     def _view_assets(self, s: Dict[str, Any]) -> None:
@@ -675,72 +1413,78 @@ class NexusDesktopApp:
             key=lambda item: item[1].get("score", 0),
             reverse=True,
         )
-        _, inner = self._scrollable(self.content)
         for _, m in assets:
             score = int(m.get("score", 0))
-            panel = self.make_panel(inner, fill="x", pady=4, padx=2)
-            head = tk.Frame(panel, bg=PANEL)
-            head.pack(fill="x", padx=14, pady=(12, 4))
-            tk.Label(head, text=str(m.get("label") or "-"), fg=TEXT, bg=PANEL, font=self.hero_font).pack(side="left")
-            tk.Label(head, text=f"{score}/100", fg=score_color(score), bg=PANEL, font=self.title_font).pack(side="right")
-            self.kv_row(panel, "Barra", score_bar(score, 18), score_color(score))
+            panel = self.make_card(self.content, fill="x", pady=3)
+            head = ctk.CTkFrame(panel, fg_color="transparent")
+            head.pack(fill="x", padx=14, pady=(12, 2))
+            ctk.CTkLabel(head, text=str(m.get("label") or "-"), text_color=TEXT, font=ctk.CTkFont(size=16, weight="bold")).pack(
+                side="left"
+            )
+            ctk.CTkLabel(head, text=f"{score}/100", text_color=score_color(score), font=ctk.CTkFont(size=13, weight="bold")).pack(
+                side="right"
+            )
+            self.progress_row(panel, "Score", score / 100.0, f"{score}/100", color=score_color(score))
             self.kv_row(panel, "Acción", str(m.get("action") or "—"))
             self.kv_row(panel, "Trend", str(m.get("trend") or "—"))
             self.kv_row(panel, "Mom 1M / 3M", f"{signed(m.get('momentum_1m'))}  /  {signed(m.get('momentum_3m'))}")
             self.kv_row(panel, "Vol 20d", signed(m.get("volatility_20d")))
-            tk.Frame(panel, bg=PANEL, height=8).pack()
 
     def _view_global(self, s: Dict[str, Any]) -> None:
         markets = s["data"].get("GlobalMarkets", {}) or {}
-        grid = tk.Frame(self.content, bg=BG)
-        grid.pack(fill="both", expand=True)
+        grid = self.layout(fill="x")
         cols = 2
         for idx, (region, metrics) in enumerate(markets.items()):
             r, c = divmod(idx, cols)
-            panel = self.make_panel(grid)
-            panel.grid(row=r, column=c, sticky="nsew", padx=6, pady=6)
+            panel = self.make_card(grid)
+            panel.grid(row=r, column=c, sticky="nsew", padx=5, pady=5)
             grid.columnconfigure(c, weight=1)
             self.section_title(panel, region.upper())
             self.kv_row(panel, "Spot", fmt(metrics.get("price"), 2))
             self.kv_row(panel, "MA20 / MA50", f"{fmt(metrics.get('ma20'), 2)} / {fmt(metrics.get('ma50'), 2)}")
             self.kv_row(panel, "Trend", trend_from_metrics(metrics))
-            self.metric_row(panel, "Mom 1M", metric_bar(metrics.get("momentum_1m"), -8, 8), signed(metrics.get("momentum_1m")))
-            self.metric_row(panel, "Mom 3M", metric_bar(metrics.get("momentum_3m"), -12, 12), signed(metrics.get("momentum_3m")))
-            tk.Frame(panel, bg=PANEL, height=8).pack()
+            self.metric_progress(panel, "Mom 1M", metrics.get("momentum_1m"), -8, 8, signed(metrics.get("momentum_1m")))
+            self.metric_progress(panel, "Mom 3M", metrics.get("momentum_3m"), -12, 12, signed(metrics.get("momentum_3m")))
         if not markets:
-            panel = self.make_panel(self.content, fill="both", expand=True)
+            panel = self.make_card(self.content, fill="x")
             self.body_text(panel, "Sin datos de mercados globales.")
 
     def _view_news(self, s: Dict[str, Any]) -> None:
         items = s.get("news_items") or []
-        head = self.make_panel(self.content, fill="x", pady=(0, 8))
+        head = self.make_card(self.content, fill="x", pady=3)
         self.section_title(head, f"NOTICIAS · {len(items)} titulares")
-        _, inner = self._scrollable(self.content)
         for item in items[:80]:
-            row = self.make_panel(inner, fill="x", pady=2, padx=2)
-            meta = tk.Frame(row, bg=PANEL)
-            meta.pack(fill="x", padx=12, pady=(8, 0))
-            tk.Label(meta, text=str(item.get("source") or "RSS"), fg=ACCENT, bg=PANEL, font=self.small_font).pack(side="left")
-            tk.Label(meta, text=str(item.get("published_at") or "—")[:22], fg=MUTED, bg=PANEL, font=self.small_font).pack(side="right")
+            row = self.make_card(self.content, fill="x", pady=2)
+            meta = ctk.CTkFrame(row, fg_color="transparent")
+            meta.pack(fill="x", padx=14, pady=(10, 0))
+            ctk.CTkLabel(meta, text=str(item.get("source") or "RSS"), text_color=ACCENT, font=ctk.CTkFont(size=11)).pack(
+                side="left"
+            )
+            ctk.CTkLabel(
+                meta, text=str(item.get("published_at") or "—")[:22], text_color=MUTED, font=ctk.CTkFont(size=11)
+            ).pack(side="right")
             self.body_text(row, str(item.get("title") or "-"))
 
     def _view_history(self, s: Dict[str, Any]) -> None:
         summary = summarize_history(limit=30)
-        head = self.make_panel(self.content, fill="x", pady=(0, 8))
+        head = self.make_card(self.content, fill="x", pady=3)
         self.section_title(head, "HISTORIAL DE DECISIONES")
         if summary["count"] == 0:
             self.body_text(head, "No hay historial todavía. Ejecuta NEXUS con exportación activa.")
             return
         self.kv_row(head, "Snapshots", str(summary["count"]))
-        self.kv_row(head, "Score medio", f"{summary.get('avg_score')}  (min {summary.get('min_score')} / max {summary.get('max_score')})")
+        self.kv_row(
+            head,
+            "Score medio",
+            f"{summary.get('avg_score')}  (min {summary.get('min_score')} / max {summary.get('max_score')})",
+        )
 
-        cols = tk.Frame(self.content, bg=BG)
-        cols.pack(fill="both", expand=True)
-        cols.columnconfigure(0, weight=1)
-        cols.columnconfigure(1, weight=1)
-
-        left = self.make_panel(cols)
+        cols = self.layout(fill="x", pady=3)
+        cols.columnconfigure((0, 1), weight=1)
+        left = self.make_card(cols)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        right = self.make_card(cols)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.section_title(left, "EVOLUCIÓN RECIENTE")
         for point in summary.get("score_timeline", [])[-12:][::-1]:
             macro = point.get("macro_action") or point.get("action")
@@ -748,9 +1492,6 @@ class NexusDesktopApp:
             stamp = str(point.get("captured_at") or "")[:19]
             label = f"{macro}" if macro == ops else f"M:{macro} / O:{ops}"
             self.kv_row(left, stamp, f"score {point.get('score')} · {label}")
-
-        right = self.make_panel(cols)
-        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.section_title(right, "CAMBIOS DE SEÑAL")
         changes = summary.get("action_changes") or []
         if not changes:
@@ -762,39 +1503,33 @@ class NexusDesktopApp:
     def _view_paper(self, s: Dict[str, Any]) -> None:
         summary = summarize_paper_trading(limit=12)
         portfolio = summary["portfolio"]
-        head = tk.Frame(self.content, bg=BG)
-        head.pack(fill="x")
-        head.columnconfigure(0, weight=1)
-        head.columnconfigure(1, weight=1)
-        head.columnconfigure(2, weight=1)
+        head = self.layout(fill="x")
+        head.columnconfigure((0, 1, 2), weight=1)
 
-        p1 = self.make_panel(head)
-        p1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        p1 = self.make_card(head)
+        p1.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=3)
         self.section_title(p1, "PAPER VALUE")
         self.kv_row(p1, "Inicial", f"${portfolio.get('starting_value', 0):,.2f}")
         self.kv_row(p1, "Actual", f"${portfolio.get('current_value', 0):,.2f}")
         self.kv_row(p1, "Retorno", f"{summary['total_return_pct']:+.2f}%", GOOD if summary["total_return_pct"] >= 0 else BAD)
 
-        p2 = self.make_panel(head)
-        p2.grid(row=0, column=1, sticky="nsew", padx=6)
+        p2 = self.make_card(head)
+        p2.grid(row=0, column=1, sticky="nsew", padx=6, pady=3)
         self.section_title(p2, "BENCHMARK SPY")
         self.kv_row(p2, "Buy&Hold", f"{summary['benchmark_return_pct']:+.2f}%")
         self.kv_row(p2, "Alpha", f"{summary['alpha_vs_spy_pct']:+.2f}%", GOOD if summary["alpha_vs_spy_pct"] >= 0 else BAD)
         self.kv_row(p2, "Última acción", f"{portfolio.get('last_action')} ({portfolio.get('last_score')})")
 
-        p3 = self.make_panel(head)
-        p3.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+        p3 = self.make_card(head)
+        p3.grid(row=0, column=2, sticky="nsew", padx=(6, 0), pady=3)
         self.section_title(p3, "POSICIÓN")
         holdings = portfolio.get("holdings") or {}
         if not holdings:
             self.body_text(p3, "Sin posiciones.")
         for asset, amount in sorted(holdings.items()):
-            if asset == "CASH":
-                self.kv_row(p3, asset, f"${amount:,.2f}")
-            else:
-                self.kv_row(p3, asset, f"{amount:.4f}")
+            self.kv_row(p3, asset, f"${amount:,.2f}" if asset == "CASH" else f"{amount:.4f}")
 
-        trades_p = self.make_panel(self.content, fill="both", expand=True, pady=(10, 0))
+        trades_p = self.make_card(self.content, fill="x", pady=3)
         self.section_title(trades_p, f"ÚLTIMOS TRADES ({summary['trade_count']})")
         for trade in (summary.get("trades") or [])[::-1][:12]:
             stamp = str(trade.get("captured_at") or trade.get("timestamp") or "")[:19]
@@ -806,18 +1541,17 @@ class NexusDesktopApp:
         payload = track_record_chart_payload(forward_days=5, limit=100, chart_limit=40)
         self._track_chart_payload = payload
 
-        summary = self.make_panel(self.content, fill="x", pady=(0, 8))
+        summary = self.make_card(self.content, fill="x", pady=3)
         self.section_title(summary, "TRACK RECORD vs SPY")
         if payload.get("sample_size", 0) == 0:
             self.body_text(summary, payload.get("message", "Sin datos de track record."))
         else:
-            cols = tk.Frame(summary, bg=PANEL)
-            cols.pack(fill="x", padx=8, pady=(0, 10))
-            cols.columnconfigure(0, weight=1)
-            cols.columnconfigure(1, weight=1)
-            left = tk.Frame(cols, bg=PANEL)
+            cols = ctk.CTkFrame(summary, fg_color="transparent")
+            cols.pack(fill="x", padx=6, pady=(0, 8))
+            cols.columnconfigure((0, 1), weight=1)
+            left = ctk.CTkFrame(cols, fg_color="transparent")
             left.grid(row=0, column=0, sticky="nsew")
-            right = tk.Frame(cols, bg=PANEL)
+            right = ctk.CTkFrame(cols, fg_color="transparent")
             right.grid(row=0, column=1, sticky="nsew")
             self.kv_row(left, "Muestras", str(payload.get("sample_size")))
             self.kv_row(left, "Forward", f"{payload.get('forward_days')} días")
@@ -830,14 +1564,16 @@ class NexusDesktopApp:
             avg = payload.get("macro_buy_avg_return_pct")
             self.kv_row(right, "Retorno medio buy", f"{avg:+.2f}%" if avg is not None else "—")
 
-        chart_frame = self.make_panel(self.content, fill="x", pady=(0, 8))
-        canvas = tk.Canvas(chart_frame, bg=PANEL, highlightthickness=0, height=230)
-        canvas.pack(fill="both", expand=True, padx=8, pady=8)
+        chart_card = self.make_card(self.content, fill="x", pady=3)
+        canvas_host = ctk.CTkFrame(chart_card, fg_color=CARD, corner_radius=INNER_CORNER)
+        canvas_host.pack(fill="x", padx=10, pady=10)
+        canvas = tk.Canvas(canvas_host, bg=CARD, highlightthickness=0, height=230)
+        canvas.pack(fill="both", expand=True)
         self.track_canvas = canvas
         canvas.bind("<Configure>", lambda _e: self._redraw_track_chart_if_visible())
         self._draw_track_chart(payload)
 
-        recent = self.make_panel(self.content, fill="both", expand=True)
+        recent = self.make_card(self.content, fill="x", pady=3)
         self.section_title(recent, "ÚLTIMAS MUESTRAS")
         for sample in (payload.get("recent_samples") or [])[::-1]:
             stamp = str(sample.get("captured_at") or "")[:19]
@@ -860,30 +1596,26 @@ class NexusDesktopApp:
         width = max(canvas.winfo_width(), 640)
         height = max(canvas.winfo_height(), 220)
         pad = 16
-
         if payload.get("sample_size", 0) == 0:
-            canvas.create_text(width // 2, height // 2, text=payload.get("message", "Sin datos"), fill=MUTED, font=self.ui_font)
+            canvas.create_text(width // 2, height // 2, text=payload.get("message", "Sin datos"), fill=MUTED)
             return
 
         left_w = int(width * 0.28)
-        canvas.create_text(pad, pad, text="ACIERTO %", anchor="nw", fill=ACCENT, font=self.title_font)
+        canvas.create_text(pad, pad, text="ACIERTO %", anchor="nw", fill=ACCENT)
         bar_top = pad + 28
-        bar_h = 22
-        bar_gap = 36
         max_bar_w = left_w - pad * 2 - 70
         for idx, item in enumerate(payload.get("hit_bars", [])):
-            y = bar_top + idx * bar_gap
+            y = bar_top + idx * 36
             value = item.get("value")
             color = GOOD if item.get("color") == "good" else WARN
-            label = f"{item.get('label')} (n={item.get('count', 0)})"
-            canvas.create_text(pad, y, text=label, anchor="nw", fill=MUTED, font=self.ui_font)
-            canvas.create_rectangle(pad, y + 16, pad + max_bar_w, y + 16 + bar_h, outline=LINE, fill=PANEL_ALT)
+            canvas.create_text(pad, y, text=f"{item.get('label')} (n={item.get('count', 0)})", anchor="nw", fill=MUTED)
+            canvas.create_rectangle(pad, y + 16, pad + max_bar_w, y + 38, outline=LINE, fill=CARD_INNER)
             if value is not None:
                 fill_w = max(2, int(max_bar_w * max(0.0, min(100.0, float(value))) / 100.0))
-                canvas.create_rectangle(pad, y + 16, pad + fill_w, y + 16 + bar_h, outline="", fill=color)
-                canvas.create_text(pad + max_bar_w + 8, y + 16 + bar_h // 2, text=f"{value:.0f}%", anchor="w", fill=TEXT, font=self.ui_font)
+                canvas.create_rectangle(pad, y + 16, pad + fill_w, y + 38, outline="", fill=color)
+                canvas.create_text(pad + max_bar_w + 8, y + 27, text=f"{value:.0f}%", anchor="w", fill=TEXT)
             else:
-                canvas.create_text(pad + max_bar_w + 8, y + 16 + bar_h // 2, text="—", anchor="w", fill=MUTED, font=self.ui_font)
+                canvas.create_text(pad + max_bar_w + 8, y + 27, text="—", anchor="w", fill=MUTED)
 
         right_x0 = left_w + 8
         right_x1 = width - pad
@@ -892,19 +1624,17 @@ class NexusDesktopApp:
         zero_y = (chart_top + chart_bottom) / 2
         samples = payload.get("chart_samples") or []
         canvas.create_text(
-            right_x0, pad,
+            right_x0,
+            pad,
             text=f"SPY forward {payload.get('forward_days', 5)}d  (últimas {len(samples)})",
-            anchor="nw", fill=ACCENT, font=self.title_font,
+            anchor="nw",
+            fill=ACCENT,
         )
         canvas.create_line(right_x0, chart_top, right_x0, chart_bottom, fill=LINE)
         canvas.create_line(right_x0, chart_bottom, right_x1, chart_bottom, fill=LINE)
         canvas.create_line(right_x0, zero_y, right_x1, zero_y, fill=LINE, dash=(3, 3))
-        canvas.create_text(right_x0 - 4, zero_y, text="0%", anchor="e", fill=MUTED, font=self.ui_font)
-
         if not samples:
-            canvas.create_text((right_x0 + right_x1) / 2, (chart_top + chart_bottom) / 2, text="Sin series", fill=MUTED, font=self.ui_font)
             return
-
         returns = [float(s.get("spy_forward_return_pct") or 0.0) for s in samples]
         max_abs = max(1.0, max(abs(v) for v in returns))
         usable_w = max(40, right_x1 - right_x0 - 10)
@@ -923,90 +1653,45 @@ class NexusDesktopApp:
             action = sample.get("macro_action") or ""
             outline = ACCENT if action in {"COMPRAR", "COMPRAR PARCIAL"} else LINE
             canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline=outline)
-        canvas.create_text(
-            right_x1, height - pad + 2,
-            text="verde=+ / rojo=− · borde cian=macro COMPRAR",
-            anchor="se", fill=MUTED, font=self.ui_font,
-        )
 
     def _view_report(self, s: Dict[str, Any]) -> None:
-        panel = self.make_panel(self.content, fill="both", expand=True)
+        panel = self.make_card(self.content, fill="both", expand=True, pady=3)
         self.section_title(panel, "INFORME DIARIO")
-        text = tk.Text(
+        text = ctk.CTkTextbox(
             panel,
-            bg=PANEL,
-            fg=TEXT,
-            insertbackground=TEXT,
-            selectbackground=CHIP_NEUTRAL,
-            relief="flat",
-            wrap="word",
-            font=self.ui_font,
-            padx=12,
-            pady=8,
-            highlightthickness=0,
+            fg_color=CARD_INNER,
+            text_color=TEXT,
+            corner_radius=INNER_CORNER,
+            font=ctk.CTkFont(family="Menlo", size=12),
         )
-        text.pack(fill="both", expand=True, padx=8, pady=(0, 10))
+        text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         text.insert("1.0", format_daily_report(s))
         text.configure(state="disabled")
 
     def _view_quality(self, s: Dict[str, Any]) -> None:
         q = s["data"].get("DataQuality", {}) or {}
-        _, inner = self._scrollable(self.content)
         if not q:
-            panel = self.make_panel(inner, fill="x")
+            panel = self.make_card(self.content, fill="x")
             self.body_text(panel, "Sin metadatos de calidad.")
             return
         for key, meta in q.items():
             status = str(meta.get("status") or "-")
             color = GOOD if status == "OK" else (WARN if status == "STALE" else BAD)
-            panel = self.make_panel(inner, fill="x", pady=3, padx=2)
-            head = tk.Frame(panel, bg=PANEL)
+            panel = self.make_card(self.content, fill="x", pady=2)
+            head = ctk.CTkFrame(panel, fg_color="transparent")
             head.pack(fill="x", padx=14, pady=(10, 2))
-            tk.Label(head, text=key, fg=TEXT, bg=PANEL, font=self.title_font).pack(side="left")
-            tk.Label(head, text=status, fg=color, bg=PANEL, font=self.small_font).pack(side="right")
+            ctk.CTkLabel(head, text=key, text_color=TEXT, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+            ctk.CTkLabel(head, text=status, text_color=color, font=ctk.CTkFont(size=12, weight="bold")).pack(side="right")
             self.kv_row(panel, "Source", str(meta.get("source") or "—"))
             detail = meta.get("detail") or ""
             if detail:
                 self.body_text(panel, str(detail), MUTED)
-            else:
-                tk.Frame(panel, bg=PANEL, height=8).pack()
 
 
-def _bring_window_to_front(root: tk.Tk) -> None:
-    """Asegura que la ventana sea visible al lanzar desde .app / Finder."""
-    try:
-        root.lift()
-        root.attributes("-topmost", True)
-        root.after(400, lambda: root.attributes("-topmost", False))
-        root.focus_force()
-    except Exception:
-        pass
-    if sys.platform == "darwin":
-        try:
-            import os
-            import subprocess
-
-            pid = os.getpid()
-            subprocess.Popen(
-                [
-                    "osascript",
-                    "-e",
-                    f'tell application "System Events" to set frontmost of first process whose unix id is {pid} to true',
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
-
-
-def main():
+def main() -> None:
     _configure_windows_dpi_awareness()
-    root = tk.Tk()
-    root.title("NEXUS Workstation")
-    NexusDesktopApp(root)
-    root.after(100, lambda: _bring_window_to_front(root))
-    root.mainloop()
+    app = NexusDesktopApp()
+    app.mainloop()
 
 
 if __name__ == "__main__":
