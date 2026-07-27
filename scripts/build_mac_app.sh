@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Empaqueta NEXUS Workstation como .app macOS (lanzador nativo + icono).
-# No congela Python con py2app: el .app apunta al repo (venv + código fuente).
+# Empaqueta NEXUS Workstation como .app macOS nativa SwiftUI.
+# El binario SwiftUI se incluye en la app y arranca el motor Python del repo.
 
 NEXUS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="NEXUS Workstation"
@@ -12,7 +12,7 @@ CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 ICON_SRC="$NEXUS_ROOT/assets/AppIcon.png"
-VERSION="1.3.1"
+VERSION="2.0.0"
 
 echo "Construyendo ${APP_NAME} v${VERSION}"
 echo "  Fuente: $NEXUS_ROOT"
@@ -21,6 +21,21 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS" "$RESOURCES"
 
 printf '%s\n' "$NEXUS_ROOT" > "$RESOURCES/nexus_root.txt"
+
+if ! command -v swift >/dev/null 2>&1; then
+  echo "ERROR: Swift no está disponible. Instala Command Line Tools: xcode-select --install" >&2
+  exit 1
+fi
+
+echo "  Compilando interfaz SwiftUI (release)…"
+(
+  cd "$NEXUS_ROOT/native"
+  swift build -c release
+  NATIVE_BIN="$(swift build -c release --show-bin-path)/NEXUS"
+  [[ -x "$NATIVE_BIN" ]] || { echo "ERROR: no se generó binario SwiftUI" >&2; exit 1; }
+  cp "$NATIVE_BIN" "$MACOS/NEXUS"
+)
+chmod +x "$MACOS/NEXUS"
 
 cat > "$MACOS/launch_nexus" <<'LAUNCHER'
 #!/bin/bash
@@ -55,37 +70,12 @@ NEXUS_ROOT="$(tr -d '\r\n' < "$ROOT_FILE")"
 export NEXUS_ROOT
 export NEXUS_NO_PAUSE=1
 
-# Importante: NO hacer source de scripts del repo.
-# macOS bloquea leer .sh fuera del .app al lanzar desde Finder ("Operation not permitted").
-# El venv + nexus_desktop.py sí son accesibles vía el intérprete Python.
-VENV_PY="${NEXUS_ROOT}/.venv/bin/python"
-DESKTOP="${NEXUS_ROOT}/nexus_desktop.py"
+NATIVE_BIN="$APP_CONTENTS/MacOS/NEXUS"
+[[ -x "$NATIVE_BIN" ]] || die "No se encuentra el binario nativo. Vuelve a ejecutar scripts/build_mac_app.sh"
+[[ -x "${NEXUS_ROOT}/.venv/bin/python" ]] || die "No hay entorno .venv. Ejecuta setup.command en el repo."
 
-if [[ ! -x "$VENV_PY" ]]; then
-  die "No hay entorno .venv. Abre Terminal, ve al repo NEXUS y ejecuta setup.command (o run_program.command) una vez."
-fi
-if [[ ! -f "$DESKTOP" ]]; then
-  die "No se encuentra nexus_desktop.py en ${NEXUS_ROOT}"
-fi
-
-if ! "$VENV_PY" -c "import customtkinter, PIL, tkinter, yfinance, pandas, numpy, requests, feedparser, Quartz" 2>/dev/null; then
-  die "Faltan dependencias en .venv. Abre Terminal en el repo y ejecuta: ./setup.command"
-fi
-
-echo "Using python: $VENV_PY"
-echo "Starting: $DESKTOP"
-
-"$VENV_PY" "$DESKTOP" &
-APP_PID=$!
-sleep 0.8
-osascript >/dev/null 2>&1 <<OSA || true
-tell application "System Events"
-  try
-    set frontmost of first process whose unix id is ${APP_PID} to true
-  end try
-end tell
-OSA
-wait "$APP_PID"
+echo "Starting native SwiftUI: $NATIVE_BIN"
+exec "$NATIVE_BIN"
 LAUNCHER
 chmod +x "$MACOS/launch_nexus"
 

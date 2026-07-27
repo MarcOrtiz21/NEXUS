@@ -19,14 +19,7 @@ import customtkinter as ctk
 
 from config import CALENDAR_BLOCK_HOURS, SCORE_BUY, SCORE_HOLD
 from macos_notifications import notify_snapshot_change
-from macos_vibrancy import (
-    TRANSPARENT,
-    bind_vibrancy_keep_alive,
-    enable_window_transparency,
-    glass_frame,
-    glass_label,
-    schedule_vibrancy,
-)
+from macos_vibrancy import GlassScrollHost
 from user_settings import get_setting, load_user_settings, save_user_settings
 from history_view import summarize_history
 from paper_trading import summarize_paper_trading
@@ -48,11 +41,10 @@ from utils import (
 )
 
 
-# Cards opacas. Chrome de texto SIEMPRE sobre fondo sólido (si no, macOS
-# con systemTransparent deja fantasmas al cambiar el texto).
+# Shell opaco estilo Apple HIG dark. (Blur real no es viable con CustomTkinter/Tk.)
 CARD = "#2C2C30"
 CARD_INNER = "#1C1C1F"
-CHROME_BG = "#141416"  # sólido para títulos/nav/status que se actualizan
+CHROME_BG = "#141416"
 TEXT = "#FFFFFF"
 MUTED = "#98989D"
 LINE = "#3A3A3E"
@@ -60,6 +52,7 @@ ACCENT = "#0A84FF"
 NAV_ACTIVE = "#3A4558"
 NAV_ACTIVE_HOVER = "#455468"
 NAV_IDLE = "#141416"
+SOLID_CHIP = "#1C1C1F"
 GOOD = "#30D158"
 WARN = "#FF9F0A"
 BAD = "#FF453A"
@@ -71,7 +64,6 @@ BTN_FG = "#FFFFFF"
 BTN_BG = "#3A3A3C"
 BTN_HOVER = "#48484A"
 BAR_HEIGHT = 4
-BLUR_RADIUS = 52
 
 # key, label, icon glyph
 NAV_ITEMS: List[Tuple[str, str, str]] = [
@@ -171,7 +163,6 @@ class NexusDesktopApp(ctk.CTk):
         self.title("NEXUS Workstation")
         self.geometry(str(settings.get("window_geometry") or "1440x900"))
         self.minsize(980, 640)
-        enable_window_transparency(self)
         self.configure(fg_color=CHROME_BG)
 
         self.current_snapshot: Dict[str, Any] | None = None
@@ -192,6 +183,11 @@ class NexusDesktopApp(ctk.CTk):
         self._render_gen = 0
         self._wrap_labels: List[Any] = []
         self._content_slot: tk.Frame | None = None
+        self._scroll_host: GlassScrollHost | None = None
+        self._head_right: tk.Frame | None = None
+        self._chips_host: tk.Frame | None = None
+        self._macro_state: Tuple[str, str, str] = ("Macro: —", MUTED, CHIP_NEUTRAL)
+        self._status_state: Tuple[str, str, str] = ("…", TEXT, CHIP_NEUTRAL)
         self._view_job = None
         self._alive = True
         self._switching = False
@@ -210,8 +206,6 @@ class NexusDesktopApp(ctk.CTk):
             self.bind(str(idx), lambda _e, i=idx: self._nav_by_index(i - 1))
             self.bind(f"<KP_{idx}>", lambda _e, i=idx: self._nav_by_index(i - 1))
         self.bind("<Configure>", self._on_configure)
-        schedule_vibrancy(self, radius=BLUR_RADIUS, title_hint="NEXUS Workstation")
-        bind_vibrancy_keep_alive(self, radius=BLUR_RADIUS, title_hint="NEXUS Workstation")
         self.after(80, self._bring_to_front)
         self.after(1000, self._tick_status)
         self._schedule_fetch(immediate=True)
@@ -265,13 +259,12 @@ class NexusDesktopApp(ctk.CTk):
 
     # ─── UI helpers ───
     def make_card(self, parent: Any, **pack) -> ctk.CTkFrame:
-        # bg_color = CARD (no transparent): evita solapes/fantasmas de CTk al redimensionar
         card = ctk.CTkFrame(
             parent,
             fg_color=CARD,
             corner_radius=CORNER,
             border_width=0,
-            bg_color=CARD,
+            bg_color=CHROME_BG,
         )
         if pack:
             card.pack(**pack)
@@ -432,7 +425,13 @@ class NexusDesktopApp(ctk.CTk):
         self._wrap_labels = alive
 
     def _arm_content_scroll(self) -> None:
-        """Trackpad sobre el contenido CTkScrollableFrame."""
+        """Trackpad sobre el contenido (GlassScrollHost o CTkScrollableFrame)."""
+        if self._scroll_host is not None:
+            try:
+                self._scroll_host.arm_wheel_tree()
+            except Exception:
+                pass
+            return
         try:
             canvas = self.content._parent_canvas  # type: ignore[attr-defined]
         except Exception:
@@ -505,7 +504,6 @@ class NexusDesktopApp(ctk.CTk):
 
     # ─── Shell ───
     def _build_ui(self) -> None:
-        enable_window_transparency(self)
         try:
             self.configure(fg_color=CHROME_BG)
             tk.Tk.configure(self, bg=CHROME_BG)
@@ -553,7 +551,8 @@ class NexusDesktopApp(ctk.CTk):
             self.sidebar,
             text="Cargando…",
             text_color=MUTED,
-            fg_color=CHROME_BG,
+            fg_color=SOLID_CHIP,
+            corner_radius=8,
             font=ctk.CTkFont(size=11),
             anchor="w",
         )
@@ -562,14 +561,14 @@ class NexusDesktopApp(ctk.CTk):
         main = tk.Frame(root, bg=CHROME_BG, highlightthickness=0, bd=0)
         main.pack(side="left", fill="both", expand=True)
 
-        # Footer primero (side=bottom) para layout estable
         footer = tk.Frame(main, bg=CHROME_BG, highlightthickness=0, bd=0)
         footer.pack(side="bottom", fill="x", padx=12, pady=6)
         self.footer_left = ctk.CTkLabel(
             footer,
             text="Auto-refresh",
             text_color=MUTED,
-            fg_color=CHROME_BG,
+            fg_color=SOLID_CHIP,
+            corner_radius=8,
             font=ctk.CTkFont(size=11),
             anchor="w",
         )
@@ -585,34 +584,18 @@ class NexusDesktopApp(ctk.CTk):
         self.view_subtitle = None
         self._paint_header_labels("overview")
 
-        head_right = tk.Frame(header, bg=CHROME_BG)
-        head_right.pack(side="right")
-        self.macro_chip = ctk.CTkLabel(
-            head_right,
-            text="Macro: —",
-            text_color=MUTED,
-            fg_color=CHIP_NEUTRAL,
-            corner_radius=8,
-            padx=9,
-            pady=4,
-            font=ctk.CTkFont(size=11),
-        )
-        self.macro_chip.pack(side="left", padx=3)
-        self.status_chip = ctk.CTkLabel(
-            head_right,
-            text="Cargando…",
-            text_color=TEXT,
-            fg_color=CHIP_NEUTRAL,
-            corner_radius=8,
-            padx=9,
-            pady=4,
-            font=ctk.CTkFont(size=11, weight="bold"),
-        )
-        self.status_chip.pack(side="left", padx=3)
+        self._head_right = tk.Frame(header, bg=CHROME_BG)
+        self._head_right.pack(side="right")
+        self._chips_host = tk.Frame(self._head_right, bg=CHROME_BG)
+        self._chips_host.pack(side="left")
+        self.macro_chip = None
+        self.status_chip = None
+        self._paint_status_chips()
+
         self.auto_chip = ctk.CTkButton(
-            head_right,
-            text="Auto ON",
-            width=72,
+            self._head_right,
+            text="Auto",
+            width=56,
             height=28,
             corner_radius=8,
             fg_color=CHIP_OK,
@@ -622,10 +605,10 @@ class NexusDesktopApp(ctk.CTk):
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self._toggle_auto_refresh,
         )
-        self.auto_chip.pack(side="left", padx=3)
-        self.action_button(head_right, "↻", lambda: self._schedule_fetch(immediate=True), primary=True, width=36).pack(
-            side="left", padx=(4, 0)
-        )
+        self.auto_chip.pack(side="left", padx=(8, 4))
+        self.action_button(
+            self._head_right, "↻", lambda: self._schedule_fetch(immediate=True), primary=True, width=36
+        ).pack(side="left")
 
         self._content_slot = tk.Frame(main, bg=CHROME_BG, highlightthickness=0, bd=0)
         self._content_slot.pack(fill="both", expand=True, padx=12, pady=(0, 2))
@@ -673,8 +656,66 @@ class NexusDesktopApp(ctk.CTk):
         )
         self.view_subtitle.pack(anchor="w")
 
+    def _paint_status_chips(self) -> None:
+        """Recrea chips de macro/status para evitar solapes y fantasmas de CTk."""
+        if self._chips_host is None:
+            return
+        for child in list(self._chips_host.winfo_children()):
+            try:
+                child.destroy()
+            except Exception:
+                pass
+        macro_text, macro_fg, macro_bg = self._macro_state
+        status_text, status_fg, status_bg = self._status_state
+        self.macro_chip = ctk.CTkLabel(
+            self._chips_host,
+            text=macro_text,
+            text_color=macro_fg,
+            fg_color=macro_bg,
+            corner_radius=8,
+            padx=10,
+            pady=5,
+            font=ctk.CTkFont(size=11),
+        )
+        self.macro_chip.pack(side="left", padx=(0, 6))
+        self.status_chip = ctk.CTkLabel(
+            self._chips_host,
+            text=status_text,
+            text_color=status_fg,
+            fg_color=status_bg,
+            corner_radius=8,
+            padx=10,
+            pady=5,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        )
+        self.status_chip.pack(side="left")
+
+    def _set_macro_chip(self, text: str, color: str, bg: str) -> None:
+        self._macro_state = (text, color, bg)
+        self._paint_status_chips()
+
+    def _set_status_chip(self, text: str, color: str, bg: str) -> None:
+        self._status_state = (text, color, bg)
+        self._paint_status_chips()
+
+    def _set_header_chips(
+        self,
+        *,
+        status_text: str | None = None,
+        status_color: str | None = None,
+        status_bg: str | None = None,
+        macro_text: str | None = None,
+        macro_color: str | None = None,
+        macro_bg: str | None = None,
+    ) -> None:
+        if status_text is not None and status_color is not None and status_bg is not None:
+            self._status_state = (status_text, status_color, status_bg)
+        if macro_text is not None and macro_color is not None and macro_bg is not None:
+            self._macro_state = (macro_text, macro_color, macro_bg)
+        self._paint_status_chips()
+
     def _mount_content_host(self) -> None:
-        """Destruye y crea de cero el área scrollable de contenido."""
+        """Área scroll estable (tk) + cards CTk opacas."""
         if self._content_slot is None:
             return
         for child in list(self._content_slot.winfo_children()):
@@ -684,21 +725,16 @@ class NexusDesktopApp(ctk.CTk):
                 pass
         self._wrap_labels = []
         self._track_chart_payload = None
-        self.content = ctk.CTkScrollableFrame(
-            self._content_slot,
-            fg_color=CHROME_BG,
-            bg_color=CHROME_BG,
-            corner_radius=0,
-            scrollbar_button_color=LINE,
-            scrollbar_button_hover_color=MUTED,
-            scrollbar_fg_color=CHROME_BG,
-        )
-        self.content.pack(fill="both", expand=True)
+        self._scroll_host = GlassScrollHost(self._content_slot)
+        # Fondo sólido del scroll (sin blur; evita canvas CTk negros)
         try:
-            self.content._parent_canvas.configure(bg=CHROME_BG)  # type: ignore[attr-defined]
-            tk.Frame.configure(self.content, bg=CHROME_BG)
+            self._scroll_host.outer.configure(bg=CHROME_BG)
+            self._scroll_host.canvas.configure(bg=CHROME_BG)
+            self._scroll_host.inner.configure(bg=CHROME_BG)
         except Exception:
             pass
+        self._scroll_host.pack(fill="both", expand=True)
+        self.content = self._scroll_host.inner
         try:
             self.update_idletasks()
         except Exception:
@@ -722,17 +758,20 @@ class NexusDesktopApp(ctk.CTk):
         if not self.auto_refresh_enabled:
             next_txt = "auto OFF"
             if hasattr(self, "auto_chip"):
-                self.auto_chip.configure(text="Auto OFF", fg_color=CHIP_NEUTRAL, text_color=MUTED)
+                self.auto_chip.configure(text="Off", fg_color=CHIP_NEUTRAL, text_color=MUTED)
         else:
             if hasattr(self, "auto_chip"):
-                self.auto_chip.configure(text="Auto ON", fg_color=CHIP_OK, text_color=GOOD)
+                self.auto_chip.configure(text="Auto", fg_color=CHIP_OK, text_color=GOOD)
             if self._next_refresh_at is None:
                 next_txt = f"auto {seconds}s"
             else:
                 remain = max(0, int(self._next_refresh_at - time.time()))
                 next_txt = f"próx. {remain}s" if remain < 120 else f"próx. {remain // 60}m"
         try:
-            self.footer_left.configure(text=f"Actualizado {age} · {next_txt} · ↑↓ · Cmd+R")
+            self.footer_left.configure(
+                text=f"Actualizado {age} · {next_txt} · ↑↓ · Cmd+R",
+                fg_color=SOLID_CHIP,
+            )
         except Exception:
             pass
 
@@ -789,7 +828,7 @@ class NexusDesktopApp(ctk.CTk):
 
     def _set_status_text(self, text: str, color: str = MUTED) -> None:
         try:
-            self.sidebar_status.configure(text=text, text_color=color, fg_color=CHROME_BG)
+            self.sidebar_status.configure(text=text, text_color=color, fg_color=SOLID_CHIP)
         except Exception:
             pass
 
@@ -896,7 +935,6 @@ class NexusDesktopApp(ctk.CTk):
         self._apply_view(key)
 
     def _update_chrome(self, key: str) -> None:
-        # 1) Nav: colores sólidos → un solo item activo, sin fantasmas
         for k, btn in self.nav_buttons.items():
             active = k == key
             try:
@@ -908,7 +946,6 @@ class NexusDesktopApp(ctk.CTk):
                 )
             except Exception:
                 pass
-        # 2) Título: destruir y recrear (configure sobre transparent deja basura)
         self._paint_header_labels(key)
 
     def _apply_view(self, key: str) -> None:
@@ -930,7 +967,7 @@ class NexusDesktopApp(ctk.CTk):
         if self.fetch_in_progress:
             return
         self.fetch_in_progress = True
-        self.status_chip.configure(text="Actualizando…", fg_color=CHIP_NEUTRAL, text_color=TEXT)
+        self._set_status_chip("Actualizando…", TEXT, CHIP_NEUTRAL)
         self._set_status_text("Actualizando…", MUTED)
         threading.Thread(target=self._fetch_worker, daemon=True).start()
 
@@ -952,6 +989,17 @@ class NexusDesktopApp(ctk.CTk):
         except Exception as exc:
             self.after(0, lambda: self._on_fetch_error(exc))
 
+    def _status_chip_style(self, status: str) -> Tuple[str, str]:
+        value = (status or "").upper()
+        color = status_color(value)
+        if value == "BLOCKED":
+            return color, CHIP_BAD
+        if value == "HEALTHY":
+            return color, CHIP_OK
+        if value in {"CAUTION", "PANIC"}:
+            return color, CHIP_WARN if value == "CAUTION" else CHIP_BAD
+        return color, CHIP_NEUTRAL
+
     def _on_fetch_success(self, snap: Dict[str, Any], sig: str) -> None:
         changed = sig != self.current_signature
         notify_snapshot_change(self.current_snapshot, snap)
@@ -959,41 +1007,39 @@ class NexusDesktopApp(ctk.CTk):
         self.last_error = None
         self.last_success_at = time.time()
         self._update_footer_status()
-        status = snap["status"]
+        status = str(snap["status"])
+        color, chip_bg = self._status_chip_style(status)
         if changed:
             self.current_snapshot = snap
             self.current_signature = sig
-            self.status_chip.configure(text=str(status), fg_color=CHIP_OK, text_color=GOOD)
+            self._set_status_chip(status, color, chip_bg)
             self._set_status_text("Listo", GOOD)
             self._update_macro_label(snap)
-            # Si hay cambio de menú pendiente, el flush ya pintará con el snapshot nuevo
-            if self._view_job is not None:
-                pass
-            else:
+            if self._view_job is None:
                 self._render_current()
         else:
-            self.status_chip.configure(text=f"{status} · sin cambios", fg_color=CHIP_NEUTRAL, text_color=TEXT)
+            self._set_status_chip(f"{status} · ok", color, chip_bg)
             self._set_status_text("Listo", GOOD)
             self._update_macro_label(snap)
 
     def _update_macro_label(self, snap: Dict[str, Any]) -> None:
         cal = check_macro_events()
         if cal.get("should_block_signals"):
-            self.macro_chip.configure(
-                text=f"Macro: BLOQUEO {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
-                text_color=BAD,
-                fg_color=CHIP_BAD,
+            self._set_macro_chip(
+                f"Bloqueo {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
+                BAD,
+                CHIP_BAD,
             )
         elif cal.get("next_event"):
             title = cal["next_event"].get("title", "Evento macro")
-            self.macro_chip.configure(text=f"Macro: {title[:34]}", text_color=WARN, fg_color=CHIP_WARN)
+            self._set_macro_chip(f"Macro · {title[:28]}", WARN, CHIP_WARN)
         else:
-            self.macro_chip.configure(text="Macro: libre", text_color=GOOD, fg_color=CHIP_OK)
+            self._set_macro_chip("Macro libre", GOOD, CHIP_OK)
 
     def _on_fetch_error(self, exc: Exception) -> None:
         self.fetch_in_progress = False
         self.last_error = str(exc)
-        self.status_chip.configure(text="ERROR", fg_color=CHIP_BAD, text_color=BAD)
+        self._set_status_chip("ERROR", BAD, CHIP_BAD)
         self._set_status_text("Error", BAD)
         if not self.current_snapshot:
             self._render_current()

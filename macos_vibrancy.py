@@ -102,19 +102,18 @@ def enable_window_transparency(tk_window: Any) -> None:
         tk_window.attributes("-transparent", True)
     except Exception:
         pass
-    try:
-        tk_window.configure(fg_color=TRANSPARENT)
-    except Exception:
-        pass
+    # CTk: fg_color pinta el bg de Tk; systemTransparent deja pasar el blur.
+    for key, value in (("fg_color", TRANSPARENT), ("bg", TRANSPARENT)):
+        try:
+            tk_window.configure(**{key: value})
+        except Exception:
+            pass
     try:
         import tkinter as tk
 
         tk.Tk.configure(tk_window, bg=TRANSPARENT)
     except Exception:
-        try:
-            tk_window.configure(bg=TRANSPARENT)
-        except Exception:
-            pass
+        pass
 
 
 def apply_macos_vibrancy(
@@ -135,7 +134,12 @@ def apply_macos_vibrancy(
     if number is None:
         return False
     _last_window_number = number
-    return set_background_blur(number, radius=radius)
+    ok = set_background_blur(number, radius=radius)
+    # Refuerzo inmediato: algunos builds de Tk pierden el flag al redibujar
+    if ok:
+        enable_window_transparency(tk_window)
+        set_background_blur(number, radius=radius)
+    return ok
 
 
 def schedule_vibrancy(

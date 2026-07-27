@@ -196,7 +196,13 @@ def _fast_cache_usable(cache: Dict[str, Any] | None) -> bool:
     if not _cache_is_fresh(cache, FAST_MARKET_CACHE_TTL_SECONDS):
         return False
     assets = (cache or {}).get("Assets", {})
-    return cache.get("VIX") is not None and assets.get("SPY", {}).get("price") is not None
+    forex = (cache or {}).get("Forex", {})
+    return (
+        cache.get("VIX") is not None
+        and assets.get("SPY", {}).get("price") is not None
+        and assets.get("GLD", {}).get("price") is not None
+        and forex.get("EURUSD", {}).get("price") is not None
+    )
 
 
 def _slow_cache_usable(cache: Dict[str, Any] | None) -> bool:
@@ -476,8 +482,8 @@ def fetch_market_data() -> Dict[str, Any]:
             set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS + list(FOREX_TICKERS.values()) + global_tickers)
         )
         try:
-            logging.info("Descargando datos de mercado (yfinance, 1 año)...")
-            df = yf.download(tickers, period="1y", progress=False)
+            logging.info("Descargando datos de mercado (yfinance, 2 años)...")
+            df = yf.download(tickers, period="2y", progress=False)
 
             if not df.empty and "Close" in df.columns:
                 df_close = df["Close"]

@@ -109,6 +109,17 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
             return None
         return round(sum(1 for item in items if item[flag]) / len(items) * 100, 1)
 
+    by_signal: Dict[str, Dict[str, Any]] = {}
+    for item in evaluated:
+        label = item["operational_action"]
+        bucket = by_signal.setdefault(label, {"count": 0, "returns": []})
+        bucket["count"] += 1
+        bucket["returns"].append(item["spy_forward_return_pct"])
+    for bucket in by_signal.values():
+        returns = bucket.pop("returns")
+        bucket["avg_return_pct"] = round(sum(returns) / len(returns), 2) if returns else None
+        bucket["hit_rate_pct"] = round(sum(1 for value in returns if value > 0) / len(returns) * 100, 1) if returns else None
+
     return {
         "sample_size": len(evaluated),
         "forward_days": forward_days,
@@ -121,6 +132,7 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
         "overall_avg_return_pct": _avg(evaluated),
         "samples": evaluated,
         "recent_samples": evaluated[-5:],
+        "by_operational_signal": by_signal,
     }
 
 

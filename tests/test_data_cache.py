@@ -14,10 +14,21 @@ from data_ingestion import (
 
 
 class TieredCacheTests(unittest.TestCase):
-    def test_fast_cache_requires_vix_and_spy(self):
-        fresh = {"_cache_age_seconds": 10, "VIX": 15.0, "Assets": {"SPY": {"price": 500.0}}}
+    def test_fast_cache_requires_market_forex_and_gold(self):
+        fresh = {
+            "_cache_age_seconds": 10,
+            "VIX": 15.0,
+            "Assets": {"SPY": {"price": 500.0}, "GLD": {"price": 200.0}},
+            "Forex": {"EURUSD": {"price": 1.08}},
+        }
         self.assertTrue(_fast_cache_usable(fresh))
         self.assertFalse(_fast_cache_usable({"_cache_age_seconds": 10, "VIX": 15.0}))
+        missing_forex = {
+            "_cache_age_seconds": 10,
+            "VIX": 15.0,
+            "Assets": {"SPY": {"price": 500.0}, "GLD": {"price": 200.0}},
+        }
+        self.assertFalse(_fast_cache_usable(missing_forex))
 
     def test_slow_cache_requires_macro_key(self):
         fresh = {"_cache_age_seconds": 100, "M2_Change_Pct": 1.2}
