@@ -18,10 +18,14 @@ def _now_utc_iso() -> str:
 
 
 def _price_snapshot(data: Dict[str, Any]) -> Dict[str, float | None]:
-    return {
+    prices = {
         ticker: metrics.get("price")
         for ticker, metrics in data.get("Assets", {}).items()
     }
+    eurusd = (data.get("Forex") or {}).get("EURUSD") or {}
+    if isinstance(eurusd, dict):
+        prices["EURUSD"] = eurusd.get("price")
+    return prices
 
 
 def build_decision_snapshot(

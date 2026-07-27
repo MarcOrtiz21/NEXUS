@@ -192,6 +192,83 @@ def _headline_text(item: Dict[str, Any] | str) -> str:
     return item if isinstance(item, str) else str(item.get("title", ""))
 
 
+def classify_headline_tone(title: str) -> Dict[str, Any]:
+    """Clasifica un titular: GOOD / BAD / MIXED / NEUTRAL (para UI)."""
+    text = (title or "").strip()
+    if not text:
+        return {
+            "tone": "NEUTRAL",
+            "label": "Neutra",
+            "panic_hits": 0,
+            "bull_hits": 0,
+            "matched_panic": [],
+            "matched_bull": [],
+        }
+    panic_hits, matched_panic = _weighted_hits(text, PANIC_WEIGHTS)
+    bull_hits, matched_bull = _weighted_hits(text, BULL_WEIGHTS)
+    if panic_hits == 0 and bull_hits == 0:
+        tone, label = "NEUTRAL", "Neutra"
+    elif panic_hits > bull_hits:
+        tone, label = "BAD", "Negativa"
+    elif bull_hits > panic_hits:
+        tone, label = "GOOD", "Positiva"
+    else:
+        tone, label = "MIXED", "Mixta"
+    return {
+        "tone": tone,
+        "label": label,
+        "panic_hits": panic_hits,
+        "bull_hits": bull_hits,
+        "matched_panic": matched_panic,
+        "matched_bull": matched_bull,
+    }
+
+
+def enrich_news_items_with_tone(news_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    enriched: List[Dict[str, Any]] = []
+    for item in news_items:
+        row = dict(item)
+        tone = classify_headline_tone(str(row.get("title") or ""))
+        row["tone"] = tone["tone"]
+        row["tone_label"] = tone["label"]
+        row["tone_detail"] = tone
+        enriched.append(row)
+    return enriched
+
+
+def aggregate_news_narratives(news_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Group linked headlines into descriptive narratives, never causal claims."""
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in news_items:
+        topics = item.get("linked_topics") or []
+        if not topics:
+            detected = _detect_topics([_headline_text(item)])
+            topics = list(detected) or ["Otros"]
+        for topic in topics:
+            groups.setdefault(str(topic), []).append(item)
+
+    narratives = []
+    for topic, items in groups.items():
+        ordered = sorted(items, key=_headline_weight, reverse=True)
+        tones = [str(item.get("tone") or "NEUTRAL") for item in items]
+        dominant = max(set(tones), key=tones.count) if tones else "NEUTRAL"
+        assets = []
+        for item in items:
+            assets.extend(item.get("linked_assets") or [])
+        narratives.append({
+            "topic": topic,
+            "headline_count": len(items),
+            "dominant_tone": dominant,
+            "linked_assets": list(dict.fromkeys(assets))[:4],
+            "sample_titles": [_headline_text(item) for item in ordered[:2]],
+        })
+    return {
+        "narratives": sorted(narratives, key=lambda item: item["headline_count"], reverse=True)[:6],
+        "method": "topic_keyword_cluster",
+        "note": "Agrupación descriptiva de titulares; no implica causalidad ni una señal operativa.",
+    }
+
+
 def analyze_news_items(news_items: List[Dict[str, Any]]) -> Dict:
     headlines = [_headline_text(item) for item in news_items if _headline_text(item)]
     result = analyze_headlines(headlines)

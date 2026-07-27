@@ -1,0 +1,26 @@
+{
+  "cash_pct": 20,
+  "holdings": {
+    "SPY": 545.454545,
+    "QQQ": 0.0,
+    "TLT": 109.89011,
+    "GLD": 55.248619,
+    "UUP": 0.0,
+    "CASH": 20000.0
+  },
+  "entry_prices": {
+    "SPY": 110.0,
+    "QQQ": 210.0,
+    "TLT": 91.0,
+    "GLD": 181.0,
+    "UUP": 29.0
+  },
+  "last_action": "COMPRAR",
+  "last_score": 80,
+  "last_update": "2026-07-15T20:37:27+00:00",
+  "starting_value": 100000.0,
+  "current_value": 100000.0,
+  "benchmark_spy_entry_price": 100.0,
+  "benchmark_start_value": 100000.0,
+  "benchmark_current_value": 110000.0
+}

@@ -52,10 +52,16 @@ US10Y_WARNING_THRESHOLD = 4.5  # Bono > 4.5% = presión sobre múltiplos
 US10Y_BENIGN_THRESHOLD = 4.0   # Bono < 4% = tipos benignos
 
 # ─── Feeds RSS gratuitos de noticias financieras ───
+# Diversificados: si un host falla (Yahoo/MarketWatch), otros siguen aportando.
 RSS_FEEDS = [
     {
         "name": "CNBC Top News",
         "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+        "weight": 1.0,
+    },
+    {
+        "name": "CNBC Finance",
+        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
         "weight": 1.0,
     },
     {
@@ -69,14 +75,44 @@ RSS_FEEDS = [
         "weight": 1.0,
     },
     {
-        "name": "Yahoo Finance QQQ",
-        "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=QQQ&region=US&lang=en-US",
-        "weight": 1.0,
-    },
-    {
         "name": "MarketWatch Top Stories",
         "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
         "weight": 0.9,
+    },
+    {
+        "name": "BBC Business",
+        "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "weight": 0.95,
+    },
+    {
+        "name": "Guardian Business",
+        "url": "https://www.theguardian.com/uk/business/rss",
+        "weight": 0.9,
+    },
+    {
+        "name": "Reuters Markets (Google News)",
+        "url": "https://news.google.com/rss/search?q=site:reuters.com+(markets+OR+stocks+OR+Fed+OR+inflation)&hl=en-US&gl=US&ceid=US:en",
+        "weight": 1.05,
+    },
+    {
+        "name": "Federal Reserve Press",
+        "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+        "weight": 1.15,
+    },
+    {
+        "name": "ECB Press",
+        "url": "https://www.ecb.europa.eu/rss/press.html",
+        "weight": 1.1,
+    },
+    {
+        "name": "Investing.com",
+        "url": "https://www.investing.com/rss/news.rss",
+        "weight": 0.9,
+    },
+    {
+        "name": "Google News Markets",
+        "url": "https://news.google.com/rss/search?q=stock+market+OR+Federal+Reserve+OR+inflation+OR+Wall+Street&hl=en-US&gl=US&ceid=US:en",
+        "weight": 0.85,
     },
     {
         "name": "Myfxbook Forex News",
@@ -98,7 +134,7 @@ MARKET_CACHE_FILE = CACHE_DIR / "market_data.json"
 MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
 FAST_MARKET_CACHE_FILE = CACHE_DIR / "fast_market.json"
 SLOW_MACRO_CACHE_FILE = CACHE_DIR / "slow_macro.json"
-FAST_MARKET_CACHE_TTL_SECONDS = 60 * 5
+FAST_MARKET_CACHE_TTL_SECONDS = 60 * 2  # FX/GLD: actualización ágil sin saturar Yahoo
 SLOW_MACRO_CACHE_TTL_SECONDS = 60 * 60 * 6
 FRED_CALENDAR_CACHE_FILE = CACHE_DIR / "fred_release_calendar.json"
 FRED_CALENDAR_CACHE_TTL_SECONDS = 60 * 60 * 6

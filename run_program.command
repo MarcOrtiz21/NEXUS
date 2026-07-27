@@ -11,7 +11,7 @@ echo " NEXUS Workstation (Desktop App)"
 echo "========================================"
 echo
 
-python_cmd="$(nexus_prepare_python "tkinter, yfinance, pandas, numpy, requests, feedparser")"
+python_cmd="$(nexus_prepare_python "customtkinter, PIL, tkinter, yfinance, pandas, numpy, requests, feedparser, Quartz")"
 
 echo
 echo "Iniciando programa local NEXUS ..."

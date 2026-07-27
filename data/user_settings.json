@@ -1,0 +1,8 @@
+{
+  "refresh_interval_seconds": 300,
+  "calendar_block_hours": 6,
+  "calendar_blocks_signals": true,
+  "sentiment_blocks_signals": true,
+  "use_finbert": true,
+  "macos_notifications": true
+}

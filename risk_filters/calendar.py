@@ -183,6 +183,20 @@ def _manual_fallback_events(lookahead_days: int, today: date, now: datetime) -> 
     return events
 
 
+def build_calendar_context(calendar: Dict) -> Dict[str, object]:
+    event = calendar.get("next_event") or {}
+    title = str(event.get("title") or "").lower()
+    if "cpi" in title or "inflation" in title:
+        guidance, assets = "Riesgo de sorpresa de inflación y reacción de tipos.", ["SPY", "TLT", "UUP"]
+    elif any(term in title for term in ("fomc", "fed", "rate")):
+        guidance, assets = "Decisión de política monetaria; volatilidad elevada tras el anuncio.", ["SPY", "TLT", "UUP"]
+    elif any(term in title for term in ("nfp", "employment", "payroll", "jobs")):
+        guidance, assets = "El empleo puede modificar expectativas de tipos y dólar.", ["SPY", "TLT", "UUP"]
+    else:
+        guidance, assets = "Evento macro próximo; usarlo como contexto y confirmar tras la publicación.", ["SPY", "TLT"]
+    return {"guidance": guidance, "affects_assets": assets, "confidence": calendar.get("confidence")}
+
+
 def check_macro_events(
     lookahead_days: int = 1,
     lookahead_hours: int = 48,

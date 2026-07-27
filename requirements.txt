@@ -7,6 +7,13 @@ requests>=2.28
 # CLI
 rich>=13.0
 
+# Desktop UI (macOS-like cards + trackpad scroll)
+customtkinter>=5.2
+pillow>=10.0
+
+# macOS real window blur (CGS / Quartz); ignored on other platforms
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
+
 # News feed
 feedparser>=6.0
 

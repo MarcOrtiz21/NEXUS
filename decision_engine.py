@@ -76,6 +76,7 @@ class DecisionResult:
     operational_action: str = "ESPERAR"
     operational_pause_reason: str | None = None
     macro_allocation: Dict[str, int] | None = None
+    score_breakdown: List[Dict[str, str]] | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -154,6 +155,7 @@ class DecisionEngine:
             operational_action=action,
             operational_pause_reason=operational_pause_reason,
             macro_allocation=macro_allocation,
+            score_breakdown=self._score_breakdown(reasons),
         )
 
     def _missing_required_inputs(self) -> List[str]:
@@ -167,6 +169,24 @@ class DecisionEngine:
             elif self.data.get(key) is None:
                 missing.append(label)
         return missing
+
+    def _score_breakdown(self, reasons: List[str]) -> List[Dict[str, str]]:
+        """Structured reason groups: explains rules without fabricating weights."""
+        groups = {
+            "Volatilidad": ("vix", "pánico", "estrés"),
+            "Tipos y liquidez": ("tipos", "bono", "curva", "liquidez", "inflación"),
+            "Valoración": ("per ",),
+            "Tendencia": ("momentum",),
+            "Noticias": ("sentimiento",),
+            "Mercados globales": ("global",),
+            "Riesgo operativo": ("pausada", "filtro"),
+        }
+        result = []
+        for reason in reasons:
+            lower = reason.lower()
+            factor = next((label for label, terms in groups.items() if any(term in lower for term in terms)), "Otros")
+            result.append({"factor": factor, "reason": reason})
+        return result
 
     def _inputs_used(self) -> List[str]:
         used = []

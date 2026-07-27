@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+cd "/Users/marc/Documents/Progrmas Propios/NEXUS/scripts"
+exec "/Users/marc/Documents/Progrmas Propios/NEXUS/scripts/run_program.sh"

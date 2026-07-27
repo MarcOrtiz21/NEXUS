@@ -14,13 +14,14 @@ from data_ingestion import fetch_market_data
 from decision_engine import DecisionEngine
 from history_view import summarize_history
 from logic_engine import LogicEngine
+from native_api import build_native_snapshot
 from paper_trading import summarize_paper_trading
 from risk_filters.calendar import check_macro_events
 from risk_filters.news_feed import fetch_news_items
 from rotation_engine import RotationEngine
 from signal_track_record import evaluate_track_record
 
-app = FastAPI(title="NEXUS Dashboard", version="1.2")
+app = FastAPI(title="NEXUS Dashboard", version="1.3")
 
 
 def _build_live_snapshot() -> dict:
@@ -57,6 +58,8 @@ def _build_live_snapshot() -> dict:
         },
         "global_markets": data.get("GlobalMarkets", {}),
         "news_count": len(news_items),
+        "news_items": news_items[:24],
+        "news_sources": sorted({str(i.get("source") or "RSS") for i in news_items}),
     }
 
 
@@ -220,6 +223,18 @@ def api_live() -> JSONResponse:
     return JSONResponse(_build_live_snapshot())
 
 
+@app.get("/api/native")
+def api_native() -> JSONResponse:
+    """Contrato completo para la app SwiftUI."""
+    return JSONResponse(build_native_snapshot(export=False))
+
+
+@app.get("/api/native/refresh")
+def api_native_refresh() -> JSONResponse:
+    """Igual que /api/native pero persistiendo snapshot en historial."""
+    return JSONResponse(build_native_snapshot(export=True))
+
+
 @app.get("/api/history")
 def api_history() -> JSONResponse:
     return JSONResponse(summarize_history(limit=100))
@@ -233,6 +248,11 @@ def api_paper() -> JSONResponse:
 @app.get("/api/track-record")
 def api_track_record() -> JSONResponse:
     return JSONResponse(evaluate_track_record(forward_days=5, limit=100))
+
+
+@app.get("/api/health")
+def api_health() -> JSONResponse:
+    return JSONResponse({"ok": True, "service": "nexus", "version": "1.3"})
 
 
 def main() -> None:

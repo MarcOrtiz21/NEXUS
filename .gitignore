@@ -7,8 +7,17 @@ APIKEYS/
 apikeys/
 .env
 .env.*
-data/cache/
-data/history/
+dist/
+scripts/dist/
+*.app/
+native/.build/
+native/.swiftpm/
+.DS_Store
+.pytest_cache/
+data/cache/*.json
+data/history/*.csv
+data/history/*.jsonl
+data/user_settings.json
 
 gemini context.html
 gemini context_files/

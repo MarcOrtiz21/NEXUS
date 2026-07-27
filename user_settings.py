@@ -23,6 +23,23 @@ DEFAULTS: Dict[str, Any] = {
     "sentiment_blocks_signals": True,
     "use_finbert": False,
     "macos_notifications": True,
+    "last_view": "overview",
+    "window_geometry": "1440x900",
+    "compact_mode": False,
+}
+
+ALLOWED_VIEWS = {
+    "overview",
+    "rotation",
+    "forex",
+    "assets",
+    "global",
+    "news",
+    "history",
+    "paper",
+    "track",
+    "report",
+    "quality",
 }
 
 _settings_cache: Dict[str, Any] | None = None
@@ -36,6 +53,13 @@ def _merge_defaults(raw: Dict[str, Any] | None) -> Dict[str, Any]:
     if merged["calendar_block_hours"] not in (3, 6):
         merged["calendar_block_hours"] = DEFAULTS["calendar_block_hours"]
     merged["refresh_interval_seconds"] = max(60, min(3600, int(merged["refresh_interval_seconds"])))
+    if merged.get("last_view") not in ALLOWED_VIEWS:
+        merged["last_view"] = DEFAULTS["last_view"]
+    geom = str(merged.get("window_geometry") or DEFAULTS["window_geometry"])
+    if "x" not in geom:
+        geom = DEFAULTS["window_geometry"]
+    merged["window_geometry"] = geom
+    merged["compact_mode"] = bool(merged.get("compact_mode", False))
     return merged
 
 

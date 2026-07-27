@@ -1,0 +1,15 @@
+{
+  "US2Y": 4.21,
+  "Yield_Curve_Spread": 0.4,
+  "M2_Latest": 23062.9,
+  "M2_Previous": 22654.3,
+  "M2_Change_Pct": 1.8,
+  "CPI_Latest": 333.979,
+  "CPI_YoY_Pct": 4.17,
+  "China_M2_YoY_Pct": 8.21,
+  "PE_Trailing": 26.947767,
+  "PE_Forward": 20.55,
+  "PE_Forward_Date": "2026-06-30",
+  "PE_Forward_Source": "Siblis USA Large Cap proxy",
+  "PE_Forward_Percentile": 25.0
+}
