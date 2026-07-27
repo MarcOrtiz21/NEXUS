@@ -16,6 +16,7 @@ native/.swiftpm/
 .pytest_cache/
 data/cache/*.json
 data/history/*.csv
+data/history/*.json
 data/history/*.jsonl
 data/user_settings.json
 
