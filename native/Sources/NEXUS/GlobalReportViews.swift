@@ -45,7 +45,7 @@ struct GlobalView: View {
         return NexusSummaryMetricCard(
             title: title,
             value: price(asset?.price),
-            hint: "\(hint) · 1M \(formatPct(asset?.momentum1m))",
+            hint: asset?.price == nil ? "Sin dato: actualiza la fuente de mercado" : "\(hint) · 1M \(formatPct(asset?.momentum1m))",
             tone: (asset?.momentum1m ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad
         )
     }
@@ -122,7 +122,7 @@ struct GlobalView: View {
         return NexusSummaryMetricCard(
             title: title,
             value: price(asset?.price),
-            hint: "1M \(formatPct(asset?.momentum1m)) · 3M \(formatPct(asset?.momentum3m))",
+            hint: asset?.price == nil ? "Serie regional pendiente de actualización" : "1M \(formatPct(asset?.momentum1m)) · 3M \(formatPct(asset?.momentum3m))",
             tone: (asset?.momentum1m ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad
         )
     }
@@ -193,12 +193,12 @@ struct GlobalView: View {
     }
 
     private func number(_ key: String, suffix: String = "", decimals: Int) -> String {
-        guard let value = store.snapshot?.market?[key]?.value else { return "—" }
+        guard let value = store.snapshot?.market?[key]?.value else { return "No disponible" }
         return String(format: "%.\(decimals)f%@", value, suffix)
     }
 
     private func price(_ value: Double?) -> String {
-        guard let value else { return "—" }
+        guard let value else { return "No disponible" }
         return String(format: value < 10 ? "%.4f" : "%.2f", value)
     }
 

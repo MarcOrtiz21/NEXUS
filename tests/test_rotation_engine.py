@@ -55,6 +55,54 @@ class RotationEngineTests(unittest.TestCase):
         self.assertEqual(result.state, "LIDERAZGO TECH DOMINANTE")
         self.assertGreater(result.leaders_avg_1m, result.receivers_avg_1m)
 
+    def test_exposes_representative_names_and_asia_themes(self):
+        data = {
+            "Assets": {"SPY": _asset(mom1=1.0)},
+            "RotationAssets": {
+                "XLK": _asset(mom1=2.0),
+                "EWJ": _asset(mom1=3.0),
+                "FXI": _asset(mom1=-1.0),
+                "AAXJ": _asset(mom1=1.5),
+                "EWY": _asset(mom1=0.5),
+            },
+        }
+
+        result = RotationEngine(data).evaluate()
+        xlk = next(theme for theme in result.themes if theme.ticker == "XLK")
+        asia = [theme for theme in result.themes if theme.group == "Asia"]
+
+        self.assertIn("NVIDIA", xlk.names)
+        self.assertTrue(xlk.news_topics)
+        self.assertEqual(len(asia), 4)
+        self.assertTrue(any(theme.theme == "Japón" for theme in asia))
+        self.assertTrue(all(theme.names for theme in asia))
+
+    def test_exposes_company_tickers_and_metrics_for_theme(self):
+        data = {
+            "Assets": {"SPY": _asset(mom1=1.0)},
+            "RotationAssets": {"XLK": _asset(mom1=2.0)},
+            "RotationCompanies": {"AAPL": _asset(price=210.0, mom1=4.0)},
+        }
+
+        result = RotationEngine(data).evaluate()
+        xlk = next(theme for theme in result.themes if theme.ticker == "XLK")
+        apple = next(company for company in xlk.companies if company["ticker"] == "AAPL")
+
+        self.assertEqual(apple["name"], "Apple")
+        self.assertEqual(apple["price"], 210.0)
+        self.assertEqual(apple["momentum_1m"], 4.0)
+
+    def test_each_theme_exposes_fifteen_companies_with_action_indicator(self):
+        data = {
+            "Assets": {"SPY": _asset(mom1=1.0)},
+            "RotationAssets": {theme["ticker"]: _asset(mom1=1.0) for theme in __import__("rotation_engine").ROTATION_THEMES},
+            "RotationCompanies": {},
+        }
+        result = RotationEngine(data).evaluate()
+
+        self.assertTrue(all(len(theme.companies) == 15 for theme in result.themes))
+        self.assertTrue(all(company["action"] == "SIN DATOS" for company in result.themes[0].companies))
+
 
 if __name__ == "__main__":
     unittest.main()

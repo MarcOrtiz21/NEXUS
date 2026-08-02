@@ -159,7 +159,9 @@ def _metrics(values: List[float], periods_per_year: int) -> Dict[str, float]:
 
 
 def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
-    df = yf.download(BACKTEST_TICKERS, period=period, progress=False, auto_adjust=False)
+    # Close ajustado incorpora dividendos y splits; usar el cierre nominal
+    # sesga al alza la comparación de estrategias de largo plazo.
+    df = yf.download(BACKTEST_TICKERS, period=period, progress=False, auto_adjust=True)
     if df.empty or "Close" not in df.columns:
         raise RuntimeError("No se pudieron descargar datos históricos para el backtest.")
 

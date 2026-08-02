@@ -126,6 +126,7 @@ def build_snapshot(
         "decision_dict": decision.to_dict(),
         "rotation": rotation,
         "rotation_dict": rotation.to_dict(),
+        "calendar": getattr(logic, "calendar_result", {}),
         "news_items": news_items,
         "headlines": [item["title"] for item in news_items],
         "export_paths": export_paths,

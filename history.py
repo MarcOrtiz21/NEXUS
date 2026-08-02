@@ -6,11 +6,15 @@ Guarda snapshots auditables en JSONL y un resumen cómodo en CSV.
 
 import csv
 import json
+import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 from config import DECISIONS_HISTORY_CSV, DECISIONS_HISTORY_JSONL, PAPER_PORTFOLIO_JSON
+
+_HISTORY_IO_LOCK = threading.RLock()
 
 
 def _now_utc_iso() -> str:
@@ -68,12 +72,6 @@ def export_decision_snapshot(
 ) -> Dict[str, str]:
     snapshot = build_decision_snapshot(data, decision, news_items, market_status=market_status)
 
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-    with jsonl_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
-
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    exists = csv_path.exists()
     row = {
         "captured_at": snapshot["captured_at"],
         "action": snapshot["operational_action"],
@@ -89,18 +87,25 @@ def export_decision_snapshot(
         "spy_price": snapshot["prices"].get("SPY"),
         "qqq_price": snapshot["prices"].get("QQQ"),
     }
-    with csv_path.open("a", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
-        if not exists:
-            writer.writeheader()
-        writer.writerow(row)
+    with _HISTORY_IO_LOCK:
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with jsonl_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
+
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        exists = csv_path.exists()
+        with csv_path.open("a", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
+            if not exists:
+                writer.writeheader()
+            writer.writerow(row)
 
     paper_result = None
     try:
         from paper_trading import update_paper_portfolio
         paper_result = update_paper_portfolio(decision, snapshot["prices"])
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.exception("No se pudo actualizar paper trading: %s", exc)
 
     result = {"jsonl": str(jsonl_path), "csv": str(csv_path)}
     if paper_result:

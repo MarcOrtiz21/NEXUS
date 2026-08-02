@@ -629,12 +629,19 @@ struct RotationView: View {
                     Button {
                         if let ticker = theme.ticker { store.showAsset(ticker) }
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Text(theme.theme ?? theme.ticker ?? "—")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(NexusTheme.text)
-                                    .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(theme.theme ?? theme.ticker ?? "—")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(NexusTheme.text)
+                                        .lineLimit(1)
+                                    if let group = theme.group {
+                                        Text("\(group) · \(theme.ticker ?? "")")
+                                            .font(.caption2)
+                                            .foregroundStyle(NexusTheme.muted)
+                                    }
+                                }
                                 Spacer()
                                 Text(String(format: "%.0f", theme.score ?? 0))
                                     .font(.caption.monospacedDigit().weight(.bold))
@@ -652,6 +659,12 @@ struct RotationView: View {
                                 .font(.caption2)
                                 .foregroundStyle(actionColor(theme))
                                 .lineLimit(2)
+                            if let names = theme.names, !names.isEmpty {
+                                Text(names.prefix(4).joined(separator: " · "))
+                                    .font(.caption2)
+                                    .foregroundStyle(NexusTheme.muted.opacity(0.95))
+                                    .lineLimit(1)
+                            }
                         }
                         .contentShape(Rectangle())
                     }
@@ -718,7 +731,7 @@ struct PaperView: View {
                     metric("Valor simulado", money(paper?.portfolio?.currentValue), "inicio \(money(paper?.portfolio?.startingValue))")
                     metric("Resultado NEXUS", formatPct(paper?.totalReturnPct), "rendimiento acumulado")
                     metric("Comparación SPY", benchmarkLabel(paper), benchmarkHint(paper))
-                    metric("Efectivo", "\(paper?.portfolio?.cashPct ?? 0)%", "capital sin invertir")
+                    metric("Efectivo", paper?.portfolio?.cashPct.map { "\($0)%" } ?? "—", "capital sin invertir")
                 }
 
                 NexusAdaptiveGrid(minimumWidth: 210) {
@@ -770,7 +783,7 @@ struct PaperView: View {
                         Text(paper?.portfolio?.lastAction ?? "—")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(NexusTheme.toneColor(paper?.portfolio?.lastAction))
-                        Text("Score \(paper?.portfolio?.lastScore ?? 0)/100")
+                        Text(paper?.portfolio?.lastScore.map { "Score \($0)/100" } ?? "Score —/100")
                             .foregroundStyle(NexusTheme.muted)
                         Text(paperGuidance(paper?.portfolio?.lastAction))
                             .font(.subheadline)

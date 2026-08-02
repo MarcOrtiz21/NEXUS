@@ -30,6 +30,7 @@ enum NavItem: String, CaseIterable, Identifiable {
 struct NativeSnapshot: Codable {
     let schema: String?
     let capturedAtUtc: String?
+    let settings: NativeSettings?
     let status: String?
     let alerts: [String]?
     let statusChip: StatusChip?
@@ -56,6 +57,7 @@ struct NativeSnapshot: Codable {
     enum CodingKeys: String, CodingKey {
         case schema
         case capturedAtUtc = "captured_at_utc"
+        case settings
         case status
         case alerts
         case statusChip = "status_chip"
@@ -67,6 +69,13 @@ struct NativeSnapshot: Codable {
         case assetRanking = "asset_ranking"
         case changeAttribution = "change_attribution"
         case trackRecord = "track_record"
+    }
+}
+
+struct NativeSettings: Codable {
+    let refreshIntervalSeconds: Int?
+    enum CodingKeys: String, CodingKey {
+        case refreshIntervalSeconds = "refresh_interval_seconds"
     }
 }
 
@@ -243,12 +252,43 @@ struct RotationTheme: Codable, Identifiable {
     let momentum3m: Double?
     let relative1mVsSpy: Double?
     let trend: String?
+    let price: Double?
+    let ma20: Double?
+    let ma50: Double?
+    let ma200: Double?
+    let volatility20d: Double?
+    let names: [String]?
+    let newsTopics: [String]?
+    let companies: [RotationCompany]?
 
     enum CodingKeys: String, CodingKey {
-        case ticker, group, theme, represents, signal, score, trend
+        case ticker, group, theme, represents, signal, score, trend, price, ma20, ma50, ma200, names, companies
         case momentum1m = "momentum_1m"
         case momentum3m = "momentum_3m"
         case relative1mVsSpy = "relative_1m_vs_spy"
+        case volatility20d = "volatility_20d"
+        case newsTopics = "news_topics"
+    }
+}
+
+struct RotationCompany: Codable, Identifiable {
+    var id: String { ticker ?? name ?? UUID().uuidString }
+    let name: String?
+    let ticker: String?
+    let price: Double?
+    let momentum1m: Double?
+    let momentum3m: Double?
+    let trend: String?
+    let volatility20d: Double?
+    let score: Int?
+    let action: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, ticker, price, trend
+        case momentum1m = "momentum_1m"
+        case momentum3m = "momentum_3m"
+        case volatility20d = "volatility_20d"
+        case score, action
     }
 }
 
@@ -335,6 +375,19 @@ struct AssetMetrics: Codable {
         case momentum1m = "momentum_1m"
         case momentum3m = "momentum_3m"
         case volatility20d = "volatility_20d"
+    }
+
+    init(
+        price: Double?, ma20: Double?, ma50: Double?, ma200: Double?,
+        momentum1m: Double?, momentum3m: Double?, volatility20d: Double?
+    ) {
+        self.price = price
+        self.ma20 = ma20
+        self.ma50 = ma50
+        self.ma200 = ma200
+        self.momentum1m = momentum1m
+        self.momentum3m = momentum3m
+        self.volatility20d = volatility20d
     }
 
     init(from decoder: Decoder) throws {

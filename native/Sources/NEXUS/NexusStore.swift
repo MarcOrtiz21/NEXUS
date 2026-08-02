@@ -15,6 +15,7 @@ final class NexusStore: ObservableObject {
     private let client = NexusAPIClient()
     private var engine: EngineProcess?
     private var timer: Timer?
+    private var refreshIntervalSeconds: TimeInterval = 300
     private let repoRoot: URL
 
     init() {
@@ -71,7 +72,16 @@ final class NexusStore: ObservableObject {
             if !(await client.health()) {
                 await ensureEngine()
             }
-            snapshot = try await client.fetchNative(persist: persist)
+            let nextSnapshot = try await client.fetchNative(persist: persist)
+            snapshot = nextSnapshot
+            if let configured = nextSnapshot.settings?.refreshIntervalSeconds,
+               (60...3600).contains(configured) {
+                let nextInterval = TimeInterval(configured)
+                if nextInterval != refreshIntervalSeconds {
+                    refreshIntervalSeconds = nextInterval
+                    startTimer()
+                }
+            }
             lastRefresh = Date()
             errorMessage = nil
             engineStatus = "Motor OK · :8765"
@@ -90,7 +100,7 @@ final class NexusStore: ObservableObject {
 
     private func startTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: refreshIntervalSeconds, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 guard self.autoRefresh else { return }

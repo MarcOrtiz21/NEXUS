@@ -10,7 +10,17 @@ struct AssetDetailView: View {
 
     private var metrics: AssetMetrics? {
         if ticker == "EURUSD" { return store.snapshot?.forex?.EURUSD }
-        return store.snapshot?.assets?[ticker]
+        if let asset = store.snapshot?.assets?[ticker] { return asset }
+        guard let theme = rotationTheme else { return nil }
+        return AssetMetrics(
+            price: theme.price,
+            ma20: theme.ma20,
+            ma50: theme.ma50,
+            ma200: theme.ma200,
+            momentum1m: theme.momentum1m,
+            momentum3m: theme.momentum3m,
+            volatility20d: theme.volatility20d
+        )
     }
 
     private var rotationTheme: RotationTheme? {
@@ -23,8 +33,13 @@ struct AssetDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
+        ZStack {
+            // El inspector no debe heredar la transparencia de la ventana
+            // principal: el contenido que queda detrás reduce el contraste.
+            NexusTheme.bg
+                .ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: NexusLayout.spacing) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(ticker)
@@ -88,6 +103,103 @@ struct AssetDetailView: View {
                 }
                 .nexusCard()
 
+                if let companies = rotationTheme?.companies, !companies.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NexusSectionHeader(
+                            title: "Empresas del tema",
+                            detail: "\(companies.count)",
+                            help: "Empresas representativas del tema. Las métricas son informativas y no constituyen una cartera recomendada."
+                        )
+                        if let represents = rotationTheme?.represents {
+                            Text(represents.capitalized)
+                                .font(.caption)
+                                .foregroundStyle(NexusTheme.muted)
+                        }
+                        ForEach(companies) { company in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(company.name ?? company.ticker ?? "Empresa")
+                                            .font(.subheadline.weight(.semibold))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Text(company.ticker ?? "—")
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(NexusTheme.muted)
+                                    }
+                                    Spacer(minLength: 8)
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text(number(company.price, digits: 2))
+                                            .font(.caption.monospacedDigit().weight(.semibold))
+                                        Text("1M \(formatPct(company.momentum1m))")
+                                            .font(.caption2)
+                                            .foregroundStyle(NexusTheme.muted)
+                                    }
+                                }
+                                if let action = company.action {
+                                    HStack {
+                                        Spacer()
+                                        ToneBadge(tone: action, label: action)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                            if company.id != companies.last?.id { Divider().opacity(0.10) }
+                        }
+                    }
+                    .nexusCard()
+                } else if let names = rotationTheme?.names, !names.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NexusSectionHeader(title: "Empresas representativas")
+                        FlowChips(items: names)
+                    }
+                    .nexusCard()
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        NexusSectionHeader(title: "Empresas del tema")
+                        Text("El motor no ha recibido todavía el desglose de empresas. Actualiza los datos para cargarlo.")
+                            .font(.caption)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                    .nexusCard()
+                }
+
+                if !relatedNews.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        NexusSectionHeader(
+                            title: "Noticias relacionadas",
+                            detail: "\(relatedNews.count)",
+                            help: "Titulares que mencionan empresas o temas del sector. Coincidencia contextual, no causalidad."
+                        )
+                        ForEach(relatedNews.prefix(5)) { item in
+                            Button {
+                                store.selected = .news
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(item.source ?? "Fuente")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(NexusTheme.accent)
+                                        Spacer()
+                                        ToneBadge(tone: item.tone, label: newsImpact(item.tone))
+                                    }
+                                    Text(item.title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(NexusTheme.text)
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(2)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            if item.id != relatedNews.prefix(5).last?.id {
+                                Divider().opacity(0.12)
+                            }
+                        }
+                    }
+                    .nexusCard()
+                }
+
                 NexusGuidanceCard(
                     doing: guidance.doing,
                     avoiding: guidance.avoiding,
@@ -98,10 +210,37 @@ struct AssetDetailView: View {
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
                     .padding(.horizontal, 4)
+                }
+                .padding(16)
             }
-            .padding(16)
+            .scrollContentBackground(.hidden)
         }
-        .frame(minWidth: 330, idealWidth: 380)
+        .background(NexusTheme.bg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var relatedNews: [NewsItem] {
+        let items = store.snapshot?.news?.items ?? []
+        let names = (rotationTheme?.names ?? []).map { $0.lowercased() }
+        let tickers = (rotationTheme?.companies ?? []).compactMap { $0.ticker?.lowercased() }
+        let topics = Set(rotationTheme?.newsTopics ?? [])
+        guard !names.isEmpty || !topics.isEmpty else { return [] }
+        return items.filter { item in
+            let topicHit = !(Set(item.linkedTopics ?? []).isDisjoint(with: topics))
+            if topicHit { return true }
+            let blob = [item.title, item.summary]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: " ")
+            return names.contains { blob.contains($0) } || tickers.contains { blob.contains($0) }
+        }
+    }
+
+    private func newsImpact(_ tone: String?) -> String {
+        switch (tone ?? "").uppercased() {
+        case "GOOD": return "Favorable"
+        case "BAD": return "Riesgo"
+        default: return "Neutro"
+        }
     }
 
     private var assetName: String {
@@ -113,6 +252,10 @@ struct AssetDetailView: View {
         case "UUP": return "Dólar"
         case "EURUSD": return "Euro / dólar"
         case "CASH": return "Liquidez"
+        case "EWJ": return "Japón"
+        case "FXI": return "China"
+        case "AAXJ": return "Asia emergente"
+        case "EWY": return "Corea del Sur"
         default: return ticker
         }
     }

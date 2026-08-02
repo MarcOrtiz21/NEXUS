@@ -42,6 +42,7 @@ LINKED_TOPIC_TERMS = {
     "Recesión/empleo": ["recession", "unemployment", "payroll", "jobless claims"],
     "Geopolítica": ["tariff", "sanction", "geopolitical", "war"],
     "Divisas": ["forex", "currency", "exchange rate"],
+    "Asia": ["china", "japan", "korea", "taiwan", "asia", "beijing", "tokyo", "seoul"],
 }
 
 LINKED_ASSET_TERMS = {

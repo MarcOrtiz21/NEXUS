@@ -94,6 +94,31 @@ class PaperTradingSummaryTests(unittest.TestCase):
         self.assertEqual(result["portfolio"]["current_value"], 105000)
         self.assertEqual(result["trade"]["pnl_since_last_pct"], 5.0)
 
+    def test_missing_quote_uses_last_entry_price_instead_of_liquidating_position(self):
+        portfolio = {
+            "starting_value": 100000,
+            "current_value": 100000,
+            "holdings": {"SPY": 500, "CASH": 50000},
+            "entry_prices": {"SPY": 100},
+        }
+
+        class Decision:
+            allocation = {"SPY": 50, "CASH": 50}
+            action = "MANTENER"
+            score = 60
+
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio_path = Path(tmp) / "portfolio.json"
+            trades_path = Path(tmp) / "trades.jsonl"
+            portfolio_path.write_text(json.dumps(portfolio), encoding="utf-8")
+            with patch("paper_trading.PAPER_PORTFOLIO_JSON", portfolio_path), patch(
+                "paper_trading.PAPER_TRADES_JSONL", trades_path
+            ):
+                result = update_paper_portfolio(Decision(), {})
+
+        self.assertEqual(result["portfolio"]["current_value"], 100000)
+        self.assertEqual(result["portfolio"]["holdings"]["SPY"], 500.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,7 @@ from config import (
     PE_PERCENTILE_HIGH,
     PE_PERCENTILE_LOW,
 )
+from rotation_catalog import ROTATION_COMPANY_TICKERS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,15 +45,25 @@ SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLP"]
 DECISION_ASSETS = ["SPY", "QQQ", "TLT", "GLD", "UUP"]
 
 # Proxies usados para detectar rotación sectorial/temática.
-ROTATION_ASSETS = ["AIQ", "SMH", "XLK", "XBI", "XLV", "KIE", "PJP"]
+ROTATION_ASSETS = [
+    "XLK", "SMH", "SOXX", "IGV", "AIQ", "FIVG", "SRVR", "GRID", "VRT",
+    "SKYY", "CIBR", "XLV", "XBI", "PJP", "KIE", "KBE", "XLI", "ITA",
+    "XLY", "XLU", "XLB", "XLE",
+    "EWJ", "FXI", "AAXJ", "EWY",
+]
 
 # Par principal de divisas para bloque FX.
 FOREX_TICKERS = {"EURUSD": "EURUSD=X"}
 
 FAST_CACHE_KEYS = (
     "VIX", "VIX_MA5", "VIX_MA10", "VIX_MA20", "US10Y", "Correlation_Proxy",
-    "Assets", "RotationAssets", "Forex", "GlobalMarkets",
+    "Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets",
 )
+
+# Cambia cuando se modifica el contrato de los bloques cacheados. Así no se
+# reutiliza un cache antiguo que, por ejemplo, no contiene nuevos proxies.
+CACHE_SCHEMA_VERSION = 4
+CACHE_METRIC_GROUPS = {"Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets"}
 
 SLOW_CACHE_KEYS = (
     "US2Y", "Yield_Curve_Spread", "M2_Latest", "M2_Previous", "M2_Change_Pct",
@@ -83,18 +94,19 @@ def _mark_quality(data: Dict[str, Any], key: str, source: str, status: str = "OK
 
 
 def _find_obs_near_date(observations: list, target_date: str) -> float | None:
-    """Busca la observación más cercana a target_date (formato YYYY-MM-DD)."""
+    """Busca la última observación disponible hasta target_date, sin mirar al futuro."""
     if not observations:
         return None
     best = None
-    best_delta = None
+    target = datetime.strptime(target_date, "%Y-%m-%d")
+    best_date = None
     for obs in observations:
         try:
-            delta = abs((datetime.strptime(obs["date"], "%Y-%m-%d") - datetime.strptime(target_date, "%Y-%m-%d")).days)
-            if best_delta is None or delta < best_delta:
-                best_delta = delta
+            obs_date = datetime.strptime(obs["date"], "%Y-%m-%d")
+            if obs_date <= target and (best_date is None or obs_date > best_date):
+                best_date = obs_date
                 best = obs["value"]
-        except (ValueError, KeyError):
+        except (TypeError, ValueError, KeyError):
             continue
     return best
 
@@ -129,18 +141,17 @@ def _apply_cache_fallback(data: Dict[str, Any], cache: Dict[str, Any] | None) ->
     cache_age = cache.get("_cache_age_seconds")
     stale = cache_age is None or cache_age > MARKET_CACHE_MAX_AGE_SECONDS
     for key, value in cache.items():
-        if key.startswith("_") or key == "DataQuality":
+        if key.startswith("_") or key in {"DataQuality", "schema_version"}:
+            continue
+        status = "STALE" if stale else "OK"
+        detail = "fallback desde cache local"
+        if key in CACHE_METRIC_GROUPS:
+            _merge_metric_group_from_cache(data, key, value, status, detail)
             continue
         should_fallback = data.get(key) in (None, {})
-        if key in ("Assets", "RotationAssets", "Forex"):
-            should_fallback = not any(
-                metrics.get("price") is not None
-                for metrics in data.get(key, {}).values()
-            )
         if should_fallback and value not in (None, {}):
             data[key] = value
-            status = "STALE" if stale else "OK"
-            _mark_quality(data, key, "cache", status, "fallback desde cache local")
+            _mark_quality(data, key, "cache", status, detail)
 
     return data
 
@@ -162,6 +173,7 @@ def _save_tier_cache(path, payload: Dict[str, Any]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         clean = {k: v for k, v in payload.items() if not k.startswith("_")}
+        clean["schema_version"] = CACHE_SCHEMA_VERSION
         tmp = path.with_suffix('.tmp')
         tmp.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.rename(path)
@@ -183,9 +195,46 @@ def _apply_tier_cache(data: Dict[str, Any], cache: Dict[str, Any] | None, keys: 
         value = cache.get(key)
         if value in (None, {}):
             continue
-        data[key] = value
         status = "STALE" if stale else "OK"
-        _mark_quality(data, key, "cache", status, f"desde cache ({'stale' if stale else 'fresh'})")
+        detail = f"desde cache ({'stale' if stale else 'fresh'})"
+        if key in CACHE_METRIC_GROUPS:
+            _merge_metric_group_from_cache(data, key, value, status, detail)
+        else:
+            data[key] = value
+            _mark_quality(data, key, "cache", status, detail)
+    cache_age = cache.get("_cache_age_seconds")
+    if isinstance(cache_age, (int, float)):
+        current_age = data.get("_cache_age_seconds")
+        data["_cache_age_seconds"] = max(float(current_age or 0), float(cache_age))
+
+
+def _merge_metric_group_from_cache(
+    data: Dict[str, Any],
+    key: str,
+    cached_group: Any,
+    status: str,
+    detail: str,
+) -> None:
+    """Completa solo métricas ausentes; nunca pisa una lectura recién obtenida."""
+    current_group = data.get(key)
+    if not isinstance(current_group, dict) or not isinstance(cached_group, dict):
+        return
+
+    merged = dict(current_group)
+    for name, cached_metrics in cached_group.items():
+        if not isinstance(cached_metrics, dict):
+            continue
+        current_metrics = merged.get(name)
+        metrics = dict(current_metrics) if isinstance(current_metrics, dict) else {}
+        used_cache = False
+        for metric, cached_value in cached_metrics.items():
+            if metrics.get(metric) is None and cached_value is not None:
+                metrics[metric] = cached_value
+                used_cache = True
+        if used_cache:
+            merged[name] = metrics
+            _mark_quality(data, f"{key}.{name}", "cache", status, detail)
+    data[key] = merged
 
 
 def _extract_tier_payload(data: Dict[str, Any], keys: tuple[str, ...]) -> Dict[str, Any]:
@@ -193,20 +242,30 @@ def _extract_tier_payload(data: Dict[str, Any], keys: tuple[str, ...]) -> Dict[s
 
 
 def _fast_cache_usable(cache: Dict[str, Any] | None) -> bool:
-    if not _cache_is_fresh(cache, FAST_MARKET_CACHE_TTL_SECONDS):
+    if (
+        not _cache_is_fresh(cache, FAST_MARKET_CACHE_TTL_SECONDS)
+        or (cache or {}).get("schema_version") != CACHE_SCHEMA_VERSION
+    ):
         return False
     assets = (cache or {}).get("Assets", {})
+    rotation_companies = (cache or {}).get("RotationCompanies", {})
     forex = (cache or {}).get("Forex", {})
+    global_markets = (cache or {}).get("GlobalMarkets", {})
     return (
         cache.get("VIX") is not None
         and assets.get("SPY", {}).get("price") is not None
         and assets.get("GLD", {}).get("price") is not None
+        and any(metrics.get("price") is not None for metrics in rotation_companies.values())
         and forex.get("EURUSD", {}).get("price") is not None
+        and any(metrics.get("price") is not None for metrics in global_markets.values())
     )
 
 
 def _slow_cache_usable(cache: Dict[str, Any] | None) -> bool:
-    if not _cache_is_fresh(cache, SLOW_MACRO_CACHE_TTL_SECONDS):
+    if (
+        not _cache_is_fresh(cache, SLOW_MACRO_CACHE_TTL_SECONDS)
+        or (cache or {}).get("schema_version") != CACHE_SCHEMA_VERSION
+    ):
         return False
     return any((cache or {}).get(key) is not None for key in SLOW_CACHE_KEYS)
 
@@ -446,6 +505,18 @@ def fetch_market_data() -> Dict[str, Any]:
             }
             for ticker in ROTATION_ASSETS
         },
+        "RotationCompanies": {
+            ticker: {
+                "price": None,
+                "ma20": None,
+                "ma50": None,
+                "ma200": None,
+                "momentum_1m": None,
+                "momentum_3m": None,
+                "volatility_20d": None,
+            }
+            for ticker in sorted(set(ROTATION_COMPANY_TICKERS.values()))
+        },
         "Forex": {
             pair: {
                 "price": None,
@@ -478,9 +549,11 @@ def fetch_market_data() -> Dict[str, Any]:
         logging.info("Usando cache rápida de mercado (precios/VIX)...")
         _apply_tier_cache(data, fast_cache, FAST_CACHE_KEYS, stale=False)
     else:
-        tickers = sorted(
-            set(["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS + list(FOREX_TICKERS.values()) + global_tickers)
-        )
+        tickers = sorted(set(
+            ["^VIX", "^TNX"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS
+            + list(ROTATION_COMPANY_TICKERS.values())
+            + list(FOREX_TICKERS.values()) + global_tickers
+        ))
         try:
             logging.info("Descargando datos de mercado (yfinance, 2 años)...")
             df = yf.download(tickers, period="2y", progress=False)
@@ -532,6 +605,14 @@ def fetch_market_data() -> Dict[str, Any]:
                 for ticker, metrics in data["RotationAssets"].items():
                     status = "OK" if metrics.get("price") is not None else "MISSING"
                     _mark_quality(data, f"RotationAssets.{ticker}", f"yfinance:{ticker}", status)
+
+                data["RotationCompanies"] = {
+                    ticker: _calculate_asset_metrics(df_close, ticker)
+                    for ticker in sorted(set(ROTATION_COMPANY_TICKERS.values()))
+                }
+                for ticker, metrics in data["RotationCompanies"].items():
+                    status = "OK" if metrics.get("price") is not None else "MISSING"
+                    _mark_quality(data, f"RotationCompanies.{ticker}", f"yfinance:{ticker}", status)
 
                 data["Forex"] = {
                     pair: _calculate_asset_metrics(df_close, ticker)

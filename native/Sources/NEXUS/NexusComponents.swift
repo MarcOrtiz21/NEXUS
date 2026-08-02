@@ -17,7 +17,7 @@ struct NexusAdaptiveGrid<Content: View>: View {
 
     var body: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: minimumWidth), spacing: spacing, alignment: .top)],
+            columns: [GridItem(.adaptive(minimum: minimumWidth, maximum: .infinity), spacing: spacing, alignment: .top)],
             alignment: .leading,
             spacing: spacing
         ) {
@@ -188,5 +188,33 @@ struct NexusScoreBar: View {
         if progress >= 0.65 { return NexusTheme.good }
         if progress >= 0.45 { return NexusTheme.warn }
         return NexusTheme.bad
+    }
+}
+
+/// Chips fluídos para listar empresas o etiquetas sin forzar una sola fila.
+struct FlowChips: View {
+    let items: [String]
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 78), spacing: 6, alignment: .leading)],
+            alignment: .leading,
+            spacing: 6
+        ) {
+            ForEach(items, id: \.self) { item in
+                Text(item)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(NexusTheme.text)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
+                    .background(NexusTheme.cardInner.opacity(0.9))
+                    .overlay(
+                        Capsule().stroke(.white.opacity(0.10), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+        }
     }
 }

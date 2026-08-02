@@ -70,6 +70,7 @@ class LogicEngine:
         self.news_items = news_items
         self.status = MarketStatus.UNKNOWN
         self.alerts: List[str] = []
+        self.calendar_result: Dict[str, Any] = {}
 
     def _add_data_quality_alerts(self) -> bool:
         """
@@ -220,6 +221,7 @@ class LogicEngine:
             except ValueError:
                 as_of = None
         cal = check_macro_events(as_of=as_of, block_hours=get_setting("calendar_block_hours"))
+        self.calendar_result = cal
         calendar_blocked = cal.get("should_block_signals", False)
         if cal["event_imminent"]:
             prefix = "🛑 CALENDARIO" if calendar_blocked else "ℹ️ CALENDARIO ESTIMADO"

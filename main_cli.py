@@ -509,15 +509,15 @@ def _render_rotation(rotation, compact: bool = False):
             f"[{state_style}] {rotation.state} [/{state_style}]\n"
             f"[bold]Lectura:[/bold] {rotation.summary}\n"
             f"[dim]Momentum medio 1M líderes IA/semis/tech: {leaders} | "
-            f"receptores biotech/salud/seguros: {receivers}[/dim]",
+            f"receptores defensivos/cíclicos/Asia: {receivers}[/dim]",
             title="Mapa de Rotación Sectorial",
             border_style="bright_blue",
         )
     )
 
-    leaders = [theme for theme in rotation.themes if theme.group == "Líderes en descanso"]
-    receivers = [theme for theme in rotation.themes if theme.group == "Receptores de flujo"]
-    console.print(_build_rotation_table("Descansa / sale dinero", leaders, "bright_yellow", compact=compact))
+    leaders = [theme for theme in rotation.themes if theme.group == "Tecnología"]
+    receivers = [theme for theme in rotation.themes if theme.group != "Tecnología"]
+    console.print(_build_rotation_table("Liderazgo tecnológico", leaders, "bright_yellow", compact=compact))
     console.print(_build_rotation_table("Entra / recibe flujo", receivers, "bright_green", compact=compact))
     console.print("")
 

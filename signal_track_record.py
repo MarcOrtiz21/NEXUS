@@ -41,14 +41,17 @@ def _forward_return(rows: List[Dict[str, Any]], start_idx: int, forward_days: in
     target_ts = start_ts.timestamp() + forward_days * 86400
     best_idx = None
     best_delta = None
+    max_gap_seconds = max(3 * 86400, int(forward_days * 0.2 * 86400))
     for idx in range(start_idx + 1, len(rows)):
         later = rows[idx]
         later_ts = _parse_ts(later.get("captured_at"))
         later_price = later.get("prices", {}).get("SPY")
         if later_ts is None or later_price in (None, 0):
             continue
-        delta = abs(later_ts.timestamp() - target_ts)
-        if later_ts.timestamp() < start_ts.timestamp():
+        delta = later_ts.timestamp() - target_ts
+        if delta < 0 or later_ts.timestamp() < start_ts.timestamp():
+            continue
+        if delta > max_gap_seconds:
             continue
         if best_delta is None or delta < best_delta:
             best_delta = delta

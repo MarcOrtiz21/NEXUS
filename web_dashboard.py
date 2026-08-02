@@ -21,7 +21,7 @@ from risk_filters.news_feed import fetch_news_items
 from rotation_engine import RotationEngine
 from signal_track_record import evaluate_track_record
 
-app = FastAPI(title="NEXUS Dashboard", version="1.3")
+app = FastAPI(title="NEXUS Dashboard", version="1.4")
 
 
 def _build_live_snapshot() -> dict:
@@ -252,7 +252,12 @@ def api_track_record() -> JSONResponse:
 
 @app.get("/api/health")
 def api_health() -> JSONResponse:
-    return JSONResponse({"ok": True, "service": "nexus", "version": "1.3"})
+    return JSONResponse({
+        "ok": True,
+        "service": "nexus",
+        "version": "1.4",
+        "capabilities": {"rotation_companies": True, "native_settings": True},
+    })
 
 
 def main() -> None:

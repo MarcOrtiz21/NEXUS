@@ -981,6 +981,7 @@ class NexusDesktopApp(ctk.CTk):
                 "data": raw_snap["data"],
                 "decision": raw_snap["decision_dict"],
                 "rotation": raw_snap["rotation_dict"],
+                "calendar": raw_snap.get("calendar") or {},
                 "news_items": raw_snap["news_items"],
                 "export_paths": raw_snap["export_paths"],
             }
@@ -1023,7 +1024,7 @@ class NexusDesktopApp(ctk.CTk):
             self._update_macro_label(snap)
 
     def _update_macro_label(self, snap: Dict[str, Any]) -> None:
-        cal = check_macro_events()
+        cal = snap.get("calendar") or check_macro_events()
         if cal.get("should_block_signals"):
             self._set_macro_chip(
                 f"Bloqueo {cal.get('block_hours', CALENDAR_BLOCK_HOURS)}h",
@@ -1129,7 +1130,7 @@ class NexusDesktopApp(ctk.CTk):
         score = int(dec.get("score", 0))
         rationale = str(dec.get("rationale") or "").strip()
         alerts = s.get("alerts") or []
-        cal = check_macro_events()
+        cal = s.get("calendar") or check_macro_events()
 
         # 1) Acción ahora
         hero = self.make_card(self.content, fill="x", pady=3)
@@ -1387,11 +1388,25 @@ class NexusDesktopApp(ctk.CTk):
                         width=width,
                         font=font,
                     ).pack(side="left", padx=2)
+                companies = t.get("companies") or []
+                company_text = " · ".join(
+                    f"{item.get('name', item.get('ticker', '—'))} {signed(item.get('momentum_1m'))}"
+                    for item in companies[:4]
+                )
+                if company_text:
+                    tk.Label(
+                        row,
+                        text=f"Empresas: {company_text}",
+                        bg=CARD_INNER,
+                        fg=MUTED,
+                        anchor="w",
+                        font=("SF Pro Text", 10),
+                    ).pack(fill="x", padx=12, pady=(0, 7))
             # spacer inferior del grupo
             tk.Frame(table, bg=CARD, height=4).pack(fill="x")
 
-        add_group("LÍDERES", [t for t in themes if t.get("group") == "Líderes en descanso"])
-        add_group("RECEPTORES DE FLUJO", [t for t in themes if t.get("group") != "Líderes en descanso"])
+        add_group("LIDERAZGO TECNOLÓGICO", [t for t in themes if t.get("group") == "Tecnología"])
+        add_group("RECEPTORES DE FLUJO", [t for t in themes if t.get("group") != "Tecnología"])
         if not themes:
             tk.Label(table, text="Sin temas de rotación disponibles.", bg=CARD, fg=MUTED, anchor="w").pack(
                 fill="x", padx=14, pady=10

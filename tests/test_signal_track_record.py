@@ -76,6 +76,16 @@ class SignalTrackRecordTests(unittest.TestCase):
         self.assertEqual(len(payload["hit_bars"]), 2)
         self.assertIn("Macro COMPRAR", payload["hit_bars"][0]["label"])
 
+    def test_rejects_forward_observation_too_far_from_target(self):
+        rows = [
+            _row("2026-01-01T12:00:00+00:00", "COMPRAR", 100.0),
+            _row("2026-02-01T12:00:00+00:00", "ESPERAR", 120.0),
+        ]
+        with patch("signal_track_record.load_history_jsonl", return_value=rows):
+            summary = evaluate_track_record(forward_days=5, limit=10)
+
+        self.assertEqual(summary["sample_size"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

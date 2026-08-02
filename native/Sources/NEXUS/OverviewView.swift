@@ -8,11 +8,11 @@ struct OverviewView: View {
             LazyVStack(alignment: .leading, spacing: NexusLayout.spacing) {
                 actionCard
                 overviewGuidance
-                NexusAdaptiveGrid(minimumWidth: 360) {
+                NexusAdaptiveGrid(minimumWidth: 300) {
                     rankingCard
                     macroPulseCard
                 }
-                NexusAdaptiveGrid(minimumWidth: 360) {
+                NexusAdaptiveGrid(minimumWidth: 300) {
                     comparisonCard
                     allocationCard
                 }
@@ -59,7 +59,7 @@ struct OverviewView: View {
                     .foregroundStyle(NexusTheme.warn)
             }
             HStack {
-                Text("Score \(decision?.score ?? 0)/100")
+                Text(decision?.score.map { "Score \($0)/100" } ?? "Score —/100")
                     .font(.subheadline.weight(.semibold))
                 Text("·")
                 Text(decision?.confidence ?? "—")
@@ -69,27 +69,33 @@ struct OverviewView: View {
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
             }
-            ProgressView(value: Double(decision?.score ?? 0), total: 100)
-                .tint(actionColor)
+            if let score = decision?.score {
+                ProgressView(value: Double(score), total: 100)
+                    .tint(actionColor)
+            } else {
+                ProgressView(value: 0, total: 100)
+                    .tint(NexusTheme.muted)
+                    .opacity(0.35)
+            }
             if let favored = decision?.favoredAssets, !favored.isEmpty {
                 Text("Favorecidos: \(favored.joined(separator: ", "))")
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
             }
             if let rationale = decision?.rationale, !rationale.isEmpty {
-                DisclosureGroup("Por qué recomienda esto") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("POR QUÉ")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(NexusTheme.accent)
                     Text(rationale)
                         .font(.caption)
                         .foregroundStyle(NexusTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
                 }
-                .font(.caption.weight(.semibold))
-                .tint(NexusTheme.accent)
             }
         }
         .nexusCard()
-        .frame(minHeight: 205)
+        .frame(minHeight: 235)
     }
 
     private var overviewGuidance: some View {
@@ -163,20 +169,23 @@ struct OverviewView: View {
                 Button {
                     store.showAsset(ticker)
                 } label: {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(asset.label ?? ticker).lineLimit(1)
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(asset.label ?? ticker)
+                                .lineLimit(2)
                             Text(rankingMovement(ticker))
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(rankingMovementColor(ticker))
                         }
-                        .frame(width: 100, alignment: .leading)
-                        NexusScoreBar(value: asset.score.map(Double.init))
-                        Text(asset.action ?? "")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                            .lineLimit(1)
-                            .frame(width: 92, alignment: .trailing)
+                        .frame(minWidth: 112, maxWidth: 150, alignment: .leading)
+                        VStack(alignment: .trailing, spacing: 3) {
+                            NexusScoreBar(value: asset.score.map(Double.init))
+                            Text(asset.action ?? "")
+                                .font(.caption2)
+                                .foregroundStyle(NexusTheme.muted)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.trailing)
+                        }
                         Image(systemName: "chevron.right")
                             .font(.caption2)
                             .foregroundStyle(NexusTheme.muted)
@@ -355,10 +364,15 @@ struct OverviewView: View {
     }
 
     private var macroInterpretation: String {
-        let vix = market("VIX") ?? 0
-        let yield = market("US10Y") ?? 0
-        if vix > 25 { return "Volatilidad alta: priorizar liquidez y reducir tamaño." }
-        if yield > 4.5 { return "Tipos elevados: presión para activos de larga duración." }
+        if let vix = market("VIX"), vix > 25 {
+            return "Volatilidad alta: priorizar liquidez y reducir tamaño."
+        }
+        if let yield = market("US10Y"), yield > 4.5 {
+            return "Tipos elevados: presión para activos de larga duración."
+        }
+        if market("VIX") == nil && market("US10Y") == nil {
+            return "Datos macro insuficientes para interpretar el entorno."
+        }
         return "Entorno sin estrés extremo; respetar igualmente el bloqueo operativo."
     }
 

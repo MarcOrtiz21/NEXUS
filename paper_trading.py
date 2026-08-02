@@ -5,11 +5,14 @@ Paper trading / seguimiento de P&L virtual de señales NEXUS.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 from config import PAPER_PORTFOLIO_JSON, PAPER_TRADES_JSONL
+
+_PAPER_IO_LOCK = threading.RLock()
 
 
 def _now_utc_iso() -> str:
@@ -31,18 +34,26 @@ def _load_portfolio(path: Path = PAPER_PORTFOLIO_JSON) -> Dict[str, Any]:
             "benchmark_start_value": 100000.0,
             "benchmark_current_value": 100000.0,
         }
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"No se pudo leer la cartera virtual: {path}") from exc
 
 
 def _save_portfolio(portfolio: Dict[str, Any], path: Path = PAPER_PORTFOLIO_JSON) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(portfolio, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _PAPER_IO_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(portfolio, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
 
 def _append_trade(record: Dict[str, Any], path: Path = PAPER_TRADES_JSONL) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    with _PAPER_IO_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def update_paper_portfolio(
@@ -80,7 +91,7 @@ def update_paper_portfolio(
     for asset, weight in allocation.items():
         if asset == "CASH":
             continue
-        price = prices.get(asset)
+        price = prices.get(asset) or entry_prices.get(asset)
         if price is None or price <= 0:
             unallocated_value += (weight / 100.0) * total_value
             continue
@@ -100,7 +111,7 @@ def update_paper_portfolio(
     for asset, shares in new_holdings.items():
         if asset == "CASH":
             continue
-        price = prices.get(asset)
+        price = prices.get(asset) or entry_prices.get(asset)
         if price is not None:
             marked_value += shares * price
 

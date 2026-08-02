@@ -45,29 +45,47 @@ struct ContentView: View {
                 .padding(12)
             }
         } detail: {
-            VStack(spacing: 0) {
-                header
-                Divider().opacity(0.2)
-                if let banner = store.snapshot?.blockBanner {
-                    BlockBannerView(banner: banner, compact: store.selected != .overview)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, store.selected == .overview ? 10 : 6)
-                }
-                Group {
-                    switch store.selected {
-                    case .overview: OverviewView()
-                    case .news: NewsView()
-                    case .history: HistoryView()
-                    case .forexGold: ForexGoldView()
-                    case .rotation: RotationView()
-                    case .paper: PaperView()
-                    case .global: GlobalView()
-                    case .report: ReportView()
+            Group {
+                if store.selectedAssetKey != nil {
+                    HSplitView {
+                        mainDetailColumn
+                            .frame(minWidth: 520)
+                        if let ticker = store.selectedAssetKey {
+                            AssetDetailView(ticker: ticker)
+                                .environmentObject(store)
+                                .frame(minWidth: 380, idealWidth: 520)
+                        }
                     }
+                } else {
+                    mainDetailColumn
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
             }
+        }
+    }
+
+    private var mainDetailColumn: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().opacity(0.2)
+            if let banner = store.snapshot?.blockBanner {
+                BlockBannerView(banner: banner, compact: store.selected != .overview)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, store.selected == .overview ? 10 : 6)
+            }
+            Group {
+                switch store.selected {
+                case .overview: OverviewView()
+                case .news: NewsView()
+                case .history: HistoryView()
+                case .forexGold: ForexGoldView()
+                case .rotation: RotationView()
+                case .paper: PaperView()
+                case .global: GlobalView()
+                case .report: ReportView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
         }
         .background(
             GlassBackground(
@@ -77,18 +95,6 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
         )
-        .inspector(
-            isPresented: Binding(
-                get: { store.selectedAssetKey != nil },
-                set: { if !$0 { store.closeAssetInspector() } }
-            )
-        ) {
-            if let ticker = store.selectedAssetKey {
-                AssetDetailView(ticker: ticker)
-                    .environmentObject(store)
-                    .inspectorColumnWidth(min: 330, ideal: 380, max: 460)
-            }
-        }
     }
 
     private var header: some View {

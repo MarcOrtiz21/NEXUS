@@ -197,6 +197,29 @@ def build_calendar_context(calendar: Dict) -> Dict[str, object]:
     return {"guidance": guidance, "affects_assets": assets, "confidence": calendar.get("confidence")}
 
 
+def _event_family(title: str) -> str:
+    """Agrupa nombres distintos de una misma publicación macroeconómica."""
+    normalized = re.sub(r"\s+", " ", title.lower()).strip()
+    families = (
+        ("cpi", ("cpi", "consumer price", "ipc", "inflation")),
+        ("fomc", ("fomc", "federal reserve")),
+        ("nfp", ("nfp", "nonfarm", "payroll", "employment situation")),
+        ("gdp", ("gdp", "gross domestic product")),
+        ("pce", ("pce", "personal income", "personal consumption")),
+    )
+    for family, terms in families:
+        if any(term in normalized for term in terms) or (family == "fomc" and re.search(r"\bfed\b", normalized)):
+            return family
+    return normalized
+
+
+def _event_identity(event: Dict) -> tuple[str, str]:
+    """Clave estable: mismo tipo de evento y misma fecha se muestra una sola vez."""
+    raw_when = str(event.get("when_utc") or "")
+    event_date = raw_when.split("T", 1)[0] if "T" in raw_when else raw_when[:10]
+    return _event_family(str(event.get("title") or "")), event_date
+
+
 def check_macro_events(
     lookahead_days: int = 1,
     lookahead_hours: int = 48,
@@ -210,13 +233,13 @@ def check_macro_events(
     rss_events = _fetch_rss_events(lookahead_hours=lookahead_hours, now=now)
     manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
 
-    seen_titles = set()
+    seen_events = set()
     merged: List[Dict] = []
     for event in fred_events + rss_events + manual_events:
-        key = re.sub(r"\s+", " ", event["title"].lower())
-        if key in seen_titles:
+        key = _event_identity(event)
+        if key in seen_events:
             continue
-        seen_titles.add(key)
+        seen_events.add(key)
         merged.append(event)
 
     blocking_events = [

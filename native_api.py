@@ -27,6 +27,7 @@ from paper_trading import summarize_paper_trading
 from risk_filters.calendar import build_calendar_context, check_macro_events
 from risk_filters.sentiment import aggregate_news_narratives, analyze_news_items
 from signal_track_record import evaluate_track_record
+from user_settings import get_setting
 from utils import build_snapshot, snapshot_signature
 
 
@@ -105,7 +106,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     data = raw["data"]
     decision = raw["decision_dict"]
     news_items = raw.get("news_items") or []
-    calendar = check_macro_events()
+    calendar = raw.get("calendar") or check_macro_events()
     sentiment = analyze_news_items(news_items)
 
     fx = (data.get("Forex") or {}).get("EURUSD") or {}
@@ -132,6 +133,9 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     return {
         "schema": "nexus.native.v1",
         "captured_at_utc": raw.get("captured_at_utc"),
+        "settings": {
+            "refresh_interval_seconds": get_setting("refresh_interval_seconds"),
+        },
         "audit": {
             "snapshot_hash": snapshot_signature(raw),
             "exported": export,
