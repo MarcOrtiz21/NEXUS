@@ -2,7 +2,7 @@
   <img src="assets/AppIcon.png" alt="NEXUS logo" width="144">
   <h1>NEXUS Workstation</h1>
   <p><strong>Market intelligence for disciplined decisions.</strong></p>
-  <p>Native macOS interface · Python decision engine · Explainable market context</p>
+  <p>Workstation 3.0 · Native macOS interface · Python decision engine · Explainable market context</p>
 </div>
 
 <p align="center">
@@ -41,6 +41,7 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - **Historial**: cambios de decisión, score, precios y atribución entre snapshots.
 - **Divisas y oro**: EUR/USD, USD/EUR, dólar, oro, momentum y catalizadores.
 - **Rotación sectorial**: líderes, receptores de flujo, sectores neutrales y débiles.
+- **Gráficos**: terminal multipanel con velas a demanda, cursor compartido y empresas en flujo.
 - **Cartera virtual**: simulación, comparación con SPY, drawdown, concentración y escenarios.
 - **Global**: regiones, VIX, tipos, liquidez, valoración y calidad de datos.
 - **Informe**: lectura ejecutiva, factores del score, activos priorizados y cambios recientes.

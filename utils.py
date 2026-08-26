@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -25,6 +26,22 @@ def to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def signed_unit(value: float | None, scale: float) -> float:
+    """Mapea una magnitud con signo a (-1, 1) con rendimientos decrecientes.
+
+    `scale` es el movimiento típico que usa la mayor parte del peso
+    (tanh(1) ≈ 0.76). Un +0.3% y un +7% dejan de valer lo mismo.
+    """
+    if value is None or scale <= 0:
+        return 0.0
+    return math.tanh(float(value) / float(scale))
+
+
+def weighted_signed(value: float | None, weight: int | float, scale: float) -> int:
+    """Puntos enteros de un factor proporcional a su magnitud."""
+    return int(round(weight * signed_unit(value, scale)))
 
 
 def trend_label(metrics: Dict[str, Any]) -> str:
@@ -101,17 +118,30 @@ def build_snapshot(
     from rotation_engine import RotationEngine
     from risk_filters.news_feed import fetch_news_items
     from history import export_decision_snapshot
+    from decision_intelligence import apply_stance_confidence
+    from signal_track_record import evaluate_track_record, history_buy_scale
 
-    data = fetch_market_data()
-    news_items = fetch_news_items() if use_news else []
+    data = fetch_market_data(refresh=export)
+    news_items = fetch_news_items(budget_seconds=18.0 if export else 8.0) if use_news else []
 
     logic = LogicEngine(data, news_items=news_items if news_items else None)
     status, alerts = logic.evaluate()
     sentiment_result = getattr(logic, "sentiment_result", None)
-    decision = DecisionEngine(data, status, alerts, sentiment_result=sentiment_result).evaluate()
+    track_record = evaluate_track_record(forward_days=5, limit=80)
+    history_scale, history_reason = history_buy_scale(track_record)
+    decision = DecisionEngine(
+        data,
+        status,
+        alerts,
+        sentiment_result=sentiment_result,
+        history_scale=history_scale,
+        history_reason=history_reason,
+    ).evaluate()
+    calendar = getattr(logic, "calendar_result", {}) or {}
+    apply_stance_confidence(decision, data, calendar)
     rotation = RotationEngine(data).evaluate()
     export_paths = (
-        export_decision_snapshot(data, decision, news_items, market_status=status.value)
+        export_decision_snapshot(data, decision, news_items, market_status=status.value, rotation=rotation)
         if export
         else None
     )
@@ -126,10 +156,11 @@ def build_snapshot(
         "decision_dict": decision.to_dict(),
         "rotation": rotation,
         "rotation_dict": rotation.to_dict(),
-        "calendar": getattr(logic, "calendar_result", {}),
+        "calendar": calendar,
         "news_items": news_items,
         "headlines": [item["title"] for item in news_items],
         "export_paths": export_paths,
+        "track_record": track_record,
     }
 
 

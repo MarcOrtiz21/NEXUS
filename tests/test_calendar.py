@@ -6,6 +6,8 @@ from risk_filters.calendar import (
     _is_us_blocking_event,
     _is_us_event,
     check_macro_events,
+    fx_gold_upcoming_events,
+    is_fx_gold_calendar_event,
 )
 
 
@@ -77,6 +79,91 @@ class CalendarRegressionTests(unittest.TestCase):
 
         self.assertEqual(len(result["events_detail"]), 1)
         self.assertEqual(result["events_detail"][0]["source"], "fred_release")
+
+    def test_fx_gold_filter_keeps_fomc_cpi_nfp_ecb_within_72h(self):
+        self.assertTrue(is_fx_gold_calendar_event("FOMC Statement"))
+        self.assertTrue(is_fx_gold_calendar_event("US CPI m/m"))
+        self.assertTrue(is_fx_gold_calendar_event("US Nonfarm Payrolls"))
+        self.assertTrue(is_fx_gold_calendar_event("ECB Interest Rate Decision"))
+        self.assertFalse(is_fx_gold_calendar_event("Mauritius CPI m/m"))
+        self.assertFalse(is_fx_gold_calendar_event("US GDP q/q"))
+
+        events = [
+            {"title": "FOMC Statement", "hours_until": 12},
+            {"title": "US CPI m/m", "hours_until": 30},
+            {"title": "US Nonfarm Payrolls", "hours_until": 50},
+            {"title": "ECB Interest Rate Decision", "hours_until": 8},
+            {"title": "US GDP q/q", "hours_until": 6},
+            {"title": "ECB Interest Rate Decision", "hours_until": 80},
+        ]
+        titles = [event["title"] for event in fx_gold_upcoming_events(events)]
+        self.assertEqual(
+            titles,
+            ["ECB Interest Rate Decision", "FOMC Statement", "US CPI m/m", "US Nonfarm Payrolls"],
+        )
+
+    def test_rss_block_stays_estimated_even_if_fred_exists_later(self):
+        as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
+        rss_event = {
+            "title": "US CPI m/m",
+            "when_utc": "2026-07-14T14:00+00:00",
+            "hours_until": 4.0,
+            "impact": "ALTO",
+            "source": "myfxbook_rss",
+            "verified": True,
+            "us_event": True,
+            "blocks_signals": True,
+        }
+        fred_event = {
+            "title": "FOMC Statement",
+            "when_utc": "2026-07-16T18:00+00:00",
+            "hours_until": 56.0,
+            "impact": "ALTO",
+            "source": "fred_release",
+            "verified": True,
+            "us_event": True,
+            "blocks_signals": True,
+        }
+        with patch("risk_filters.calendar._fetch_rss_events", return_value=[rss_event]):
+            with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
+                with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
+                    with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
+                        "calendar_blocks_signals": True,
+                        "calendar_block_hours": 6,
+                    }.get(key, True)):
+                        result = check_macro_events(as_of=as_of, block_hours=6)
+
+        self.assertTrue(result["should_block_signals"])
+        self.assertEqual(result["next_event"]["title"], "US CPI m/m")
+        self.assertEqual(result["time_quality"], "aproximada")
+        self.assertNotEqual(result["confidence"], "HIGH")
+        self.assertIn("rss", result["source"].lower())
+        self.assertTrue(result["blocking_events"][0]["estimated"])
+
+    def test_fred_block_is_official(self):
+        as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
+        fred_event = {
+            "title": "US CPI (Consumer Price Index)",
+            "when_utc": "2026-07-14T12:30+00:00",
+            "hours_until": 2.5,
+            "impact": "ALTO",
+            "source": "fred_release",
+            "verified": True,
+            "us_event": True,
+            "blocks_signals": True,
+        }
+        with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
+            with patch("risk_filters.calendar._fetch_rss_events", return_value=[]):
+                with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
+                    with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
+                        "calendar_blocks_signals": True,
+                        "calendar_block_hours": 6,
+                    }.get(key, True)):
+                        result = check_macro_events(as_of=as_of, block_hours=6)
+
+        self.assertEqual(result["time_quality"], "oficial")
+        self.assertEqual(result["confidence"], "HIGH")
+        self.assertFalse(result["blocking_events"][0]["estimated"])
 
 
 if __name__ == "__main__":

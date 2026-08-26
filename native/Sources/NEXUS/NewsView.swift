@@ -3,93 +3,87 @@ import AppKit
 
 struct NewsView: View {
     @EnvironmentObject private var store: NexusStore
-    @State private var filter: String = "ALL"
-    @State private var selectedItem: NewsItem?
+    @SceneStorage("nexus.newsReaderWidth") private var readerWidthStored = Double(NexusLayout.newsReaderIdealWidth)
+    @State private var toneFilter = "ALL"
+    @State private var sourceFilter = "ALL"
+    @State private var topicFilter = "ALL"
+    @State private var assetFilter = "ALL"
+
+    private var readerWidth: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(readerWidthStored) },
+            set: { readerWidthStored = Double($0) }
+        )
+    }
+
+    private var allItems: [NewsItem] { store.snapshot?.news?.items ?? [] }
+
+    private var selectedItem: NewsItem? {
+        guard let id = store.selectedNewsID else { return nil }
+        return allItems.first { $0.id == id }
+    }
 
     private var items: [NewsItem] {
-        let all = store.snapshot?.news?.items ?? []
-        if filter == "ALL" { return all }
-        return all.filter { ($0.tone ?? "").uppercased() == filter }
+        allItems.filter { item in
+            if toneFilter != "ALL", (item.tone ?? "").uppercased() != toneFilter { return false }
+            if sourceFilter != "ALL", (item.source ?? "") != sourceFilter { return false }
+            if topicFilter != "ALL", !(item.linkedTopics ?? []).contains(topicFilter) { return false }
+            if assetFilter != "ALL", !(item.linkedAssets ?? []).contains(assetFilter) { return false }
+            return true
+        }
+    }
+
+    private var topics: [String] {
+        Array(Set(allItems.flatMap { $0.linkedTopics ?? [] })).sorted()
+    }
+
+    private var assets: [String] {
+        Array(Set(allItems.flatMap { $0.linkedAssets ?? [] })).sorted()
     }
 
     var body: some View {
+        GeometryReader { proxy in
+            inner
+                .environment(\.nexusBreakpoint, NexusBreakpoint.from(width: proxy.size.width))
+                .environment(\.nexusContentWidth, proxy.size.width)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var inner: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ViewThatFits(in: .horizontal) {
+            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
                 HStack {
                     sentimentSummary
                     Spacer()
-                    filterPicker
+                    Text("Datos \(relativeAge(from: store.snapshot?.capturedAtUtc))")
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.muted)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    sentimentSummary
-                    filterPicker
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: NexusLayout.spacing) {
-                    newsMetric("TITULARES", "\(store.snapshot?.news?.items?.count ?? 0)", "analizados")
+                NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2) {
+                    newsMetric("TITULARES", "\(allItems.count)", "analizados")
                     newsMetric("POSITIVOS", "\(toneCount("GOOD"))", "contexto favorable")
                     newsMetric("NEGATIVOS", "\(toneCount("BAD"))", "riesgo / presión")
                     newsMetric("FUENTES", "\(store.snapshot?.news?.sources?.count ?? 0)", "cobertura activa")
                 }
-                .padding(.horizontal, 20)
+                filterBar
             }
-            .padding(.bottom, 10)
-
-            if let narratives = store.snapshot?.news?.narratives?.narratives, !narratives.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: NexusLayout.spacing) {
-                        ForEach(narratives) { narrative in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(narrative.topic ?? "Tema").font(.caption.weight(.bold)).foregroundStyle(NexusTheme.accent)
-                                Text("\(narrative.headlineCount ?? 0) titulares · \(narrative.dominantTone ?? "NEUTRAL")")
-                                    .font(.caption).foregroundStyle(NexusTheme.toneColor(narrative.dominantTone))
-                                Text(narrative.sampleTitles?.first ?? "Sin muestra")
-                                    .font(.caption2).foregroundStyle(NexusTheme.muted).lineLimit(2)
-                            }
-                            .frame(width: 210, height: 92, alignment: .topLeading)
-                            .nexusCard()
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
-                .padding(.bottom, 10)
-            }
-
-            if let sources = store.snapshot?.news?.sources, !sources.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(sources, id: \.self) { source in
-                            Text(source)
-                                .font(.caption2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(NexusTheme.cardInner)
-                                .clipShape(Capsule())
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                }
-                .padding(.bottom, 8)
-            }
+            .padding(NexusLayout.pagePadding)
 
             GeometryReader { proxy in
-                if let selectedItem, proxy.size.width < 700 {
-                    readerPane(selectedItem, compact: true)
-                } else {
-                    HSplitView {
-                        newsList
-                        if let selectedItem {
-                            readerPane(selectedItem, compact: false)
-                        }
+                let compact = proxy.size.width < NexusLayout.newsReaderCompactWidth
+                Group {
+                    if compact {
+                        compactNewsStage(width: proxy.size.width)
+                    } else {
+                        wideNewsStage(width: proxy.size.width)
                     }
                 }
+                .animation(NexusMotion.panel, value: store.selectedNewsID)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var sentimentSummary: some View {
@@ -98,33 +92,87 @@ struct NewsView: View {
                 Text("Sesgo: \(sentiment.dominant ?? "—")")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(NexusTheme.toneColor(sentiment.dominant))
+                    .help("Interpretación agregada de titulares. No sustituye al score ni a la decisión operativa.")
                 Text(sentiment.details ?? "")
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
                     .lineLimit(1)
-                    .help("El sesgo resume titulares y no sustituye al score ni a la decisión operativa.")
             }
         }
     }
 
-    private var filterPicker: some View {
-        Picker("Filtro", selection: $filter) {
-            Text("Todas").tag("ALL")
-            Text("Positivas").tag("GOOD")
-            Text("Negativas").tag("BAD")
-            Text("Mixtas").tag("MIXED")
-            Text("Neutras").tag("NEUTRAL")
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            Picker("Tono", selection: $toneFilter) {
+                Text("Todos los tonos").tag("ALL")
+                Text("Positivas").tag("GOOD")
+                Text("Negativas").tag("BAD")
+                Text("Mixtas").tag("MIXED")
+                Text("Neutras").tag("NEUTRAL")
+            }
+            Picker("Fuente", selection: $sourceFilter) {
+                Text("Todas las fuentes").tag("ALL")
+                ForEach(store.snapshot?.news?.sources ?? [], id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Tema", selection: $topicFilter) {
+                Text("Todos los temas").tag("ALL")
+                ForEach(topics, id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Activo", selection: $assetFilter) {
+                Text("Todos los activos").tag("ALL")
+                ForEach(assets, id: \.self) { Text($0).tag($0) }
+            }
         }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 420)
+        .labelsHidden()
+    }
+
+    @ViewBuilder
+    private func compactNewsStage(width: CGFloat) -> some View {
+        ZStack {
+            if let selectedItem {
+                readerPane(selectedItem, compact: true)
+                    .frame(width: width)
+                    .frame(maxHeight: .infinity)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                newsList
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+    }
+
+    private func wideNewsStage(width: CGFloat) -> some View {
+        let maxReader = min(
+            NexusLayout.newsReaderMaxWidth,
+            max(NexusLayout.newsReaderMinWidth, width - NexusLayout.newsListMinWidth)
+        )
+        let shownWidth = min(CGFloat(readerWidthStored), maxReader)
+        return HStack(spacing: 0) {
+            newsList
+                .frame(minWidth: 0)
+                .frame(maxWidth: .infinity)
+            if let selectedItem {
+                NexusResizeHandle(
+                    width: readerWidth,
+                    minWidth: NexusLayout.newsReaderMinWidth,
+                    maxWidth: maxReader
+                )
+                readerPane(selectedItem, compact: false)
+                    .frame(width: shownWidth)
+                    .frame(maxHeight: .infinity)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 
     private var newsList: some View {
         List(items) { item in
             Button {
-                if hasOpenableURL(item.url) {
-                    selectedItem = item
-                }
+                store.selectedNewsID = item.id
             } label: {
                 HStack(alignment: .top, spacing: 12) {
                     ToneBadge(tone: item.tone, label: item.toneLabel)
@@ -133,21 +181,25 @@ struct NewsView: View {
                             .font(.body.weight(.medium))
                             .foregroundStyle(NexusTheme.text)
                             .multilineTextAlignment(.leading)
-                        if let summary = item.summary, !summary.isEmpty {
+                        HStack(spacing: 6) {
+                            Text(item.source ?? "RSS")
+                            if let published = item.publishedAt {
+                                Text("· \(newsDate(published))")
+                                    .foregroundStyle(isStale(published) ? NexusTheme.warn : NexusTheme.muted)
+                            }
+                            if item.summary == nil || item.summary?.isEmpty == true {
+                                Text("· sin resumen")
+                                    .foregroundStyle(NexusTheme.warn)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.muted)
+                        if selectedItem == nil, let summary = item.summary, !summary.isEmpty {
                             Text(summary)
                                 .font(.caption)
                                 .foregroundStyle(NexusTheme.muted)
                                 .lineLimit(2)
                         }
-                        HStack {
-                            Text(item.source ?? "RSS")
-                            if let published = item.publishedAt {
-                                Text("· \(newsDate(published))")
-                            }
-                            Image(systemName: hasOpenableURL(item.url) ? "rectangle.righthalf.inset.filled" : "link.badge.plus")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(NexusTheme.muted)
                     }
                     Spacer(minLength: 0)
                 }
@@ -155,76 +207,92 @@ struct NewsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!hasOpenableURL(item.url))
-            .opacity(hasOpenableURL(item.url) ? 1 : 0.55)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(item.id == store.selectedNewsID ? NexusTheme.accent.opacity(0.14) : Color.clear)
+                    .padding(.vertical, 1)
+            )
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
-        .frame(minWidth: selectedItem == nil ? 420 : 300)
+        .animation(NexusMotion.page, value: store.selectedNewsID)
     }
 
     @ViewBuilder
     private func readerPane(_ item: NewsItem, compact: Bool) -> some View {
-        if let rawURL = item.url, let url = URL(string: rawURL) {
-            VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.source ?? "Noticia").font(.caption.weight(.bold))
-                        Text(item.title).font(.caption).lineLimit(2)
-                    }
-                    Spacer()
-                    Button {
-                        selectedItem = nil
-                    } label: {
-                        Label(compact ? "Volver" : "", systemImage: compact ? "chevron.left" : "xmark")
-                    }
-                    .help(compact ? "Volver a noticias" : "Cerrar lector")
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NOTICIA").font(.caption2.weight(.bold)).foregroundStyle(NexusTheme.accent)
+                    Text(item.source ?? "Fuente").font(.caption.weight(.bold))
+                    Text(item.title).font(.caption).lineLimit(2)
                 }
-                .padding(10)
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.summary?.isEmpty == false
-                         ? item.summary!
-                         : "Esta fuente no proporciona resumen. El tono se ha estimado únicamente a partir del titular.")
-                        .font(item.summary?.isEmpty == false ? .subheadline : .caption)
-                        .foregroundStyle(item.summary?.isEmpty == false ? NexusTheme.text : NexusTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        ForEach(item.linkedAssets ?? [], id: \.self) { asset in
-                            Button(asset) { store.showAsset(asset) }
-                                .buttonStyle(.bordered)
-                                .controlSize(.mini)
-                        }
-                        ForEach((item.linkedTopics ?? []).prefix(3), id: \.self) { topic in
-                            Text(topic)
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(NexusTheme.accent.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                    }
-                    Text(newsImpact(item))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(NexusTheme.toneColor(item.tone))
+                Spacer()
+                NexusActionButton(
+                    title: compact ? "Volver" : "Cerrar",
+                    systemImage: compact ? "chevron.left" : "xmark",
+                    helpText: compact ? "Volver a la lista" : "Cerrar lector (Esc)"
+                ) {
+                    store.closeNewsReader()
                 }
-                .padding(10)
-                .background(NexusTheme.card.opacity(0.35))
-                Divider()
-                NewsReaderView(url: url)
             }
-            .frame(minWidth: compact ? 0 : 360, idealWidth: 520)
+            .padding(10)
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                labeledBlock("Interpretación", newsImpact(item), NexusTheme.toneColor(item.tone))
+                labeledBlock(
+                    "Resumen de la fuente",
+                    item.summary?.isEmpty == false ? item.summary! : "Esta fuente no proporciona resumen. El tono se ha estimado únicamente a partir del titular.",
+                    item.summary?.isEmpty == false ? NexusTheme.text : NexusTheme.muted
+                )
+                if isStale(item.publishedAt) {
+                    NexusMissingSource(title: "Titular antiguo", detail: "La captura tiene más de 24 h. Úsalo como contexto, no como dato vivo.")
+                }
+                HStack {
+                    ForEach(item.linkedAssets ?? [], id: \.self) { asset in
+                        NexusActionButton(title: asset, helpText: "Relación contextual con \(asset), no causalidad.") {
+                            store.showAsset(asset)
+                        }
+                    }
+                    ForEach((item.linkedTopics ?? []).prefix(3), id: \.self) { topic in
+                        Text(topic)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(NexusTheme.accent.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(10)
+            .background(NexusTheme.cardInner)
+            Divider()
+            if let rawURL = item.url, let url = URL(string: rawURL), ["http", "https"].contains(url.scheme?.lowercased()) {
+                NewsReaderView(url: url)
+            } else {
+                NexusEmptyState(title: "Sin enlace", detail: "Esta fuente no incluye URL abierta.", symbol: "link.badge.plus")
+                    .padding()
+            }
+        }
+        .frame(minWidth: compact ? 0 : 360, idealWidth: 520)
+    }
+
+    private func labeledBlock(_ title: String, _ text: String, _ tone: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(tone)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func hasOpenableURL(_ urlString: String?) -> Bool {
-        guard let urlString, let url = URL(string: urlString) else { return false }
-        return ["http", "https"].contains(url.scheme?.lowercased())
-    }
-
-    private func open(_ urlString: String?) {
-        guard hasOpenableURL(urlString), let urlString, let url = URL(string: urlString) else { return }
-        NSWorkspace.shared.open(url)
+    private func isStale(_ raw: String?) -> Bool {
+        guard let raw, let date = ISO8601DateFormatter.nexus.date(from: raw)
+                ?? ISO8601DateFormatter.nexusFractional.date(from: raw) else { return false }
+        return Date().timeIntervalSince(date) > 86_400
     }
 
     private func newsDate(_ raw: String) -> String {
@@ -252,16 +320,10 @@ struct NewsView: View {
     }
 
     private func newsMetric(_ title: String, _ value: String, _ hint: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption2.weight(.bold)).foregroundStyle(NexusTheme.accent)
-            Text(value).font(.title3.monospacedDigit().weight(.bold))
-            Text(hint).font(.caption2).foregroundStyle(NexusTheme.muted)
-        }
-        .frame(width: 150, height: 78, alignment: .topLeading)
-        .nexusCard()
+        NexusSummaryMetricCard(title: title, value: value, hint: hint)
     }
 
     private func toneCount(_ tone: String) -> Int {
-        (store.snapshot?.news?.items ?? []).filter { ($0.tone ?? "").uppercased() == tone }.count
+        allItems.filter { ($0.tone ?? "").uppercased() == tone }.count
     }
 }

@@ -17,6 +17,8 @@ from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Dict, List
 
+import requests
+
 try:
     import feedparser
 except ImportError:
@@ -114,7 +116,13 @@ def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
     events: List[Dict] = []
 
     try:
-        feed = feedparser.parse(CALENDAR_RSS_URL)
+        response = requests.get(
+            CALENDAR_RSS_URL,
+            timeout=4,
+            headers={"User-Agent": "NEXUS/1.0 (+local workstation)"},
+        )
+        response.raise_for_status()
+        feed = feedparser.parse(response.content)
         for entry in feed.entries[:80]:
             title = (entry.get("title") or "").strip()
             if not title:
@@ -183,6 +191,48 @@ def _manual_fallback_events(lookahead_days: int, today: date, now: datetime) -> 
     return events
 
 
+_FX_GOLD_TITLE_TERMS = (
+    "fomc",
+    "federal reserve",
+    "cpi",
+    "pce",
+    "nfp",
+    "nonfarm",
+    "non-farm",
+    "payroll",
+    "ipc",
+)
+
+
+def is_fx_gold_calendar_event(title: str) -> bool:
+    """FOMC, CPI/PCE, NFP y BCE: lo que mueve EUR/USD y el oro en 72h."""
+    text = str(title or "").lower()
+    if re.search(r"\becb\b", text) or "european central" in text:
+        return True
+    if not (_is_us_event(title) or "fomc" in text):
+        return False
+    if re.search(r"\bfed\b", text):
+        return True
+    return any(term in text for term in _FX_GOLD_TITLE_TERMS)
+
+
+def fx_gold_upcoming_events(
+    events: List[Dict] | None,
+    lookahead_hours: float = 72,
+    limit: int = 8,
+) -> List[Dict]:
+    selected: List[Dict] = []
+    for event in events or []:
+        hours = event.get("hours_until")
+        if not isinstance(hours, (int, float)) or hours < 0 or hours > lookahead_hours:
+            continue
+        if not is_fx_gold_calendar_event(str(event.get("title") or "")):
+            continue
+        selected.append(event)
+    selected.sort(key=lambda item: float(item.get("hours_until") or 0))
+    return selected[:limit]
+
+
 def build_calendar_context(calendar: Dict) -> Dict[str, object]:
     event = calendar.get("next_event") or {}
     title = str(event.get("title") or "").lower()
@@ -220,6 +270,24 @@ def _event_identity(event: Dict) -> tuple[str, str]:
     return _event_family(str(event.get("title") or "")), event_date
 
 
+def _calendar_time_quality(source: str | None) -> str:
+    src = str(source or "").lower()
+    if "fred" in src:
+        return "oficial"
+    return "aproximada"
+
+
+def _quality_from_events(events: List[Dict], fallback_source: str, fallback_confidence: str) -> tuple[str, str, str]:
+    if not events:
+        return fallback_source, fallback_confidence, _calendar_time_quality(fallback_source)
+    source = str(events[0].get("source") or fallback_source)
+    if "fred" in source.lower():
+        return source, "HIGH", "oficial"
+    if "rss" in source.lower() or source == CALENDAR_SOURCE:
+        return source, CALENDAR_CONFIDENCE, "aproximada"
+    return source, "LOW", "aproximada"
+
+
 def check_macro_events(
     lookahead_days: int = 1,
     lookahead_hours: int = 48,
@@ -240,6 +308,9 @@ def check_macro_events(
         if key in seen_events:
             continue
         seen_events.add(key)
+        event = dict(event)
+        event["time_quality"] = _calendar_time_quality(event.get("source"))
+        event["estimated"] = event["time_quality"] == "aproximada"
         merged.append(event)
 
     blocking_events = [
@@ -266,6 +337,12 @@ def check_macro_events(
 
     source = "fred_release" if fred_events else (CALENDAR_SOURCE if rss_events else "estimado_manual")
     confidence = "HIGH" if fred_events else (CALENDAR_CONFIDENCE if rss_events else "LOW")
+    anchor = blocking_events[0] if blocking_events else (display_pool[0] if display_pool else None)
+    block_source, block_confidence, time_quality = _quality_from_events(
+        [anchor] if anchor else [],
+        source,
+        confidence,
+    )
 
     return {
         "event_imminent": len(display_pool) > 0,
@@ -275,8 +352,9 @@ def check_macro_events(
         "blocking_events": blocking_events,
         "warning_events": warning_events,
         "block_hours": block_window,
-        "source": source,
-        "confidence": confidence,
-        "next_event": display_pool[0] if display_pool else None,
+        "source": block_source if blocking_events else source,
+        "confidence": block_confidence if blocking_events else confidence,
+        "time_quality": time_quality,
+        "next_event": blocking_events[0] if blocking_events else (display_pool[0] if display_pool else None),
         "us_only_blocking": CALENDAR_US_ONLY_BLOCKING,
     }

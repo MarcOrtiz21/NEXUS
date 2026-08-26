@@ -14,7 +14,8 @@ native/.build/
 native/.swiftpm/
 .DS_Store
 .pytest_cache/
-data/cache/*.json
+data/cache/
+data/cache/**/*.json
 data/history/*.csv
 data/history/*.json
 data/history/*.jsonl

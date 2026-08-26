@@ -62,6 +62,42 @@ class HistoryPeriodTests(unittest.TestCase):
         self.assertEqual(comparison["attribution"]["top_asset_movers"][0]["ticker"], "SPY")
         self.assertIn("no implica causalidad", comparison["attribution"]["note"])
 
+    def test_decision_snapshot_persists_vix_and_rotation_themes(self):
+        from types import SimpleNamespace
+
+        from history import build_decision_snapshot
+
+        decision = SimpleNamespace(
+            operational_action="ESPERAR / NO ABRIR",
+            macro_action="COMPRAR",
+            operational_pause_reason="calendario",
+            score=55,
+            confidence="MEDIA",
+            favored_assets=["CASH"],
+            allocation={"CASH": 100},
+            macro_allocation={"SPY": 60, "CASH": 40},
+            asset_scores={},
+            rationale="test",
+            inputs_used=[],
+            missing_inputs=[],
+        )
+        snapshot = build_decision_snapshot(
+            {"VIX": 16.5, "Assets": {"SPY": {"price": 500}}},
+            decision,
+            [],
+            market_status="BLOCKED",
+            rotation={
+                "themes": [
+                    {"ticker": "XBI", "theme": "Biotecnología", "group": "Defensivos", "signal": "Entrada clara de flujo", "score": 72},
+                ]
+            },
+        )
+        self.assertEqual(snapshot["vix"], 16.5)
+        self.assertEqual(snapshot["rotation_themes"][0]["ticker"], "XBI")
+        self.assertEqual(snapshot["rotation_themes"][0]["signal"], "Entrada clara de flujo")
+        self.assertEqual(snapshot["forex_action"], "MANTENER / ESPERAR")
+        self.assertIn(snapshot["gold_bias"], {"REFUGIO", "PRESION", "MIXTO"})
+
     def test_downsample_rejects_invalid_bound(self):
         with self.assertRaises(ValueError):
             downsample_rows([{}], max_points=1)

@@ -45,6 +45,27 @@ VIX_PANIC_THRESHOLD = 30       # VIX > 30 = pánico extremo
 VIX_ELEVATED_THRESHOLD = 25    # VIX > 25 = elevado
 VIX_CALM_THRESHOLD = 16        # VIX < 16 = contenido
 VIX_ACCELERATION_PCT = 0.15    # 15% por encima de la MA = aceleración
+
+# Momentum saturado: scale ≈ el movimiento que usa ~76% del peso (tanh(1))
+MOMENTUM_1M_SCALE = 4.0
+MOMENTUM_3M_SCALE = 10.0
+RELATIVE_1M_SCALE = 3.0
+
+# Rotación: líderes observados (momentum 3M vs SPY), no el grupo Tecnología
+ROTATION_LEADER_COUNT_MIN = 3
+ROTATION_LEADER_COUNT_MAX = 8
+ROTATION_FLOW_MOM1 = 1.5
+ROTATION_FLOW_RELATIVE = 1.0
+
+# Calibración con historial: no reescribe umbrales VIX; solo modula el sesgo alcista
+HISTORY_CALIBRATION_MIN_SAMPLES = 8
+
+# Saneamiento cruzado: un print raro de Yahoo no debe mover el plan
+SANITY_VIX_MIN = 8.0
+SANITY_VIX_MAX = 90.0
+SANITY_SPY_IVV_PCT = 1.5
+SANITY_FX_PRODUCT_TOL = 0.008
+
 CORR_HIGH_THRESHOLD = 0.6      # |corr| > 0.6 = riesgo sistémico
 CORR_LOW_THRESHOLD = 0.3       # |corr| < 0.3 = rotación sana
 US10Y_DANGER_THRESHOLD = 5.0   # Bono > 5% = riesgo estructural
@@ -134,8 +155,15 @@ MARKET_CACHE_FILE = CACHE_DIR / "market_data.json"
 MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
 FAST_MARKET_CACHE_FILE = CACHE_DIR / "fast_market.json"
 SLOW_MACRO_CACHE_FILE = CACHE_DIR / "slow_macro.json"
+ROTATION_MARKET_CACHE_FILE = CACHE_DIR / "rotation_companies.json"
 FAST_MARKET_CACHE_TTL_SECONDS = 60 * 2  # FX/GLD: actualización ágil sin saturar Yahoo
 SLOW_MACRO_CACHE_TTL_SECONDS = 60 * 60 * 6
+ROTATION_MARKET_CACHE_TTL_SECONDS = 60 * 30  # El detalle de empresas cambia más despacio
+CHART_SERIES_CACHE_DIR = CACHE_DIR / "chart_series"
+CHART_SERIES_CACHE_TTL_SECONDS = 60 * 30
+CHART_SERIES_POINTS = 252
+NATIVE_SNAPSHOT_TTL_SECONDS = 60  # Evita recalcular el snapshot por cada consumidor del API
+YFINANCE_TIMEOUT_SECONDS = 20  # Si Yahoo no responde, se sirve la última caché local
 FRED_CALENDAR_CACHE_FILE = CACHE_DIR / "fred_release_calendar.json"
 FRED_CALENDAR_CACHE_TTL_SECONDS = 60 * 60 * 6
 FRED_CALENDAR_LOOKAHEAD_DAYS = 14
@@ -173,6 +201,7 @@ WEB_DASHBOARD_PORT = 8765
 # ─── Mercados globales (ETFs proxy) ───
 GLOBAL_MARKET_TICKERS = {
     "Europa": "FEZ",
+    "Espana": "EWP",  # proxy líquido del IBEX / España (iShares MSCI Spain)
     "Japon": "EWJ",
     "China": "FXI",
     "Asia_EM": "AAXJ",
@@ -198,7 +227,8 @@ CHINA_M2_CONTRACTION_THRESHOLD = 4.0
 GLOBAL_MARKET_MOMENTUM_STRONG = 4.0
 GLOBAL_MARKET_MOMENTUM_WEAK = -4.0
 GLOBAL_MARKET_SCORE_WEIGHTS = {
-    "Europa": 0.35,
+    "Europa": 0.25,
+    "Espana": 0.10,
     "China": 0.35,
     "Japon": 0.15,
     "Asia_EM": 0.15,
@@ -230,6 +260,16 @@ FOREX_SCORE_STRONG = 3
 FOREX_SCORE_MODERATE = 1
 FOREX_DIR_STRONG = 2.0
 FOREX_DIR_MODERATE = 0.5
+
+# ─── Oro (GLD vs dólar, tipos reales y VIX) ───
+GOLD_VS_USD_STRONG = 1.0
+GOLD_VS_USD_MODERATE = 0.3
+GOLD_REAL_RATE_SUPPORT = 0.5
+GOLD_REAL_RATE_PRESSURE = 2.0
+GOLD_VIX_REFUGE = 20
+GOLD_VIX_STRESS = 30
+GOLD_VIX_COMPLACENT = 14
+GOLD_SCORE_STRONG = 3
 
 # ─── Acciones (etiquetas UX vs canónicas para historial/tests) ───
 ACTION_ESPERAR = "ESPERAR / NO ABRIR"

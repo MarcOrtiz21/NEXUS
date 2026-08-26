@@ -220,7 +220,12 @@ class LogicEngine:
                 as_of = datetime.fromisoformat(str(raw_as_of).replace("Z", "+00:00"))
             except ValueError:
                 as_of = None
-        cal = check_macro_events(as_of=as_of, block_hours=get_setting("calendar_block_hours"))
+        cal = check_macro_events(
+            lookahead_days=3,
+            lookahead_hours=72,
+            as_of=as_of,
+            block_hours=get_setting("calendar_block_hours"),
+        )
         self.calendar_result = cal
         calendar_blocked = cal.get("should_block_signals", False)
         if cal["event_imminent"]:

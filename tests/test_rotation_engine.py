@@ -35,6 +35,8 @@ class RotationEngineTests(unittest.TestCase):
         self.assertEqual(result.state, "ROTACIÓN ACTIVA Y SANA")
         self.assertGreater(result.receivers_avg_1m, result.leaders_avg_1m)
         self.assertTrue(any(theme.theme == "Biotecnología" for theme in result.themes))
+        self.assertIn("Biotecnología", result.summary)
+        self.assertRegex(result.summary, r"Semiconductores|Infraestructura IA")
 
     def test_detects_tech_leadership_when_receivers_lag(self):
         data = {
@@ -52,7 +54,7 @@ class RotationEngineTests(unittest.TestCase):
 
         result = RotationEngine(data).evaluate()
 
-        self.assertEqual(result.state, "LIDERAZGO TECH DOMINANTE")
+        self.assertEqual(result.state, "LIDERAZGO AÚN DOMINANTE")
         self.assertGreater(result.leaders_avg_1m, result.receivers_avg_1m)
 
     def test_exposes_representative_names_and_asia_themes(self):
@@ -91,6 +93,7 @@ class RotationEngineTests(unittest.TestCase):
         self.assertEqual(apple["name"], "Apple")
         self.assertEqual(apple["price"], 210.0)
         self.assertEqual(apple["momentum_1m"], 4.0)
+        self.assertEqual(xlk.price, 100.0)
 
     def test_each_theme_exposes_fifteen_companies_with_action_indicator(self):
         data = {
@@ -102,6 +105,49 @@ class RotationEngineTests(unittest.TestCase):
 
         self.assertTrue(all(len(theme.companies) == 15 for theme in result.themes))
         self.assertTrue(all(company["action"] == "SIN DATOS" for company in result.themes[0].companies))
+        self.assertTrue(any(theme.ticker == "EWP" and theme.theme == "España / IBEX" for theme in result.themes))
+
+    def test_observed_leaders_follow_momentum_not_tech_group(self):
+        data = {
+            "Assets": {"SPY": _asset(mom1=1.0, mom3=5.0)},
+            "RotationAssets": {
+                "XLU": _asset(mom1=4.0, mom3=22.0),
+                "XBI": _asset(mom1=3.5, mom3=18.0),
+                "SMH": _asset(mom1=-2.0, mom3=16.0),
+                "XLK": _asset(mom1=-1.0, mom3=14.0),
+                "AIQ": _asset(mom1=-1.5, mom3=12.0),
+                "XLV": _asset(mom1=0.2, mom3=1.0),
+            },
+        }
+
+        result = RotationEngine(data).evaluate()
+        xlu = next(theme for theme in result.themes if theme.ticker == "XLU")
+        xlv = next(theme for theme in result.themes if theme.ticker == "XLV")
+
+        self.assertEqual(xlu.leadership, "lider")
+        self.assertNotEqual(xlv.leadership, "lider")
+        self.assertNotEqual(result.state, "LIDERAZGO TECH DOMINANTE")
+
+    def test_company_action_is_technical_not_an_order(self):
+        data = {
+            "Assets": {"SPY": _asset(mom1=1.0)},
+            "RotationAssets": {"XLK": _asset(mom1=2.0)},
+            "RotationCompanies": {"AAPL": _asset(price=210.0, mom1=4.0)},
+        }
+        result = RotationEngine(data).evaluate()
+        apple = next(
+            company
+            for theme in result.themes if theme.ticker == "XLK"
+            for company in theme.companies if company["ticker"] == "AAPL"
+        )
+        self.assertEqual(apple["action"], "FUERTE")
+
+    def test_company_score_scales_with_momentum_magnitude(self):
+        weak = RotationEngine._company_score(_asset(mom1=0.3, mom3=0.4))
+        strong = RotationEngine._company_score(_asset(mom1=7.0, mom3=18.0))
+        self.assertIsNotNone(weak)
+        self.assertIsNotNone(strong)
+        self.assertGreater(strong - weak, 10)
 
 
 if __name__ == "__main__":

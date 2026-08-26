@@ -26,7 +26,16 @@ DEFAULTS: Dict[str, Any] = {
     "last_view": "overview",
     "window_geometry": "1440x900",
     "compact_mode": False,
+    "watchlist": ["SPY", "QQQ", "GLD", "XLK"],
 }
+WATCHLIST_MAX = 8
+NATIVE_SETTINGS_KEYS = (
+    "refresh_interval_seconds",
+    "calendar_block_hours",
+    "calendar_blocks_signals",
+    "sentiment_blocks_signals",
+    "macos_notifications",
+)
 
 ALLOWED_VIEWS = {
     "overview",
@@ -60,7 +69,21 @@ def _merge_defaults(raw: Dict[str, Any] | None) -> Dict[str, Any]:
         geom = DEFAULTS["window_geometry"]
     merged["window_geometry"] = geom
     merged["compact_mode"] = bool(merged.get("compact_mode", False))
+    merged["watchlist"] = normalize_watchlist(merged.get("watchlist"))
     return merged
+
+
+def normalize_watchlist(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return list(DEFAULTS["watchlist"])
+    cleaned: list[str] = []
+    for item in raw:
+        ticker = str(item or "").strip().upper()[:12]
+        if ticker and ticker not in cleaned:
+            cleaned.append(ticker)
+        if len(cleaned) >= WATCHLIST_MAX:
+            break
+    return cleaned or list(DEFAULTS["watchlist"])
 
 
 def _read_settings_from_disk() -> Dict[str, Any]:
@@ -86,6 +109,11 @@ def load_user_settings(force: bool = False) -> Dict[str, Any]:
 def get_setting(key: str) -> Any:
     settings = load_user_settings()
     return settings.get(key, DEFAULTS.get(key))
+
+
+def native_settings_payload(settings: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    current = settings or load_user_settings()
+    return {key: current[key] for key in NATIVE_SETTINGS_KEYS}
 
 
 def save_user_settings(updates: Dict[str, Any]) -> Dict[str, Any]:

@@ -33,7 +33,7 @@ def load_history_jsonl(path: Path = DECISIONS_HISTORY_JSONL, limit: int | None =
     if not path.exists():
         return []
 
-    rows: List[Dict[str, Any]] = []
+    rows: deque[Dict[str, Any]] = deque(maxlen=limit if limit is not None else None)
     with path.open("r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -44,9 +44,7 @@ def load_history_jsonl(path: Path = DECISIONS_HISTORY_JSONL, limit: int | None =
             except json.JSONDecodeError:
                 continue
 
-    if limit is not None:
-        return rows[-limit:]
-    return rows
+    return list(rows)
 
 
 def load_history_period(

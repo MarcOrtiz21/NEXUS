@@ -5,86 +5,34 @@ struct HistoryView: View {
     @EnvironmentObject private var store: NexusStore
     @State private var periodDays = 30
     @State private var selectedPointID: String?
+    @State private var selectedScoreDate: Date?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                VStack(alignment: .leading, spacing: 5) {
-                    NexusSectionHeader(
-                        title: "Qué significa esta pantalla",
-                        help: "El historial se guarda al reevaluar con persistencia. No representa velas de mercado continuas."
-                    )
-                    Text("Registra cómo ha cambiado la recomendación. “Macro” refleja los datos; “Operativa” añade bloqueos de calendario y riesgo.")
-                        .font(.subheadline)
-                }
-                .nexusCard()
+        NexusPage {
+            Picker("Periodo", selection: $periodDays) {
+                Text("7 días").tag(7)
+                Text("30 días").tag(30)
+                Text("3 meses").tag(90)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 420)
+            .help("Filtra evaluaciones persistidas, no velas de mercado continuas.")
 
-                if let attribution = store.snapshot?.changeAttribution {
-                    VStack(alignment: .leading, spacing: 8) {
-                        NexusSectionHeader(
-                            title: "Qué cambió desde la evaluación anterior",
-                            help: attribution.note ?? "Comparación descriptiva; no demuestra causalidad."
-                        )
-                        if let movers = attribution.topAssetMovers, !movers.isEmpty {
-                            ForEach(Array(movers.prefix(3).enumerated()), id: \.offset) { _, mover in
-                                HStack {
-                                    Text(mover.label ?? mover.ticker ?? "Activo")
-                                    Spacer()
-                                    Text("score \(formatDelta(mover.scoreDelta))")
-                                        .foregroundStyle((mover.scoreDelta ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad)
-                                    if let delta = mover.rankDelta, delta != 0 {
-                                        Text(delta > 0 ? "↑\(delta) puestos" : "↓\(abs(delta)) puestos")
-                                            .foregroundStyle(delta > 0 ? NexusTheme.good : NexusTheme.bad)
-                                    }
-                                }
-                                .font(.caption)
-                            }
-                        }
-                        if attribution.rationale?.changed == true,
-                           let rationale = attribution.rationale?.to {
-                            DisclosureGroup("Racional actualizado") {
-                                Text(rationale)
-                                    .font(.caption)
-                                    .foregroundStyle(NexusTheme.muted)
-                                    .padding(.top, 4)
-                            }
-                            .font(.caption.weight(.semibold))
-                        }
-                        Text(attribution.note ?? "Atribución descriptiva entre snapshots; no implica causalidad.")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                    }
-                    .nexusCard()
-                }
+            NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2) {
+                NexusSummaryMetricCard(title: "Muestras", value: "\(filteredTimeline.count)", hint: "evaluaciones del periodo")
+                NexusSummaryMetricCard(title: "Score medio", value: number(periodAverage), hint: "convicción promedio", help: "Media del score en el periodo seleccionado.")
+                NexusSummaryMetricCard(title: "Rango", value: periodRange, hint: "mínimo y máximo")
+                NexusSummaryMetricCard(title: "Cambios", value: "\(filteredEvents.count)", hint: "cambios operativos")
+            }
 
-                Picker("Periodo", selection: $periodDays) {
-                    Text("7 días").tag(7)
-                    Text("30 días").tag(30)
-                    Text("3 meses").tag(90)
-                }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 420)
-
-                NexusAdaptiveGrid(minimumWidth: 170) {
-                    NexusSummaryMetricCard(title: "Muestras", value: "\(filteredTimeline.count)", hint: "evaluaciones del periodo")
-                    NexusSummaryMetricCard(title: "Score medio", value: number(periodAverage), hint: "convicción promedio", help: "Media del score en el periodo seleccionado.")
-                    NexusSummaryMetricCard(title: "Rango", value: periodRange, hint: "mínimo y máximo")
-                    NexusSummaryMetricCard(title: "Cambios", value: "\(filteredEvents.count)", hint: "cambios operativos")
-                }
-
-                NexusAdaptiveGrid(minimumWidth: 190) {
-                    historyReturnCard("SPY", help: "Variación entre el primer y último punto persistido del periodo.")
-                    historyReturnCard("GLD", help: "Variación entre el primer y último punto persistido del periodo.")
-                    historyReturnCard("EURUSD", help: "Variación entre el primer y último punto persistido del periodo.")
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    NexusSectionHeader(
-                        title: "Evolución del score",
-                        help: "El score mide convicción, no rentabilidad. La línea une evaluaciones persistidas."
-                    )
-                    if filteredTimeline.count >= 2 {
-                        Chart(filteredTimeline) { point in
+            VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(
+                    title: "Evolución del score",
+                    help: "El score mide convicción, no rentabilidad. Pulsa un punto para ver la evaluación de ese día."
+                )
+                if filteredTimeline.count >= 2 {
+                    Chart {
+                        ForEach(filteredTimeline) { point in
                             LineMark(
                                 x: .value("Fecha", pointDate(point) ?? .distantPast),
                                 y: .value("Score", point.score ?? 0)
@@ -103,105 +51,182 @@ struct HistoryView: View {
                                 )
                             )
                         }
-                        .chartYScale(domain: 0...100)
-                        .frame(height: 190)
-                    } else {
-                        Text("Se necesitan al menos dos evaluaciones en este periodo.")
-                            .font(.caption)
-                            .foregroundStyle(NexusTheme.muted)
-                            .frame(maxWidth: .infinity, minHeight: 100)
+                        if let selected = selectedScorePoint, let date = pointDate(selected) {
+                            RuleMark(x: .value("Selección", date))
+                                .foregroundStyle(NexusTheme.text.opacity(0.35))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                            PointMark(
+                                x: .value("Fecha", date),
+                                y: .value("Score", selected.score ?? 0)
+                            )
+                            .foregroundStyle(NexusTheme.text)
+                            .symbolSize(40)
+                        }
                     }
-                }
-                .nexusCard()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    NexusSectionHeader(title: "Cambios de decisión")
-                    Text("Solo aparecen momentos en que cambió la recomendación operativa.")
+                    .chartYScale(domain: 0...100)
+                    .chartOverlay { proxy in
+                        ChartPlotTapOverlay(proxy: proxy, selectedDate: $selectedScoreDate)
+                    }
+                    .frame(minHeight: 240)
+                    .frame(maxWidth: .infinity)
+                    if let selected = selectedScorePoint {
+                        HStack(spacing: 10) {
+                            Text((pointDate(selected) ?? .distantPast), format: .dateTime.day().month(.abbreviated).year())
+                                .font(.caption.weight(.semibold))
+                            Text("Score \(selected.score.map(String.init) ?? "—")")
+                                .font(.caption.monospacedDigit())
+                            Text(selected.operationalAction ?? selected.action ?? "—")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NexusTheme.toneColor(selected.operationalAction ?? selected.action))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(NexusTheme.muted)
+                    } else {
+                        Text("Pulsa la línea para ver score y acción de esa evaluación.")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                } else {
+                    Text("Se necesitan al menos dos evaluaciones en este periodo.")
                         .font(.caption)
                         .foregroundStyle(NexusTheme.muted)
-                    if filteredEvents.isEmpty {
-                        Text("La recomendación todavía no ha cambiado.")
-                            .foregroundStyle(NexusTheme.muted)
-                    } else {
-                        ForEach(filteredEvents.reversed()) { event in
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: "arrow.triangle.swap")
-                                    .foregroundStyle(NexusTheme.warn)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(event.from ?? "—") → \(event.to ?? "—")")
-                                        .font(.subheadline.weight(.semibold))
-                                    Text(explain(event.to))
-                                        .font(.caption)
-                                        .foregroundStyle(NexusTheme.muted)
-                                }
-                                Spacer()
-                                VStack(alignment: .trailing) {
-                                    Text("Score \(event.score ?? 0)")
-                                    Text(shortDate(event.capturedAt))
-                                }
-                                .font(.caption2)
-                                .foregroundStyle(NexusTheme.muted)
-                            }
-                            .padding(.vertical, 5)
-                            Divider().opacity(0.12)
-                        }
-                    }
+                        .frame(maxWidth: .infinity, minHeight: 100)
                 }
-                .nexusCard()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    NexusSectionHeader(title: "Evaluaciones", detail: "Selecciona una para entenderla")
-                    ForEach(Array(filteredTimeline.suffix(12).reversed())) { point in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedPointID = selectedPointID == point.id ? nil : point.id
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 12) {
-                                        Text(shortDate(point.capturedAt))
-                                            .frame(width: 120, alignment: .leading)
-                                            .foregroundStyle(NexusTheme.muted)
-                                        Text("Macro: \(point.macroAction ?? point.action ?? "—")")
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        Text("Operativa: \(point.operationalAction ?? point.action ?? "—")")
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        Text("\(point.score ?? 0)/100").fontWeight(.semibold)
-                                        Image(systemName: selectedPointID == point.id ? "chevron.up" : "chevron.down")
-                                    }
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        HStack {
-                                            Text(shortDate(point.capturedAt)).foregroundStyle(NexusTheme.muted)
-                                            Spacer()
-                                            Text("\(point.score ?? 0)/100").fontWeight(.semibold)
-                                            Image(systemName: selectedPointID == point.id ? "chevron.up" : "chevron.down")
-                                        }
-                                        Text("Macro: \(point.macroAction ?? point.action ?? "—")")
-                                        Text("Operativa: \(point.operationalAction ?? point.action ?? "—")")
-                                    }
-                                }
-                                if selectedPointID == point.id {
-                                    Text(explain(point.operationalAction ?? point.action))
-                                        .font(.caption)
-                                        .foregroundStyle(NexusTheme.muted)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        Divider().opacity(0.10)
-                    }
-                }
-                .nexusCard()
-
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            .nexusCard()
+
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                historyReturnCard("SPY", help: "Variación entre el primer y último punto persistido del periodo.")
+                historyReturnCard("GLD", help: "Variación entre el primer y último punto persistido del periodo.")
+                historyReturnCard("EURUSD", help: "Variación entre el primer y último punto persistido del periodo.")
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(title: "Cambios operativos")
+                Text("Solo aparecen momentos en que cambió la recomendación operativa.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+                if filteredEvents.isEmpty {
+                    Text("La recomendación todavía no ha cambiado.")
+                        .foregroundStyle(NexusTheme.muted)
+                } else {
+                    ForEach(filteredEvents.reversed()) { event in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "arrow.triangle.swap")
+                                .foregroundStyle(NexusTheme.warn)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(event.from ?? "—") → \(event.to ?? "—")")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(explain(event.to))
+                                    .font(.caption)
+                                    .foregroundStyle(NexusTheme.muted)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing) {
+                                Text("Score \(event.score ?? 0)")
+                                Text(shortDate(event.capturedAt))
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                        }
+                        .padding(.vertical, 5)
+                        Divider().opacity(0.12)
+                    }
+                }
+            }
+            .nexusCard()
+
+            if let attribution = store.snapshot?.changeAttribution {
+                VStack(alignment: .leading, spacing: 8) {
+                    NexusSectionHeader(
+                        title: "Qué cambió desde la evaluación anterior",
+                        help: attribution.note ?? "Comparación descriptiva; no demuestra causalidad."
+                    )
+                    if let movers = attribution.topAssetMovers, !movers.isEmpty {
+                        ForEach(Array(movers.prefix(3).enumerated()), id: \.offset) { _, mover in
+                            HStack {
+                                Text(mover.label ?? mover.ticker ?? "Activo")
+                                Spacer()
+                                Text("score \(formatDelta(mover.scoreDelta))")
+                                    .foregroundStyle((mover.scoreDelta ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+                .nexusCard()
+            }
+
+            trackRecordCard
+
+            VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(title: "Evaluaciones", detail: "Selecciona una para entenderla")
+                ForEach(Array(filteredTimeline.suffix(12).reversed())) { point in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedPointID = selectedPointID == point.id ? nil : point.id
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 12) {
+                                    Text(shortDate(point.capturedAt))
+                                        .frame(width: 120, alignment: .leading)
+                                        .foregroundStyle(NexusTheme.muted)
+                                    Text("Macro: \(point.macroAction ?? point.action ?? "—")")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("Operativa: \(point.operationalAction ?? point.action ?? "—")")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("\(point.score ?? 0)/100").fontWeight(.semibold)
+                                    Image(systemName: selectedPointID == point.id ? "chevron.up" : "chevron.down")
+                                }
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(shortDate(point.capturedAt)).foregroundStyle(NexusTheme.muted)
+                                        Spacer()
+                                        Text("\(point.score ?? 0)/100").fontWeight(.semibold)
+                                    }
+                                    Text("Macro: \(point.macroAction ?? point.action ?? "—")")
+                                    Text("Operativa: \(point.operationalAction ?? point.action ?? "—")")
+                                }
+                            }
+                            if selectedPointID == point.id {
+                                Text(explain(point.operationalAction ?? point.action))
+                                    .font(.caption)
+                                    .foregroundStyle(NexusTheme.muted)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    Divider().opacity(0.10)
+                }
+            }
+            .nexusCard()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var trackRecordCard: some View {
+        let track = store.snapshot?.trackRecord
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Track record", help: "Acierto retrospectivo vs SPY a horizonte corto. No es una garantía futura.")
+            if let track {
+                NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                    NexusSummaryMetricCard(title: "Muestras", value: "\(track.sampleSize ?? 0)", hint: "forward \(track.forwardDays ?? 0)d")
+                    NexusSummaryMetricCard(title: "Macro comprar", value: formatPct(track.macroBuyHitRatePct), hint: "n=\(track.macroBuyCount ?? 0)", tone: NexusTheme.good)
+                    NexusSummaryMetricCard(title: "Defensivo", value: formatPct(track.defensiveHitRatePct), hint: "n=\(track.defensiveCount ?? 0)", tone: NexusTheme.warn)
+                }
+                if let message = track.message {
+                    Text(message).font(.caption).foregroundStyle(NexusTheme.muted)
+                }
+            } else {
+                Text("Aún no hay suficiente historial para un track record.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+        }
+        .nexusCard()
     }
 
     private var history: HistoryBlock? {
@@ -217,6 +242,15 @@ struct HistoryView: View {
     private var filteredEvents: [ActionChange] {
         if store.snapshot?.historyPeriods?[periodKey] != nil { return events }
         return events.filter { isInsidePeriod($0.capturedAt) }
+    }
+
+    private var selectedScorePoint: ScorePoint? {
+        guard let selectedScoreDate else { return nil }
+        return filteredTimeline.min(by: { lhs, rhs in
+            let left = abs((pointDate(lhs) ?? .distantPast).timeIntervalSince(selectedScoreDate))
+            let right = abs((pointDate(rhs) ?? .distantPast).timeIntervalSince(selectedScoreDate))
+            return left < right
+        })
     }
     private var periodAverage: Double? {
         let scores = filteredTimeline.compactMap(\.score)
@@ -279,53 +313,163 @@ struct HistoryView: View {
 
 struct ForexGoldView: View {
     @EnvironmentObject private var store: NexusStore
+    @State private var selectedHeadline: NewsItem?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                forexPlanCard
-                NexusAdaptiveGrid(minimumWidth: 280) {
-                    exchangeCard
-                    euroCard
-                    dollarCard
-                }
-                NexusAdaptiveGrid(minimumWidth: 340) {
-                    goldCard
-                    relativeCard
-                }
-                NexusAdaptiveGrid(minimumWidth: 240) {
-                    forexMacroCard
-                    forexNewsCard
-                    forexRangeCard
-                }
+        NexusPage {
+            let fx = store.snapshot?.forex
+            let gold = store.snapshot?.gold
+            let gld = gold?.GLD
+            exchangeRateStrip
+            if store.snapshot?.fxAlignment?.conflict == true {
+                fxAlignmentNotice
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            fxPlanCard
+            NexusKPIStrip(items: [
+                NexusKPI(title: "EUR/USD", value: fx?.EURUSD?.price.map { String(format: "%.4f", $0) } ?? "—", hint: fx?.signal?.eurTrend ?? "sin tendencia", tone: NexusTheme.toneColor(fx?.signal?.action)),
+                NexusKPI(title: "GLD", value: number(gld?.price, digits: 2), hint: gold?.signal?.bias ?? "1M \(formatPct(gld?.momentum1m))", tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias)),
+                NexusKPI(title: "ACCIÓN FX", value: fx?.signal?.action ?? "—", hint: "confianza \(fx?.signal?.confidence ?? "—")", tone: NexusTheme.toneColor(fx?.signal?.action)),
+                NexusKPI(
+                    title: "SESGO ORO",
+                    value: gold?.signal?.bias ?? "—",
+                    hint: "confianza \(gold?.signal?.confidence ?? "—")",
+                    tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias),
+                    help: "Combina GLD frente al dólar (UUP), tipos reales (10Y menos IPC) y VIX. No es una orden."
+                ),
+            ])
+            sparklineStrip
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                euroCard
+                goldCard
+            }
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                dollarCard
+                relativeCard
+            }
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                goldVsDollarCard
+                fxHeadlinesCard
+            }
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                forexNewsCard
+                forexRangeCard
+            }
+            fxDigestCard
+            fxCalendarCard
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollBounceBehavior(.basedOnSize)
+        .sheet(item: $selectedHeadline) { item in
+            headlineReader(item)
+        }
     }
 
-    private var exchangeCard: some View {
-        let fx = store.snapshot?.forex
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("TIPO DE CAMBIO")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(NexusTheme.accent)
-            Text(fx?.EURUSD?.price.map { String(format: "1 EUR = %.4f USD", $0) } ?? "—")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-            Text(fx?.EURUSD?.price.flatMap { $0 > 0 ? String(format: "1 USD = %.4f EUR", 1 / $0) : nil } ?? "—")
-                .font(.title3.monospacedDigit().weight(.semibold))
+    private var exchangeRateStrip: some View {
+        let rates = store.snapshot?.forex?.rates
+        return NexusResponsiveGrid(wideColumns: 2, mediumColumns: 2) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("TIPO DE CAMBIO")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Text(rates?.eurLabel ?? "1 EUR = — USD")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("Spot EUR/USD")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            .nexusCard()
+            .onTapGesture { store.showAsset("EURUSD") }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("INVERSO")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Text(rates?.usdLabel ?? "1 USD = — EUR")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                Text("Cuántos euros compra 1 dólar")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            .nexusCard()
+            .onTapGesture { store.showAsset("EURUSD") }
+        }
+        .help("Ambos lados del mismo tipo de cambio. Clic para abrir el inspector de EUR/USD.")
+    }
+
+    private var fxAlignmentNotice: some View {
+        NexusNoticeCard(
+            title: store.snapshot?.fxAlignment?.title ?? "La operativa no autoriza entradas",
+            detail: store.snapshot?.fxAlignment?.detail ?? "El sesgo de EUR/USD y oro es vigilancia, no una orden.",
+            actionTitle: "Resumen"
+        ) {
+            store.selected = .overview
+        }
+    }
+
+    private var digest: FxGoldDigest? { store.snapshot?.fxDigest }
+
+    private var fxDigestCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "Qué ha cambiado",
+                help: "Compara EUR/USD, GLD y el sesgo con la última evaluación persistida. No es una orden."
+            )
+            Text(digest?.headline ?? "Sin comparación todavía")
+                .font(.title3.weight(.bold))
+            Text(digest?.summary ?? "Aún no hay una evaluación anterior.")
+                .font(.subheadline)
                 .foregroundStyle(NexusTheme.muted)
-            Text("Acción: \(fx?.signal?.action ?? "—")")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(NexusTheme.toneColor(fx?.signal?.action))
-            Text("Confianza: \(fx?.signal?.confidence ?? "—") · score \(formatDelta(fx?.signal?.score))")
-                .font(.caption)
-                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 16) {
+                digestMetric("EUR/USD", digest?.eurusd?.label ?? fxPipLabel, digestTone(digest?.eurusd?.pips))
+                digestMetric("GLD", digest?.gld?.label ?? formatDelta(digest?.gld?.delta), digestTone(digest?.gld?.delta))
+                digestMetric("SEÑAL FX", digest?.forexAction?.label ?? digestChangeLabel(digest?.forexAction), digest?.forexAction?.changed == true ? NexusTheme.warn : NexusTheme.muted)
+                digestMetric("ORO", digest?.goldBias?.label ?? digestChangeLabel(digest?.goldBias), digest?.goldBias?.changed == true ? NexusTheme.warn : NexusTheme.muted)
+            }
+            if digest?.hasPrior == true {
+                Text("Ref. \(relativeAge(from: digest?.baselineCapturedAt))")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+    }
+
+    private var sparklineStrip: some View {
+        LazyVStack(spacing: NexusLayout.spacing) {
+            NexusSparklineCard(
+                title: "EUR/USD",
+                help: "Intervalo y rango independientes, zoom/pan, selección continua y titulares ligados al par. Ficha abre el inspector.",
+                points: store.snapshot?.sparklines?["EURUSD"] ?? [],
+                showRelative: false,
+                minHeight: 220,
+                valueDigits: 4,
+                ticker: "EURUSD",
+                news: newsLinked(to: "EURUSD", items: store.snapshot?.news?.items ?? []),
+                onTap: { store.showAsset("EURUSD") },
+                onOpenNews: { item in
+                    store.selectedNewsID = item.id
+                    store.selected = .news
+                }
+            )
+            NexusSparklineCard(
+                title: "GLD",
+                help: "Intervalo y rango independientes, zoom/pan, selección continua y titulares ligados al metal.",
+                points: store.snapshot?.sparklines?["GLD"] ?? [],
+                minHeight: 220,
+                valueDigits: 2,
+                ticker: "GLD",
+                news: newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? []),
+                spyPoints: store.snapshot?.sparklines?["SPY"] ?? [],
+                onTap: { store.showAsset("GLD") },
+                onOpenNews: { item in
+                    store.selectedNewsID = item.id
+                    store.selected = .news
+                }
+            )
+        }
     }
 
     private var euroCard: some View {
@@ -345,7 +489,7 @@ struct ForexGoldView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture { store.showAsset("EURUSD") }
         .help("Abrir detalle de EUR/USD")
@@ -368,26 +512,34 @@ struct ForexGoldView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture { store.showAsset("UUP") }
         .help("Abrir detalle del dólar")
     }
 
     private var goldCard: some View {
-        let gld = store.snapshot?.gold?.GLD
+        let gold = store.snapshot?.gold
+        let gld = gold?.GLD
+        let signal = gold?.signal
         return VStack(alignment: .leading, spacing: 8) {
-            Text(store.snapshot?.gold?.label ?? "ORO (GLD)")
+            Text(gold?.label ?? "ORO (GLD)")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(NexusTheme.accent)
+            Text(signal?.bias ?? "—")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(NexusTheme.toneColor(signal?.tone ?? signal?.bias))
             metric("Spot", number(gld?.price, digits: 2))
             metric("MA20 / MA50", "\(number(gld?.ma20, digits: 2)) / \(number(gld?.ma50, digits: 2))")
             MetricBar(label: "Mom 1M", value: gld?.momentum1m, range: -8...8)
-            MetricBar(label: "Mom 3M", value: gld?.momentum3m, range: -15...15)
-            metric("Vol. 20d", formatPct(gld?.volatility20d))
+            metric("Tipo real", signal?.realRate.map { String(format: "%.2f%%", $0) } ?? "—")
+            metric("VIX", number(signal?.vix, digits: 1))
+            Text(signal?.summary ?? "Sin lectura de oro todavía.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
         .contentShape(Rectangle())
         .onTapGesture { store.showAsset("GLD") }
         .help("Abrir detalle del oro")
@@ -409,32 +561,216 @@ struct ForexGoldView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private var forexPlanCard: some View {
-        let signal = store.snapshot?.forex?.signal
-        let rel = signal?.rel1m ?? 0
-        return NexusGuidanceCard(
-            doing: rel > 0.5 ? "Favorecer EUR frente a USD solo con confirmación de tendencia." :
-                rel < -0.5 ? "Mantener sesgo defensivo hacia USD; esperar antes de comprar EUR." :
-                "Mantener exposición neutral y esperar una ruptura clara.",
-            avoiding: "No operar solo por un dato de momentum ni perseguir un movimiento diario. Confirmar con MA20/50, relativo y riesgo macro.",
-            changes: "Un cruce sostenido de medias y un cambio de fuerza relativa 1M/3M modificarían el sesgo."
+    private var goldVsDollarCard: some View {
+        let gld = store.snapshot?.gold?.GLD
+        let uup = store.snapshot?.assets?["UUP"]
+        let signal = store.snapshot?.gold?.signal
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(
+                title: "GLD vs dólar · 1M",
+                help: "Momentum a 1 mes de GLD y UUP, y la diferencia. El oro fuerte con dólar fuerte no se lee igual que con dólar débil."
+            )
+            MetricBar(label: "GLD 1M", value: gld?.momentum1m, range: -8...8)
+            MetricBar(label: "Dólar (UUP) 1M", value: uup?.momentum1m, range: -8...8)
+            MetricBar(label: "Relativo GLD−UUP", value: signal?.vsDollar1m, range: -8...8)
+            Text(signal?.vsDollarNote ?? "Sin comparación con el dólar todavía.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+        .contentShape(Rectangle())
+        .onTapGesture { store.showAsset("GLD") }
+        .help("Abrir detalle del oro")
+    }
+
+    private var fxHeadlinesCard: some View {
+        let items = store.snapshot?.forex?.headlines ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                NexusSectionHeader(
+                    title: "Titulares EUR / USD / oro",
+                    help: "Coincidencia contextual con euro, dólar u oro. No implica causalidad."
+                )
+                Spacer()
+                NexusActionButton(title: "Noticias", systemImage: "newspaper", helpText: "Abrir la pestaña de noticias") {
+                    store.selected = .news
+                }
+            }
+            if items.isEmpty {
+                Text("No hay titulares de euro, dólar u oro en esta captura.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            } else {
+                ForEach(items) { item in
+                    Button {
+                        selectedHeadline = item
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(headlineTags(item))
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(NexusTheme.accent)
+                            Text(item.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NexusTheme.text)
+                                .multilineTextAlignment(.leading)
+                                .lineLimit(2)
+                            Text(item.source ?? "Fuente")
+                                .font(.caption2)
+                                .foregroundStyle(NexusTheme.muted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Leer «\(item.title)»")
+                }
+            }
+        }
+        .nexusCard()
+    }
+
+    private func headlineTags(_ item: NewsItem) -> String {
+        let labels = (item.linkedAssets ?? []).map(headlineAssetLabel)
+        return labels.isEmpty ? "Contexto FX/oro" : labels.joined(separator: " · ")
+    }
+
+    private func headlineAssetLabel(_ ticker: String) -> String {
+        switch ticker {
+        case "EURUSD": return "EUR/USD"
+        case "GLD": return "Oro"
+        case "UUP": return "Dólar"
+        default: return ticker
+        }
+    }
+
+    @ViewBuilder
+    private func headlineReader(_ item: NewsItem) -> some View {
+        NavigationStack {
+            Group {
+                if let raw = item.url, let url = URL(string: raw) {
+                    NewsReaderView(url: url)
+                } else {
+                    Text("Este titular no tiene enlace.")
+                        .font(.subheadline)
+                        .foregroundStyle(NexusTheme.muted)
+                        .padding()
+                }
+            }
+            .navigationTitle(item.source ?? "Noticia")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") { selectedHeadline = nil }
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
+        }
+        .frame(minWidth: 720, minHeight: 520)
+    }
+
+    private var fxPlanCard: some View {
+        let plan = store.snapshot?.forex?.plan
+        return NexusStanceCard(
+            stance: plan?.stance ?? "ESPERAR",
+            buy: plan?.buy ?? "Nada ahora",
+            verdict: plan?.verdict ?? "Esperar a una lectura completa del par y de la operativa.",
+            doing: plan?.doing ?? "Confirmar tendencia, relativo y que Resumen autorice entradas.",
+            avoiding: plan?.avoiding ?? "No operar por un dato aislado ni contradecir un bloqueo.",
+            changes: plan?.changes,
+            help: "Veredicto del par EUR/USD. El oro es contexto. Si Resumen está pausado, no hay compra."
         )
     }
 
-    private var forexMacroCard: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            NexusSectionHeader(title: "CATALIZADOR MACRO", help: "Próximo evento económico que puede elevar la volatilidad de divisas.")
-            Text(store.snapshot?.calendar?.nextEvent?.title ?? "Sin evento próximo")
-                .font(.subheadline.weight(.semibold))
-            Text(store.snapshot?.calendar?.nextEvent?.hoursUntil.map { String(format: "en %.0f horas", $0) } ?? "Calendario no disponible")
-                .font(.caption)
-                .foregroundStyle(NexusTheme.muted)
+    private var fxCalendarCard: some View {
+        let events = store.snapshot?.calendar?.fxUpcoming ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(
+                title: "Calendario FX y oro · 72h",
+                help: "FOMC, CPI, NFP y BCE en las próximas 72 horas. Un bloqueo activo sigue mandando sobre la operativa."
+            )
+            if events.isEmpty {
+                Text("No hay FOMC, CPI, NFP o BCE en las próximas 72 horas.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            } else {
+                ForEach(events) { event in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 5)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title ?? "Evento")
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(2)
+                            Text(calendarWhen(event))
+                                .font(.caption2)
+                                .foregroundStyle(NexusTheme.muted)
+                        }
+                        Spacer(minLength: 4)
+                        Text(event.impact ?? "")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                    }
+                }
+            }
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.compactCardHeight)
+    }
+
+    private func digestTone(_ value: Double?) -> Color {
+        guard let value else { return NexusTheme.muted }
+        if abs(value) < 0.0001 { return NexusTheme.muted }
+        return value >= 0 ? NexusTheme.good : NexusTheme.bad
+    }
+
+    private var fxPipLabel: String {
+        guard let pips = digest?.eurusd?.pips else { return "—" }
+        let sign = pips > 0 ? "+" : ""
+        return String(format: "%@%.0f pips", sign, pips)
+    }
+
+    private func digestChangeLabel(_ change: DigestChange?) -> String {
+        if change?.changed == true, let from = change?.from, let to = change?.to {
+            return "\(from) → \(to)"
+        }
+        return change?.to ?? "—"
+    }
+
+    private func digestMetric(_ title: String, _ value: String, _ tone: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.muted)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tone)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func calendarWhen(_ event: CalendarEventItem) -> String {
+        var base = "fecha estimada"
+        if let hours = event.hoursUntil {
+            if hours < 1 { base = "en \(Int(hours * 60)) min" }
+            else if hours < 24 { base = "en \(Int(hours.rounded())) h" }
+            else { base = "en \(Int((hours / 24).rounded())) d" }
+        } else if let when = event.whenUtc {
+            base = when
+        }
+        let source = (event.source ?? "").lowercased()
+        if source.contains("estimado") || source.contains("manual") || event.estimated == true {
+            return "\(base) · hora estimada"
+        }
+        if source.contains("rss") || source.contains("myfxbook") {
+            return "\(base) · horario RSS"
+        }
+        return base
     }
 
     private var forexNewsCard: some View {
@@ -448,7 +784,7 @@ struct ForexGoldView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.compactCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var forexRangeCard: some View {
@@ -463,7 +799,7 @@ struct ForexGoldView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.compactCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func metric(_ label: String, _ value: String) -> some View {
@@ -518,191 +854,6 @@ struct MetricBar: View {
     }
 }
 
-struct RotationView: View {
-    @EnvironmentObject private var store: NexusStore
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("LECTURA DEL FLUJO")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(NexusTheme.accent)
-                    Text(rotationHeadline)
-                        .font(.title2.weight(.bold))
-                    Text(rotationExplanation)
-                        .font(.subheadline)
-                        .foregroundStyle(NexusTheme.muted)
-                    HStack(spacing: 18) {
-                        Label("Líderes 1M \(formatPct(rotation?.leadersAvg1m))", systemImage: "crown")
-                        Label("Receptores 1M \(formatPct(rotation?.receiversAvg1m))", systemImage: "arrow.down.right.and.arrow.up.left")
-                        Spacer()
-                        Text("Comprar \(buyCount) · Esperar \(waitCount) · Evitar \(sellCount)")
-                            .fontWeight(.semibold)
-                    }
-                    .font(.caption)
-                }
-                .nexusCard()
-                .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
-
-                NexusGuidanceCard(
-                    doing: rotationDoing,
-                    avoiding: "No perseguir antiguos líderes cuando pierden momentum relativo ni tratar el score como una orden aislada.",
-                    changes: "La lectura cambiará si los receptores dejan de superar a los líderes o si cambia el relativo frente a SPY."
-                )
-
-                NexusAdaptiveGrid(minimumWidth: 200) {
-                    NexusSummaryMetricCard(title: "AMPLITUD", value: "\(buyCount)/\(max(1, themes.count))", hint: "sectores recibiendo flujo", tone: buyCount > sellCount ? NexusTheme.good : NexusTheme.warn)
-                    NexusSummaryMetricCard(title: "MEJOR RELATIVO", value: bestRelativeName, hint: "frente a SPY \(formatPct(bestRelative?.relative1mVsSpy))", tone: NexusTheme.good)
-                    NexusSummaryMetricCard(title: "MÁS DÉBIL", value: weakestRelativeName, hint: "frente a SPY \(formatPct(weakestRelative?.relative1mVsSpy))", tone: NexusTheme.bad)
-                    NexusSummaryMetricCard(title: "MOMENTUM MEDIO", value: formatPct(rotation?.receiversAvg1m), hint: "de receptores de flujo")
-                }
-
-                NexusAdaptiveGrid(minimumWidth: 320) {
-                    rotationGroupCard("RECIBIENDO FLUJO", receivingThemes, NexusTheme.good)
-                    rotationGroupCard("NEUTRALES", neutralThemes, NexusTheme.warn)
-                    rotationGroupCard("PERDIENDO FUERZA", losingThemes, NexusTheme.bad)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollBounceBehavior(.basedOnSize)
-    }
-
-    private var rotation: Rotation? { store.snapshot?.rotation }
-    private var themes: [RotationTheme] { rotation?.themes ?? [] }
-    private var receivingThemes: [RotationTheme] {
-        themes.filter { tradeAction($0) == "VIGILAR COMPRA" }.sorted { ($0.score ?? 0) > ($1.score ?? 0) }
-    }
-    private var neutralThemes: [RotationTheme] {
-        themes.filter { tradeAction($0) == "ESPERAR" }.sorted { ($0.score ?? 0) > ($1.score ?? 0) }
-    }
-    private var losingThemes: [RotationTheme] {
-        themes.filter { tradeAction($0) == "EVITAR / REDUCIR" }.sorted { ($0.score ?? 0) > ($1.score ?? 0) }
-    }
-    private var buyCount: Int { themes.filter { tradeAction($0) == "VIGILAR COMPRA" }.count }
-    private var waitCount: Int { themes.filter { tradeAction($0) == "ESPERAR" }.count }
-    private var sellCount: Int { themes.filter { tradeAction($0) == "EVITAR / REDUCIR" }.count }
-    private var bestRelative: RotationTheme? { themes.max { ($0.relative1mVsSpy ?? -.infinity) < ($1.relative1mVsSpy ?? -.infinity) } }
-    private var weakestRelative: RotationTheme? { themes.min { ($0.relative1mVsSpy ?? .infinity) < ($1.relative1mVsSpy ?? .infinity) } }
-    private var bestRelativeName: String { bestRelative?.ticker ?? bestRelative?.theme ?? "—" }
-    private var weakestRelativeName: String { weakestRelative?.ticker ?? weakestRelative?.theme ?? "—" }
-
-    private var rotationHeadline: String {
-        guard !themes.isEmpty else { return "Sin datos suficientes de rotación" }
-        if buyCount > sellCount { return "El flujo busca nuevos sectores donde entrar" }
-        if sellCount > buyCount { return "Los antiguos líderes pierden fuerza; prioriza defensa" }
-        return "Rotación mixta: todavía no hay un liderazgo claro"
-    }
-
-    private var rotationExplanation: String {
-        let original = rotation?.summary ?? ""
-        return original.isEmpty
-            ? "Compara momentum sectorial y rendimiento frente al S&P 500 para separar oportunidades de zonas a evitar."
-            : "\(original) Los valores altos indican mejor fuerza relativa; no son una orden de compra aislada."
-    }
-
-    private var rotationDoing: String {
-        if !receivingThemes.isEmpty {
-            let names = receivingThemes.prefix(2).map { $0.theme ?? $0.ticker ?? "—" }.joined(separator: " y ")
-            return "Vigilar \(names) como posibles receptores de flujo y confirmar tendencia antes de entrar."
-        }
-        return "Mantener exposición equilibrada hasta que aparezca un receptor de flujo con ventaja clara."
-    }
-
-    private func rotationGroupCard(_ title: String, _ items: [RotationTheme], _ tone: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NexusSectionHeader(
-                title: title,
-                detail: "\(items.count)",
-                help: "Clasificación basada en señal, momentum y rendimiento relativo frente al S&P 500."
-            )
-            if items.isEmpty {
-                Text("Sin temas en este grupo.")
-                    .font(.caption)
-                    .foregroundStyle(NexusTheme.muted)
-                    .padding(.vertical, 12)
-            } else {
-                ForEach(items) { theme in
-                    Button {
-                        if let ticker = theme.ticker { store.showAsset(ticker) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(theme.theme ?? theme.ticker ?? "—")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(NexusTheme.text)
-                                        .lineLimit(1)
-                                    if let group = theme.group {
-                                        Text("\(group) · \(theme.ticker ?? "")")
-                                            .font(.caption2)
-                                            .foregroundStyle(NexusTheme.muted)
-                                    }
-                                }
-                                Spacer()
-                                Text(String(format: "%.0f", theme.score ?? 0))
-                                    .font(.caption.monospacedDigit().weight(.bold))
-                                    .foregroundStyle(tone)
-                            }
-                            NexusScoreBar(value: theme.score, showValue: false)
-                            HStack {
-                                Text("1M \(formatPct(theme.momentum1m))")
-                                Spacer()
-                                Text("vs SPY \(formatPct(theme.relative1mVsSpy))")
-                            }
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                            Text(readableSignal(theme))
-                                .font(.caption2)
-                                .foregroundStyle(actionColor(theme))
-                                .lineLimit(2)
-                            if let names = theme.names, !names.isEmpty {
-                                Text(names.prefix(4).joined(separator: " · "))
-                                    .font(.caption2)
-                                    .foregroundStyle(NexusTheme.muted.opacity(0.95))
-                                    .lineLimit(1)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    Divider().opacity(0.10)
-                }
-            }
-        }
-        .nexusCard()
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private func tradeAction(_ theme: RotationTheme) -> String {
-        let signal = (theme.signal ?? "").lowercased()
-        if signal.contains("entrada") || signal.contains("mejora") { return "VIGILAR COMPRA" }
-        if signal.contains("corrección") || signal.contains("descanso") { return "EVITAR / REDUCIR" }
-        return "ESPERAR"
-    }
-
-    private func readableSignal(_ theme: RotationTheme) -> String {
-        switch tradeAction(theme) {
-        case "VIGILAR COMPRA":
-            return "Está recibiendo flujo; esperar confirmación antes de entrar."
-        case "EVITAR / REDUCIR":
-            return "Pierde fuerza frente al mercado; no perseguir el precio."
-        default:
-            return "Sin ventaja clara; mantenerlo en observación."
-        }
-    }
-
-    private func actionColor(_ theme: RotationTheme) -> Color {
-        switch tradeAction(theme) {
-        case "VIGILAR COMPRA": return NexusTheme.good
-        case "EVITAR / REDUCIR": return NexusTheme.bad
-        default: return NexusTheme.warn
-        }
-    }
-}
 
 struct PaperView: View {
     @EnvironmentObject private var store: NexusStore
@@ -874,7 +1025,7 @@ struct PaperView: View {
             Text(hint).font(.caption2).foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.metricCardHeight, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -1025,4 +1176,26 @@ private struct PaperEquityPoint: Identifiable {
     let date: Date
     let value: Double
     let series: String
+}
+
+struct ChartPlotTapOverlay: View {
+    let proxy: ChartProxy
+    @Binding var selectedDate: Date?
+
+    var body: some View {
+        GeometryReader { geo in
+            let plotRect = proxy.plotFrame.map { geo[$0] } ?? geo.frame(in: .local)
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture()
+                        .onEnded { event in
+                            guard plotRect.contains(event.location) else { return }
+                            if let date: Date = proxy.value(atX: event.location.x, as: Date.self) {
+                                selectedDate = date
+                            }
+                        }
+                )
+        }
+    }
 }

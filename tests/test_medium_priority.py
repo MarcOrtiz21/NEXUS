@@ -30,6 +30,24 @@ class UserSettingsTests(unittest.TestCase):
         self.assertEqual(settings["calendar_block_hours"], DEFAULTS["calendar_block_hours"])
         self.assertGreaterEqual(settings["refresh_interval_seconds"], 60)
 
+    def test_watchlist_is_normalized_and_capped(self):
+        from user_settings import normalize_watchlist
+
+        saved = save_user_settings({"watchlist": ["spy", "SPY", "xlk", "x", "", "too-long-ticker-name", "GLD", "QQQ", "XBI", "XLE"]})
+        self.assertEqual(saved["watchlist"][0], "SPY")
+        self.assertEqual(len(saved["watchlist"]), 8)
+        self.assertEqual(normalize_watchlist("nope"), ["SPY", "QQQ", "GLD", "XLK"])
+
+    def test_native_settings_payload_exposes_editable_keys(self):
+        from user_settings import native_settings_payload
+
+        saved = save_user_settings({"refresh_interval_seconds": 120, "macos_notifications": False})
+        payload = native_settings_payload(saved)
+        self.assertEqual(payload["refresh_interval_seconds"], 120)
+        self.assertFalse(payload["macos_notifications"])
+        self.assertIn("calendar_blocks_signals", payload)
+        self.assertNotIn("watchlist", payload)
+
 
 class PaperBenchmarkTests(unittest.TestCase):
     def test_benchmark_tracks_spy_buy_and_hold(self):

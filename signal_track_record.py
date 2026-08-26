@@ -7,7 +7,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from config import normalize_action
+from config import (
+    HISTORY_CALIBRATION_MIN_SAMPLES,
+    VIX_CALM_THRESHOLD,
+    VIX_ELEVATED_THRESHOLD,
+    VIX_PANIC_THRESHOLD,
+    normalize_action,
+)
 from history_view import load_history_jsonl
 
 BUY_ACTIONS = {"COMPRAR", "COMPRAR PARCIAL"}
@@ -64,15 +70,50 @@ def _forward_return(rows: List[Dict[str, Any]], start_idx: int, forward_days: in
     return round(((end_price / start_price) - 1) * 100, 2)
 
 
-def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Dict[str, Any]:
-    rows = load_history_jsonl(limit=limit)
-    if len(rows) < 2:
-        return {
-            "sample_size": 0,
-            "forward_days": forward_days,
-            "message": "Historial insuficiente para calcular track record.",
-        }
+def _vix_bucket(vix: Any) -> str | None:
+    if not isinstance(vix, (int, float)):
+        return None
+    if vix >= VIX_PANIC_THRESHOLD:
+        return "estres"
+    if vix >= VIX_ELEVATED_THRESHOLD:
+        return "cautela"
+    if vix < VIX_CALM_THRESHOLD:
+        return "calma"
+    return "normal"
 
+
+def _vix_bucket_stats(samples: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for item in samples:
+        if item.get("macro_action") not in BUY_ACTIONS:
+            continue
+        bucket = _vix_bucket(item.get("vix"))
+        if bucket is None:
+            continue
+        grouped.setdefault(bucket, []).append(item)
+    stats: Dict[str, Dict[str, Any]] = {}
+    for name, items in grouped.items():
+        hits = sum(1 for item in items if item.get("macro_correct"))
+        stats[name] = {
+            "count": len(items),
+            "hit_rate_pct": round(hits / len(items) * 100, 1) if items else None,
+        }
+    return stats
+
+
+def _horizon_public(summary: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "forward_days": summary.get("forward_days"),
+        "sample_size": summary.get("sample_size"),
+        "macro_buy_count": summary.get("macro_buy_count"),
+        "macro_buy_hit_rate_pct": summary.get("macro_buy_hit_rate_pct"),
+        "macro_buy_avg_return_pct": summary.get("macro_buy_avg_return_pct"),
+        "defensive_count": summary.get("defensive_count"),
+        "defensive_hit_rate_pct": summary.get("defensive_hit_rate_pct"),
+    }
+
+
+def _summarize_horizon(rows: List[Dict[str, Any]], forward_days: int) -> Dict[str, Any]:
     evaluated: List[Dict[str, Any]] = []
     for idx in range(len(rows) - 1):
         fwd = _forward_return(rows, idx, forward_days)
@@ -86,6 +127,7 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
             "macro_action": macro_action,
             "operational_action": operational_action,
             "score": row.get("score"),
+            "vix": row.get("vix"),
             "spy_forward_return_pct": fwd,
             "macro_correct": macro_action in BUY_ACTIONS and fwd > 0,
             "defensive_correct": operational_action in DEFENSIVE_ACTIONS and fwd <= 0,
@@ -95,6 +137,16 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
         return {
             "sample_size": 0,
             "forward_days": forward_days,
+            "macro_buy_count": 0,
+            "macro_buy_avg_return_pct": None,
+            "macro_buy_hit_rate_pct": None,
+            "defensive_count": 0,
+            "defensive_avg_return_pct": None,
+            "defensive_hit_rate_pct": None,
+            "overall_avg_return_pct": None,
+            "samples": [],
+            "recent_samples": [],
+            "by_operational_signal": {},
             "message": "No hay suficientes snapshots separados para medir retornos forward.",
         }
 
@@ -139,6 +191,67 @@ def evaluate_track_record(forward_days: int = 5, limit: int | None = None) -> Di
     }
 
 
+def evaluate_track_record(
+    forward_days: int = 5,
+    limit: int | None = None,
+    extra_horizons: tuple[int, ...] = (20,),
+) -> Dict[str, Any]:
+    rows = load_history_jsonl(limit=limit)
+    if len(rows) < 2:
+        return {
+            "sample_size": 0,
+            "forward_days": forward_days,
+            "macro_buy_count": 0,
+            "macro_buy_count_20d": 0,
+            "macro_buy_hit_rate_20d_pct": None,
+            "vix_buckets": {},
+            "message": "Historial insuficiente para calcular track record.",
+        }
+
+    primary = _summarize_horizon(rows, forward_days)
+    extra = {horizon: _summarize_horizon(rows, horizon) for horizon in extra_horizons}
+    h20 = extra.get(20) or {}
+    if primary.get("sample_size", 0) == 0:
+        primary["macro_buy_count_20d"] = h20.get("macro_buy_count") or 0
+        primary["macro_buy_hit_rate_20d_pct"] = h20.get("macro_buy_hit_rate_pct")
+        primary["macro_buy_avg_return_20d_pct"] = h20.get("macro_buy_avg_return_pct")
+        primary["vix_buckets"] = {}
+        return primary
+
+    primary["macro_buy_count_20d"] = h20.get("macro_buy_count") or 0
+    primary["macro_buy_hit_rate_20d_pct"] = h20.get("macro_buy_hit_rate_pct")
+    primary["macro_buy_avg_return_20d_pct"] = h20.get("macro_buy_avg_return_pct")
+    primary["forward_horizons"] = {
+        forward_days: _horizon_public(primary),
+        **{horizon: _horizon_public(summary) for horizon, summary in extra.items()},
+    }
+    primary["vix_buckets"] = _vix_bucket_stats(primary.get("samples") or [])
+    return primary
+
+
+def history_buy_scale(
+    track: Dict[str, Any] | None,
+    min_samples: int | None = None,
+) -> tuple[float, str | None]:
+    """Escala el sesgo alcista según acierto COMPRAR vs SPY. No reescribe umbrales VIX."""
+    track = track or {}
+    floor = min_samples if min_samples is not None else HISTORY_CALIBRATION_MIN_SAMPLES
+    count = int(track.get("macro_buy_count") or 0)
+    hit = track.get("macro_buy_hit_rate_pct")
+    if count < floor or not isinstance(hit, (int, float)):
+        return 1.0, None
+    effective = float(hit)
+    count20 = int(track.get("macro_buy_count_20d") or 0)
+    hit20 = track.get("macro_buy_hit_rate_20d_pct")
+    if count20 >= floor and isinstance(hit20, (int, float)):
+        effective = min(effective, float(hit20))
+    if effective >= 55:
+        return 1.0, None
+    if effective >= 40:
+        return 0.85, "la muestra reciente de COMPRAR apenas confirma el sentido de SPY"
+    return 0.7, "la muestra reciente de COMPRAR no confirma el sentido de SPY frente al índice"
+
+
 def track_record_chart_payload(
     forward_days: int = 5,
     limit: int | None = 100,
@@ -148,23 +261,31 @@ def track_record_chart_payload(
     summary = evaluate_track_record(forward_days=forward_days, limit=limit)
     samples = summary.get("samples") or []
     chart_samples = samples[-chart_limit:]
+    hit_bars = [
+        {
+            "label": "Macro COMPRAR",
+            "value": summary.get("macro_buy_hit_rate_pct"),
+            "count": summary.get("macro_buy_count", 0),
+            "color": "good",
+        },
+        {
+            "label": "Ops DEFENSIVA",
+            "value": summary.get("defensive_hit_rate_pct"),
+            "count": summary.get("defensive_count", 0),
+            "color": "warn",
+        },
+    ]
+    if int(summary.get("macro_buy_count_20d") or 0) > 0:
+        hit_bars.append({
+            "label": "Macro COMPRAR 20d",
+            "value": summary.get("macro_buy_hit_rate_20d_pct"),
+            "count": summary.get("macro_buy_count_20d", 0),
+            "color": "good",
+        })
     return {
         **summary,
         "chart_samples": chart_samples,
-        "hit_bars": [
-            {
-                "label": "Macro COMPRAR",
-                "value": summary.get("macro_buy_hit_rate_pct"),
-                "count": summary.get("macro_buy_count", 0),
-                "color": "good",
-            },
-            {
-                "label": "Ops DEFENSIVA",
-                "value": summary.get("defensive_hit_rate_pct"),
-                "count": summary.get("defensive_count", 0),
-                "color": "warn",
-            },
-        ],
+        "hit_bars": hit_bars,
     }
 
 
@@ -173,26 +294,31 @@ def format_track_record_report(forward_days: int = 5, limit: int | None = 100) -
     if summary.get("sample_size", 0) == 0:
         return summary.get("message", "Sin datos de track record.")
 
+    buy_avg = summary.get("macro_buy_avg_return_pct")
+    buy_hit = summary.get("macro_buy_hit_rate_pct")
+    buy_hit_20 = summary.get("macro_buy_hit_rate_20d_pct")
+    def_avg = summary.get("defensive_avg_return_pct")
+    def_hit = summary.get("defensive_hit_rate_pct")
     lines = [
         f"TRACK RECORD NEXUS vs SPY ({summary['forward_days']} días forward)",
         f"Muestras evaluadas: {summary['sample_size']}",
         "",
         "DIAGNÓSTICO MACRO (COMPRAR / COMPRAR PARCIAL)",
         f"  Señales: {summary['macro_buy_count']}",
-        f"  Retorno medio SPY: {summary['macro_buy_avg_return_pct']:+.2f}%"
-        if summary["macro_buy_avg_return_pct"] is not None else "  Retorno medio SPY: —",
-        f"  Acierto (SPY > 0): {summary['macro_buy_hit_rate_pct']}%"
-        if summary["macro_buy_hit_rate_pct"] is not None else "  Acierto: —",
+        f"  Retorno medio SPY: {buy_avg:+.2f}%" if buy_avg is not None else "  Retorno medio SPY: —",
+        f"  Acierto (SPY > 0): {buy_hit}%" if buy_hit is not None else "  Acierto: —",
+    ]
+    if int(summary.get("macro_buy_count_20d") or 0) > 0:
+        lines.append(f"  Acierto 20d: {buy_hit_20}%" if buy_hit_20 is not None else "  Acierto 20d: —")
+    lines.extend([
         "",
         "SEÑAL OPERATIVA DEFENSIVA (ESPERAR / REDUCIR RIESGO)",
         f"  Señales: {summary['defensive_count']}",
-        f"  Retorno medio SPY: {summary['defensive_avg_return_pct']:+.2f}%"
-        if summary["defensive_avg_return_pct"] is not None else "  Retorno medio SPY: —",
-        f"  Acierto (SPY <= 0): {summary['defensive_hit_rate_pct']}%"
-        if summary["defensive_hit_rate_pct"] is not None else "  Acierto: —",
+        f"  Retorno medio SPY: {def_avg:+.2f}%" if def_avg is not None else "  Retorno medio SPY: —",
+        f"  Acierto (SPY <= 0): {def_hit}%" if def_hit is not None else "  Acierto: —",
         "",
         "ÚLTIMAS MUESTRAS",
-    ]
+    ])
     for sample in summary.get("recent_samples", []):
         lines.append(
             f"  {sample['captured_at']}  macro={sample['macro_action']}  "

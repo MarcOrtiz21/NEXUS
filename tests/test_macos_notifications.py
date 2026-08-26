@@ -32,6 +32,25 @@ class MacOSNotificationTests(unittest.TestCase):
         curr = snapshot_state(self._snap("HEALTHY", "COMPRAR", "COMPRAR", 16.0))
         self.assertEqual(detect_notification_events(None, curr), [])
 
+    def test_calendar_block_notifies_without_status_change(self):
+        previous = snapshot_state(self._snap("HEALTHY", "ESPERAR", "ESPERAR", 18.0))
+        current = snapshot_state({
+            "status": "HEALTHY",
+            "decision": {
+                "macro_action": "ESPERAR",
+                "operational_action": "ESPERAR",
+                "action": "ESPERAR",
+            },
+            "data": {"VIX": 18.0},
+            "calendar": {
+                "should_block": True,
+                "next_event": {"title": "FOMC"},
+            },
+        })
+        events = detect_notification_events(previous, current)
+        self.assertTrue(any("Bloqueo de calendario" in title for title, _ in events))
+        self.assertTrue(any("FOMC" in message for _, message in events))
+
     @patch("macos_notifications.send_macos_notification", return_value=True)
     @patch("macos_notifications.notifications_enabled", return_value=True)
     def test_notify_snapshot_change_sends_events(self, _enabled, send_mock):

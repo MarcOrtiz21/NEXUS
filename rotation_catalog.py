@@ -85,6 +85,10 @@ ROTATION_COMPANY_TICKERS.update({
     "Celltrion": "068270.KS", "Kakao": "KAKAF", "Edison International": "EIX", "Xcel Energy": "XEL",
     "Sempra": "SRE", "Albemarle": "ALB", "Eastman Chemical": "EMN", "Mitsui": "MITSY",
     "Kratos": "KTOS",
+    "Santander": "SAN", "BBVA": "BBVA", "Iberdrola": "IBDRY", "Inditex": "IDEXY",
+    "Telefónica": "TEF", "Amadeus": "AMADY", "Repsol": "REPYY", "Ferrovial": "FER",
+    "Cellnex": "CLLNY", "Aena": "ANYYY", "CaixaBank": "CAIXY", "Grifols": "GRFS",
+    "Acciona": "ACXIF", "Naturgy": "GASNY", "Banco Sabadell": "BNDSY",
 })
 
 
@@ -115,4 +119,5 @@ ROTATION_THEME_COMPANIES = {
     "FXI": ["Tencent", "Alibaba", "China Construction Bank", "Meituan", "BYD", "JD.com", "PDD", "NetEase", "Trip.com", "Baidu", "China Mobile", "Li Auto", "XPeng", "NIO", "Tencent Music"],
     "AAXJ": ["TSMC", "Tencent", "Samsung", "Alibaba", "Reliance", "SK Hynix", "Sony", "JD.com", "PDD", "NetEase", "Naver", "Toyota", "BYD", "Baidu", "LG"],
     "EWY": ["Samsung", "SK Hynix", "Hyundai", "KB Financial", "POSCO", "LG", "Kia", "Samsung SDI", "Naver", "Hyundai Mobis", "LG Chem", "Hana Financial", "SK Telecom", "Celltrion", "Kakao"],
+    "EWP": ["Santander", "BBVA", "Iberdrola", "Inditex", "Telefónica", "Amadeus", "Repsol", "Ferrovial", "Cellnex", "Aena", "CaixaBank", "Grifols", "Acciona", "Naturgy", "Banco Sabadell"],
 }

@@ -18,6 +18,14 @@ from config import (
     FOREX_REL_MOMENTUM_STRONG,
     FOREX_SCORE_MODERATE,
     FOREX_SCORE_STRONG,
+    GOLD_REAL_RATE_PRESSURE,
+    GOLD_REAL_RATE_SUPPORT,
+    GOLD_SCORE_STRONG,
+    GOLD_VIX_COMPLACENT,
+    GOLD_VIX_REFUGE,
+    GOLD_VIX_STRESS,
+    GOLD_VS_USD_MODERATE,
+    GOLD_VS_USD_STRONG,
 )
 
 
@@ -173,6 +181,37 @@ def forex_signal(
     }
 
 
+def forex_leg_strength(metrics: Dict[str, Any] | None) -> int | None:
+    """Fortaleza 0–100 de una pata FX a partir de precio, medias y momentum. None si no hay datos."""
+    metrics = metrics or {}
+    price = _to_float(metrics.get("price"))
+    mom1 = _to_float(metrics.get("momentum_1m"))
+    mom3 = _to_float(metrics.get("momentum_3m"))
+    if price is None and mom1 is None:
+        return None
+    score = 50.0
+    trend = trend_from_metrics(metrics)
+    if trend == "alcista":
+        score += 12
+    elif trend == "bajista":
+        score -= 12
+    if mom1 is not None:
+        score += max(-25.0, min(25.0, mom1 * 8))
+    if mom3 is not None:
+        score += max(-12.0, min(12.0, mom3 * 3))
+    return int(max(0, min(100, round(score))))
+
+
+def forex_pair_strength(
+    fx_metrics: Dict[str, Any] | None,
+    uup_metrics: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    """Fortaleza del euro y del dólar por separado. Un 50 es neutro, no ausencia de datos."""
+    eur = forex_leg_strength(fx_metrics)
+    usd = forex_leg_strength(uup_metrics)
+    return {"eur": eur, "usd": usd}
+
+
 def forex_semaphore(score: int) -> Dict[str, str]:
     if score >= FOREX_SCORE_STRONG:
         return {"color": "green", "label": "VERDE", "description": "Sesgo fuerte pro EURO"}
@@ -239,4 +278,127 @@ def forex_bidirectional_rates(fx_metrics: Dict[str, Any]) -> Dict[str, Any]:
         "usd_eur": round(usd_eur, 4),
         "eur_label": f"1 EUR = {eur_usd:.4f} USD",
         "usd_label": f"1 USD = {usd_eur:.4f} EUR",
+    }
+
+
+def gold_signal(
+    gld_metrics: Dict[str, Any],
+    uup_metrics: Dict[str, Any],
+    *,
+    vix: float | None = None,
+    us10y: float | None = None,
+    cpi_yoy: float | None = None,
+) -> Dict[str, Any]:
+    """Sesgo de oro: refugio, presión o mixto según dólar, tipos reales y VIX."""
+    gld_1m = _to_float((gld_metrics or {}).get("momentum_1m"))
+    usd_1m = _to_float((uup_metrics or {}).get("momentum_1m"))
+    gld_trend = trend_from_metrics(gld_metrics or {})
+    usd_trend = trend_from_metrics(uup_metrics or {})
+    vix_value = _to_float(vix)
+    us10y_value = _to_float(us10y)
+    cpi_value = _to_float(cpi_yoy)
+
+    vs_dollar = None
+    if gld_1m is not None and usd_1m is not None:
+        vs_dollar = round(gld_1m - usd_1m, 2)
+
+    real_rate = None
+    if us10y_value is not None and cpi_value is not None:
+        real_rate = round(us10y_value - cpi_value, 2)
+
+    score = 0
+    inputs = 0
+    drivers: List[str] = []
+
+    if gld_trend == "alcista":
+        score += 1
+        inputs += 1
+        drivers.append("Tendencia de GLD alcista.")
+    elif gld_trend == "bajista":
+        score -= 1
+        inputs += 1
+        drivers.append("Tendencia de GLD bajista.")
+
+    if vs_dollar is not None:
+        inputs += 1
+        if vs_dollar >= GOLD_VS_USD_STRONG:
+            score += 2
+            drivers.append("El oro gana al dólar a 1 mes.")
+        elif vs_dollar >= GOLD_VS_USD_MODERATE:
+            score += 1
+            drivers.append("Ligera ventaja del oro frente al dólar.")
+        elif vs_dollar <= -GOLD_VS_USD_STRONG:
+            score -= 2
+            drivers.append("El dólar gana al oro a 1 mes.")
+        elif vs_dollar <= -GOLD_VS_USD_MODERATE:
+            score -= 1
+            drivers.append("Ligera presión del dólar sobre el oro.")
+
+    if real_rate is not None:
+        inputs += 1
+        if real_rate <= GOLD_REAL_RATE_SUPPORT:
+            score += 2
+            drivers.append(f"Tipos reales bajos ({real_rate:.2f}%).")
+        elif real_rate >= GOLD_REAL_RATE_PRESSURE:
+            score -= 2
+            drivers.append(f"Tipos reales altos ({real_rate:.2f}%) presionan el oro.")
+        else:
+            drivers.append(f"Tipos reales intermedios ({real_rate:.2f}%).")
+
+    if vix_value is not None:
+        inputs += 1
+        if vix_value >= GOLD_VIX_STRESS:
+            score += 2
+            drivers.append(f"VIX en {vix_value:.1f}: demanda de refugio.")
+        elif vix_value >= GOLD_VIX_REFUGE:
+            score += 1
+            drivers.append(f"VIX elevado ({vix_value:.1f}).")
+        elif vix_value < GOLD_VIX_COMPLACENT:
+            score -= 1
+            drivers.append(f"VIX contenido ({vix_value:.1f}): menos refugio.")
+
+    if score >= GOLD_SCORE_STRONG:
+        bias = "REFUGIO"
+        tone = "GOOD"
+        summary = "El oro se comporta como refugio: dólar, tipos o estrés lo favorecen."
+    elif score <= -GOLD_SCORE_STRONG:
+        bias = "PRESION"
+        tone = "BAD"
+        summary = "El dólar y los tipos reales presionan el oro; no perseguir el rebote."
+    else:
+        bias = "MIXTO"
+        tone = "WARN"
+        summary = "Lectura mixta: el oro no tiene una ventaja clara frente al dólar y los tipos."
+
+    if inputs <= 1:
+        confidence = "BAJA"
+    elif inputs <= 2:
+        confidence = "MEDIA"
+    else:
+        confidence = "ALTA"
+
+    if gld_1m is None or usd_1m is None:
+        vs_dollar_note = "Falta el momentum 1M de GLD o UUP para comparar con el dólar."
+    elif gld_1m > 0 and usd_1m > 0:
+        vs_dollar_note = "Oro y dólar suben a la vez; el relativo importa más que el precio."
+    elif gld_1m > 0 and usd_1m < 0:
+        vs_dollar_note = "El oro gana con dólar débil."
+    elif gld_1m < 0 and usd_1m > 0:
+        vs_dollar_note = "El dólar presiona al oro."
+    else:
+        vs_dollar_note = "Ambos retroceden a 1 mes; el relativo no cambia la tesis por sí solo."
+
+    return {
+        "bias": bias,
+        "tone": tone,
+        "summary": summary,
+        "confidence": confidence,
+        "score": score,
+        "real_rate": real_rate,
+        "vs_dollar_1m": vs_dollar,
+        "vs_dollar_note": vs_dollar_note,
+        "vix": vix_value,
+        "gld_trend": gld_trend,
+        "usd_trend": usd_trend,
+        "drivers": drivers[:4],
     }

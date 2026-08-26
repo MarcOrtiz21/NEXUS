@@ -497,7 +497,7 @@ def _render_rotation(rotation, compact: bool = False):
     state_style = {
         "ROTACIÓN ACTIVA Y SANA": "bold white on green",
         "ROTACIÓN HACIA REZAGADOS": "bold black on yellow",
-        "LIDERAZGO TECH DOMINANTE": "bold white on blue",
+        "LIDERAZGO AÚN DOMINANTE": "bold white on blue",
         "DESCANSO SIN RELEVO CLARO": "bold white on red",
         "SIN DATOS": "bold white on blue",
     }.get(rotation.state, "bold black on yellow")
@@ -508,8 +508,8 @@ def _render_rotation(rotation, compact: bool = False):
         Panel(
             f"[{state_style}] {rotation.state} [/{state_style}]\n"
             f"[bold]Lectura:[/bold] {rotation.summary}\n"
-            f"[dim]Momentum medio 1M líderes IA/semis/tech: {leaders} | "
-            f"receptores defensivos/cíclicos/Asia: {receivers}[/dim]",
+            f"[dim]Momentum medio 1M líderes observados: {leaders} | "
+            f"resto del mapa: {receivers}[/dim]",
             title="Mapa de Rotación Sectorial",
             border_style="bright_blue",
         )

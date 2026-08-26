@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import AppKit
 
 struct NewsReaderView: View {
     let url: URL
@@ -13,29 +14,26 @@ struct NewsReaderView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Button { model.goBack() } label: { Image(systemName: "chevron.left") }
-                    .disabled(!model.canGoBack)
-                    .help("Atrás")
-                Button { model.goForward() } label: { Image(systemName: "chevron.right") }
-                    .disabled(!model.canGoForward)
-                    .help("Adelante")
-                Button { model.reload() } label: { Image(systemName: "arrow.clockwise") }
-                    .help("Recargar artículo")
+                NexusToolbarButton(systemImage: "chevron.left", label: "Atrás", disabled: !model.canGoBack) { model.goBack() }
+                NexusToolbarButton(systemImage: "chevron.right", label: "Adelante", disabled: !model.canGoForward) { model.goForward() }
+                NexusToolbarButton(systemImage: "arrow.clockwise", label: "Recargar artículo") { model.reload() }
                 Divider().frame(height: 16)
-                Button { model.decreaseText() } label: { Image(systemName: "textformat.size.smaller") }
-                    .help("Reducir texto")
-                Button { model.increaseText() } label: { Image(systemName: "textformat.size.larger") }
-                    .help("Aumentar texto")
-                Spacer()
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    Image(systemName: "safari")
+                NexusToolbarButton(systemImage: "textformat.size.smaller", label: "Reducir texto") { model.decreaseText() }
+                NexusToolbarButton(systemImage: "textformat.size.larger", label: "Aumentar texto") { model.increaseText() }
+                NexusToolbarButton(
+                    systemImage: model.cookieShieldEnabled ? "checkmark.shield.fill" : "checkmark.shield",
+                    label: model.cookieShieldEnabled ? "Mostrar avisos de cookies" : "Ocultar avisos de cookies",
+                    helpText: model.cookieShieldEnabled
+                        ? "Avisos de cookies ocultos. Clic para mostrarlos."
+                        : "Mostrar avisos de cookies. Clic para ocultarlos."
+                ) {
+                    model.toggleCookieShield()
                 }
-                .help("Abrir en el navegador")
+                Spacer()
+                NexusToolbarButton(systemImage: "safari", label: "Abrir en el navegador") {
+                    NSWorkspace.shared.open(url)
+                }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
             .padding(8)
 
             if model.loading {
@@ -65,6 +63,7 @@ final class NewsReaderModel: NSObject, ObservableObject, WKNavigationDelegate {
     @Published private(set) var canGoForward = false
     @Published private(set) var loading = false
     @Published private(set) var progress = 0.0
+    @Published private(set) var cookieShieldEnabled = NewsCookieShield.isEnabled
 
     let webView: WKWebView
     private var observations: [NSKeyValueObservation] = []
@@ -72,6 +71,9 @@ final class NewsReaderModel: NSObject, ObservableObject, WKNavigationDelegate {
     init(url: URL) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        if NewsCookieShield.isEnabled {
+            NewsCookieShield.installUserScript(on: configuration.userContentController)
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self
@@ -79,6 +81,7 @@ final class NewsReaderModel: NSObject, ObservableObject, WKNavigationDelegate {
         webView.underPageBackgroundColor = .white
         webView.appearance = NSAppearance(named: .aqua)
         observeState()
+        NewsCookieShield.clearLegacyRules(from: webView.configuration.userContentController)
         load(url)
     }
 
@@ -92,6 +95,23 @@ final class NewsReaderModel: NSObject, ObservableObject, WKNavigationDelegate {
     func reload() { webView.reload() }
     func increaseText() { webView.pageZoom = min(1.8, webView.pageZoom + 0.1) }
     func decreaseText() { webView.pageZoom = max(0.7, webView.pageZoom - 0.1) }
+
+    func toggleCookieShield() {
+        cookieShieldEnabled.toggle()
+        NewsCookieShield.isEnabled = cookieShieldEnabled
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        NewsCookieShield.clearLegacyRules(from: controller)
+        if cookieShieldEnabled {
+            NewsCookieShield.installUserScript(on: controller)
+        }
+        webView.reload()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard cookieShieldEnabled else { return }
+        webView.evaluateJavaScript(NewsCookieShield.userScript, completionHandler: nil)
+    }
 
     private func observeState() {
         observations = [

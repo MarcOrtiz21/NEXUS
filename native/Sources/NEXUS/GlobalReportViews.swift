@@ -4,40 +4,84 @@ struct GlobalView: View {
     @EnvironmentObject private var store: NexusStore
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                NexusAdaptiveGrid(minimumWidth: 220) {
-                    marketCard("BOLSA", "SPY", "Índice de referencia")
-                    marketCard("ORO", "GLD", "Activo defensivo")
-                    marketCard("DÓLAR", "UUP", "Fuerza del dólar")
-                    metricCard("VOLATILIDAD", number("VIX", decimals: 1), vixHint)
-                }
-                NexusAdaptiveGrid(minimumWidth: 300) {
-                    riskCard
-                    ratesCard
-                }
-                NexusAdaptiveGrid(minimumWidth: 190) {
-                    regionCard(title: "Europa", key: "Europa")
-                    regionCard(title: "Japón", key: "Japon")
-                    regionCard(title: "China", key: "China")
-                    regionCard(title: "Asia emergente", key: "Asia_EM")
-                }
-                NexusAdaptiveGrid(minimumWidth: 250) {
-                    liquidityCard
-                    valuationCard
-                    correlationCard
-                }
-                NexusAdaptiveGrid(minimumWidth: 220) {
-                    regimeCard
-                    anomaliesCard
-                    dataQualityCard
-                }
-                assetsCard
+        NexusPage {
+            NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2) {
+                marketCard("BOLSA", "SPY", "Índice de referencia")
+                marketCard("ORO", "GLD", "Activo defensivo")
+                marketCard("DÓLAR", "UUP", "Fuerza del dólar")
+                metricCard("VOLATILIDAD", number("VIX", decimals: 1), vixHint)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            regionalHeatmap
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                riskCard
+                ratesCard
+            }
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                liquidityCard
+                valuationCard
+                correlationCard
+            }
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                regimeCard
+                anomaliesCard
+                dataQualityCard
+            }
+            assetsCard
         }
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var regionalKeys: [(title: String, key: String)] {
+        [("Europa", "Europa"), ("España (IBEX)", "Espana"), ("Japón", "Japon"), ("China", "China"), ("Asia emergente", "Asia_EM")]
+    }
+
+    private var rankedRegions: [(title: String, key: String, asset: AssetMetrics?)] {
+        regionalKeys
+            .map { ($0.title, $0.key, store.snapshot?.globalMarkets?[$0.key]) }
+            .sorted { ($0.2?.momentum1m ?? -.infinity) > ($1.2?.momentum1m ?? -.infinity) }
+    }
+
+    private var regionalHeatmap: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Mapa regional", help: "Comparación homogénea de proxies. España usa EWP como aproximación al IBEX.")
+            ForEach(Array(rankedRegions.enumerated()), id: \.offset) { index, row in
+                HStack(spacing: 10) {
+                    Text("\(index + 1)")
+                        .font(.caption.monospacedDigit().weight(.bold))
+                        .frame(width: 18)
+                    Text(row.title)
+                        .font(.caption.weight(.semibold))
+                        .frame(minWidth: 110, alignment: .leading)
+                    NexusMiniSparkline(points: sparkline(for: regionTicker(row.key)), width: 72, height: 28)
+                    NexusScoreBar(value: regionScore(row.asset), showValue: true)
+                    Text("1M \(formatPct(row.asset?.momentum1m))")
+                        .font(.caption2.monospacedDigit())
+                        .frame(width: 90, alignment: .trailing)
+                    Text(trend(row.asset))
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.toneColor(trend(row.asset)))
+                    Text("Vol \(formatPct(row.asset?.volatility20d))")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                        .frame(width: 90, alignment: .trailing)
+                }
+                if row.asset?.price == nil {
+                    NexusMissingSource(title: "\(row.title) sin dato", detail: row.key == "Espana" ? "Proxy IBEX (EWP) pendiente de actualización." : "Serie regional pendiente de actualización.")
+                }
+                Divider().opacity(0.10)
+            }
+        }
+        .nexusCard()
+    }
+
+    private func regionScore(_ asset: AssetMetrics?) -> Double? {
+        guard let asset, asset.price != nil else { return nil }
+        var score = 50.0
+        if let mom = asset.momentum1m { score += mom > 0 ? 15 : -15 }
+        if let mom3 = asset.momentum3m { score += mom3 > 0 ? 10 : -10 }
+        if let price = asset.price, let ma50 = asset.ma50 {
+            score += price >= ma50 ? 15 : -15
+        }
+        return min(100, max(0, score))
     }
 
     private func marketCard(_ title: String, _ ticker: String, _ hint: String) -> some View {
@@ -63,7 +107,7 @@ struct GlobalView: View {
             NexusKVRow(label: "Confianza", value: store.snapshot?.decision?.confidence ?? "—")
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var ratesCard: some View {
@@ -77,7 +121,7 @@ struct GlobalView: View {
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var assetsCard: some View {
@@ -96,6 +140,7 @@ struct GlobalView: View {
         ViewThatFits(in: .horizontal) {
             HStack {
                 Text(ticker).frame(width: 62, alignment: .leading)
+                NexusMiniSparkline(points: sparkline(for: ticker), width: 72, height: 26)
                 Text(price(asset?.price)).frame(width: 78, alignment: .trailing)
                 Text("1M \(formatPct(asset?.momentum1m))").frame(width: 86, alignment: .trailing)
                 Text("Vol \(formatPct(asset?.volatility20d))").frame(width: 86, alignment: .trailing)
@@ -122,7 +167,11 @@ struct GlobalView: View {
         return NexusSummaryMetricCard(
             title: title,
             value: price(asset?.price),
-            hint: asset?.price == nil ? "Serie regional pendiente de actualización" : "1M \(formatPct(asset?.momentum1m)) · 3M \(formatPct(asset?.momentum3m))",
+                            hint: asset?.price == nil
+                                ? (key == "Espana" ? "Proxy IBEX (EWP) pendiente de actualización" : "Serie regional pendiente de actualización")
+                                : (key == "Espana"
+                                   ? "Proxy IBEX (EWP) · 1M \(formatPct(asset?.momentum1m))"
+                                   : "1M \(formatPct(asset?.momentum1m)) · 3M \(formatPct(asset?.momentum3m))"),
             tone: (asset?.momentum1m ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad
         )
     }
@@ -132,10 +181,16 @@ struct GlobalView: View {
             NexusSectionHeader(title: "LIQUIDEZ")
             NexusKVRow(label: "M2 EE. UU.", value: number("M2_Change_Pct", suffix: "%", decimals: 1))
             NexusKVRow(label: "M2 China", value: number("China_M2_YoY_Pct", suffix: "%", decimals: 1))
-            Text("La liquidez es un contexto macro, no una orden aislada.")
-                .font(.caption2).foregroundStyle(NexusTheme.muted)
+            if let asOf = store.snapshot?.intelligence?.dataQuality?.observations?["M2_Change_Pct"] {
+                Text("Observación FRED \(asOf). No es la hora de captura de NEXUS.")
+                    .font(.caption2).foregroundStyle(NexusTheme.muted)
+            } else {
+                Text("La liquidez es un contexto macro, no una orden aislada.")
+                    .font(.caption2).foregroundStyle(NexusTheme.muted)
+            }
         }
-        .nexusCard().nexusSizedCard(NexusLayout.compactCardHeight)
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var valuationCard: some View {
@@ -145,7 +200,8 @@ struct GlobalView: View {
             NexusKVRow(label: "Percentil", value: number("PE_Forward_Percentile", suffix: "%", decimals: 0))
             NexusKVRow(label: "PER trailing", value: number("PE_Trailing", decimals: 1))
         }
-        .nexusCard().nexusSizedCard(NexusLayout.compactCardHeight)
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var correlationCard: some View {
@@ -157,7 +213,8 @@ struct GlobalView: View {
                 .font(.caption).foregroundStyle(NexusTheme.muted)
             NexusKVRow(label: "VIX vs MA20", value: vixVsMA20)
         }
-        .nexusCard().nexusSizedCard(NexusLayout.compactCardHeight)
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var regimeCard: some View {
@@ -179,15 +236,25 @@ struct GlobalView: View {
             Text("Avisos descriptivos; confirmar antes de actuar.")
                 .font(.caption2).foregroundStyle(NexusTheme.muted)
         }
-        .nexusCard().nexusSizedCard(NexusLayout.metricCardHeight)
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var dataQualityCard: some View {
         let quality = store.snapshot?.intelligence?.dataQuality
+        let obs = quality?.observations?["CPI_YoY_Pct"]
+        let hint: String
+        if (quality?.unhealthy ?? 0) != 0 {
+            hint = "\(quality?.unhealthy ?? 0) incidencias: \(quality?.critical?.first ?? "revisar")"
+        } else if let obs {
+            hint = "IPC observación \(obs)"
+        } else {
+            hint = "sin incidencias detectadas"
+        }
         return NexusSummaryMetricCard(
             title: "CALIDAD DE DATOS",
             value: "\(quality?.total ?? 0) fuentes",
-            hint: (quality?.unhealthy ?? 0) == 0 ? "sin incidencias detectadas" : "\(quality?.unhealthy ?? 0) incidencias: \(quality?.critical?.first ?? "revisar")",
+            hint: hint,
             tone: (quality?.unhealthy ?? 0) == 0 ? NexusTheme.good : NexusTheme.warn
         )
     }
@@ -200,6 +267,23 @@ struct GlobalView: View {
     private func price(_ value: Double?) -> String {
         guard let value else { return "No disponible" }
         return String(format: value < 10 ? "%.4f" : "%.2f", value)
+    }
+
+    private func regionTicker(_ key: String) -> String {
+        switch key {
+        case "Europa": return "FEZ"
+        case "Espana": return "EWP"
+        case "Japon": return "EWJ"
+        case "China": return "FXI"
+        case "Asia_EM": return "AAXJ"
+        default: return key
+        }
+    }
+
+    private func sparkline(for ticker: String) -> [SparklinePoint] {
+        store.snapshot?.sparklines?[ticker]
+            ?? store.snapshot?.sparklines?["^\(ticker)"]
+            ?? []
     }
 
     private func trend(_ asset: AssetMetrics?) -> String {
@@ -228,22 +312,72 @@ struct ReportView: View {
     @EnvironmentObject private var store: NexusStore
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                decisionCard
-                NexusAdaptiveGrid(minimumWidth: 260) {
-                    NexusSummaryMetricCard(title: "SCORE", value: "\(store.snapshot?.decision?.score ?? 0)/100", hint: "convicción actual")
-                    NexusSummaryMetricCard(title: "RIESGO", value: GlobalViewRiskLabel(vix: store.snapshot?.market?["VIX"]?.value), hint: "según volatilidad")
-                    NexusSummaryMetricCard(title: "NOTICIAS", value: store.snapshot?.news?.sentiment?.dominant ?? "—", hint: store.snapshot?.news?.sentiment?.details ?? "sin titulares")
+        NexusPage {
+            decisionCard
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                VStack(alignment: .leading, spacing: 8) {
+                    NexusSectionHeader(title: "Diagnóstico actual")
+                    Text(store.snapshot?.decision?.operationalAction ?? "Sin decisión")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(NexusTheme.toneColor(store.snapshot?.decision?.operationalAction))
+                    Text(store.snapshot?.decision?.rationale ?? "Actualiza para generar una lectura razonada.")
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                prioritiesCard
-                scoreBreakdownCard
-                changesCard
+                .nexusCard()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 8) {
+                    NexusSectionHeader(title: "Riesgos")
+                    NexusKVRow(label: "VIX", value: GlobalViewRiskLabel(vix: store.snapshot?.market?["VIX"]?.value), tone: NexusTheme.toneColor(store.snapshot?.status))
+                    NexusKVRow(label: "Bloqueo", value: store.snapshot?.calendar?.shouldBlock == true ? "Activo" : "Libre")
+                    NexusKVRow(label: "Noticias", value: store.snapshot?.news?.sentiment?.dominant ?? "—")
+                    Text("Un bloqueo o VIX elevado anula entradas aunque el score técnico sea alto.")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                }
+                .nexusCard()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                VStack(alignment: .leading, spacing: 8) {
+                    NexusSectionHeader(title: "Señales confirmadas")
+                    ForEach(store.snapshot?.decision?.favoredAssets ?? [], id: \.self) { asset in
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(NexusTheme.good)
+                            Text(asset).fontWeight(.semibold)
+                            Spacer()
+                        }
+                        .font(.caption)
+                    }
+                    if (store.snapshot?.decision?.favoredAssets ?? []).isEmpty {
+                        Text("Ningún activo pasa el umbral de prioridad en esta evaluación.")
+                            .font(.caption)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                }
+                .nexusCard()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
+            scoreBreakdownCard
+            changesCard
+            VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(title: "Próximas condiciones de reevaluación")
+                Text(reevalCondition)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Datos \(relativeAge(from: store.snapshot?.capturedAtUtc))")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            .nexusCard()
         }
-        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var reevalCondition: String {
+        let next = store.snapshot?.calendar?.nextEvent?.title
+        if store.snapshot?.calendar?.shouldBlock == true {
+            return "Reevaluar cuando expire el bloqueo\(next.map { " y se publique \($0)" } ?? "")."
+        }
+        return "Una variación material del score, del VIX o del liderazgo de activos activaría una nueva decisión."
     }
 
     private var decisionCard: some View {
@@ -268,7 +402,9 @@ struct ReportView: View {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(NexusTheme.good)
                     Text(asset).fontWeight(.semibold)
                     Spacer()
-                    Button("Ver ficha") { store.showAsset(asset) }.buttonStyle(.borderless)
+                    NexusActionButton(title: "Ver ficha", systemImage: "sidebar.trailing") {
+                        store.showAsset(asset)
+                    }
                 }
                 Divider().opacity(0.12)
             }
@@ -294,15 +430,22 @@ struct ReportView: View {
     }
 
     private var scoreBreakdownCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            NexusSectionHeader(title: "FACTORES DEL SCORE", detail: "reglas activas")
-            ForEach(Array((store.snapshot?.decision?.scoreBreakdown ?? []).prefix(6).enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .top) {
-                    Text(item.factor ?? "Factor").font(.caption.weight(.semibold)).frame(width: 110, alignment: .leading)
-                    Text(item.reason ?? "—").font(.caption).foregroundStyle(NexusTheme.muted)
+        let drivers = store.snapshot?.sessionPlan?.scoreDrivers ?? []
+        return VStack(alignment: .leading, spacing: 6) {
+            NexusSectionHeader(title: "FACTORES DEL SCORE", detail: "mismos que en Resumen")
+            if drivers.isEmpty {
+                Text("Los factores aparecerán junto a «Qué hacer ahora» en Resumen.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            } else {
+                ForEach(drivers.prefix(6)) { item in
+                    HStack(alignment: .top) {
+                        Text(item.factor ?? "Factor").font(.caption.weight(.semibold)).frame(width: 110, alignment: .leading)
+                        Text(item.detail ?? "—").font(.caption).foregroundStyle(NexusTheme.muted)
+                    }
                 }
             }
-            Text("Describe las reglas activas; no asigna pesos inventados a cada componente.")
+            Text("Son las reglas que movieron el score. La confianza baja si el dato está caducado.")
                 .font(.caption2).foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()

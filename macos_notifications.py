@@ -46,11 +46,16 @@ def snapshot_state(snapshot: Dict[str, Any] | None) -> Dict[str, Any] | None:
     decision = snapshot.get("decision") or {}
     data = snapshot.get("data") or {}
     vix = data.get("VIX")
+    calendar = snapshot.get("calendar") or {}
+    next_event = calendar.get("next_event") or {}
+    event_title = next_event.get("title") if isinstance(next_event, dict) else None
     return {
         "status": snapshot.get("status"),
         "operational_action": decision.get("operational_action") or decision.get("action"),
         "macro_action": decision.get("macro_action") or decision.get("action"),
         "vix": float(vix) if vix is not None else None,
+        "calendar_block": bool(calendar.get("should_block") or calendar.get("should_block_signals")),
+        "calendar_event": event_title,
     }
 
 
@@ -79,6 +84,14 @@ def detect_notification_events(
             events.append(("NEXUS — Pausa operativa", "Filtro de riesgo activo (calendario o sentimiento)."))
         else:
             events.append(("NEXUS — Pánico", "El motor detecta estrés extremo. Revisa liquidez y riesgo."))
+
+    if current.get("calendar_block") and not previous.get("calendar_block"):
+        if not (curr_status == "BLOCKED" and curr_status != prev_status):
+            event_title = current.get("calendar_event") or "evento macro"
+            events.append((
+                "NEXUS — Bloqueo de calendario",
+                f"Filtro activo por {event_title}. No forzar entradas.",
+            ))
 
     if curr_vix is not None and curr_vix >= VIX_PANIC_THRESHOLD and (prev_vix is None or prev_vix < VIX_PANIC_THRESHOLD):
         events.append(("NEXUS — VIX elevado", f"VIX en {curr_vix:.1f} (umbral {VIX_PANIC_THRESHOLD})."))

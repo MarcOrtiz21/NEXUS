@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from signal_track_record import evaluate_track_record, format_track_record_report, track_record_chart_payload
+from signal_track_record import (
+    evaluate_track_record,
+    format_track_record_report,
+    history_buy_scale,
+    track_record_chart_payload,
+)
 
 
 def _row(captured_at: str, action: str, spy_price: float, macro_action: str | None = None):
@@ -85,6 +90,35 @@ class SignalTrackRecordTests(unittest.TestCase):
             summary = evaluate_track_record(forward_days=5, limit=10)
 
         self.assertEqual(summary["sample_size"], 0)
+
+    def test_evaluates_twenty_day_horizon_and_vix_buckets(self):
+        rows = [
+            {**_row("2026-01-01T12:00:00+00:00", "COMPRAR", 100.0), "vix": 14.0},
+            {**_row("2026-01-06T12:00:00+00:00", "COMPRAR", 102.0), "vix": 14.0},
+            {**_row("2026-01-21T12:00:00+00:00", "ESPERAR", 108.0), "vix": 18.0},
+        ]
+        with patch("signal_track_record.load_history_jsonl", return_value=rows):
+            summary = evaluate_track_record(forward_days=5, limit=10)
+
+        self.assertEqual(summary["macro_buy_count"], 1)
+        self.assertEqual(summary["macro_buy_count_20d"], 1)
+        self.assertEqual(summary["macro_buy_hit_rate_20d_pct"], 100.0)
+        self.assertEqual(summary["vix_buckets"]["calma"]["count"], 1)
+
+    def test_history_buy_scale_needs_enough_samples(self):
+        scale, reason = history_buy_scale({
+            "macro_buy_count": 3,
+            "macro_buy_hit_rate_pct": 20.0,
+        })
+        self.assertEqual(scale, 1.0)
+        self.assertIsNone(reason)
+
+        weak, weak_reason = history_buy_scale({
+            "macro_buy_count": 10,
+            "macro_buy_hit_rate_pct": 30.0,
+        })
+        self.assertEqual(weak, 0.7)
+        self.assertIn("no confirma", weak_reason)
 
 
 if __name__ == "__main__":

@@ -4,107 +4,252 @@ struct OverviewView: View {
     @EnvironmentObject private var store: NexusStore
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: NexusLayout.spacing) {
-                actionCard
-                overviewGuidance
-                NexusAdaptiveGrid(minimumWidth: 300) {
+        NexusPage {
+            if store.snapshot == nil {
+                NexusSkeleton(rows: 4)
+            } else {
+                sessionPlanCard
+                if store.snapshot?.rotationAlignment?.conflict == true {
+                    alignmentNotice
+                }
+                trackThesisCard
+                NexusKPIStrip(items: kpiItems)
+                NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                    vixCard
+                    calendarCard
+                    newsPulseCard
+                }
+                NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
                     rankingCard
+                    allocationCard
                     macroPulseCard
                 }
-                NexusAdaptiveGrid(minimumWidth: 300) {
-                    comparisonCard
-                    allocationCard
-                }
-                NexusAdaptiveGrid(minimumWidth: 250) {
-                    previewCard(
-                        title: "ROTACIÓN",
-                        headline: store.snapshot?.rotation?.state ?? "Sin lectura",
-                        detail: store.snapshot?.rotation?.summary ?? "Sin datos sectoriales.",
-                        destination: .rotation
-                    )
-                    previewCard(
-                        title: "FOREX / ORO",
-                        headline: store.snapshot?.forex?.signal?.action ?? "Sin señal",
-                        detail: "\(store.snapshot?.forex?.signal?.evolution ?? "Sin evolución") · Oro \(formatPct(store.snapshot?.gold?.GLD?.momentum1m)) 1M",
-                        destination: .forexGold
-                    )
-                    previewCard(
-                        title: "NOTICIAS",
-                        headline: "Sesgo \(store.snapshot?.news?.sentiment?.dominant ?? "neutral")",
-                        detail: store.snapshot?.news?.sentiment?.details ?? "Sin titulares analizados.",
-                        destination: .news
-                    )
-                }
+                comparisonCard
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var decision: Decision? { store.snapshot?.decision }
+    private var plan: SessionPlan? { store.snapshot?.sessionPlan }
+    private var alignment: RotationAlignment? { store.snapshot?.rotationAlignment }
 
-    private var actionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("ACCIÓN AHORA")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(NexusTheme.accent)
-            Text(decision?.operationalAction ?? decision?.action ?? "—")
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-                .foregroundStyle(actionColor)
-            if let pause = decision?.operationalPauseReason, !pause.isEmpty {
-                Text(pause)
-                    .foregroundStyle(NexusTheme.warn)
-            }
-            HStack {
-                Text(decision?.score.map { "Score \($0)/100" } ?? "Score —/100")
-                    .font(.subheadline.weight(.semibold))
-                Text("·")
-                Text(decision?.confidence ?? "—")
+    private var sessionPlanCard: some View {
+        NexusStanceCard(
+            stance: plan?.stance ?? decision?.operationalAction ?? "ESPERAR",
+            buy: plan?.buy ?? "Sin sesgo todavía",
+            verdict: plan?.verdict ?? "Esperar a una lectura completa de la sesión.",
+            doing: plan?.doing ?? "Confirmar bloqueo, asignación y sesgo de divisas antes de actuar.",
+            avoiding: plan?.avoiding ?? "No tratar ESPERAR como una orden ni comprar por un titular aislado.",
+            changes: plan?.changes,
+            help: "Qué hacer con cada activo. El % es peso de cartera, no una orden si la acción es ESPERAR.",
+            buyLabel: plan?.buyLabel ?? "AHORA",
+            context: plan?.context ?? [],
+            weightCaption: plan?.weightCaption,
+            legs: plan?.legs ?? [],
+            confidence: plan?.confidence ?? decision?.confidence,
+            confidenceNote: plan?.confidenceNote ?? decision?.confidenceNote,
+            score: plan?.score ?? decision?.score,
+            scoreDrivers: plan?.scoreDrivers ?? []
+        )
+    }
+
+    private var alignmentNotice: some View {
+        NexusNoticeCard(
+            title: alignment?.title ?? "La operativa no autoriza entradas",
+            detail: alignment?.detail ?? "Rotación es vigilancia, no una orden de compra.",
+            actionTitle: "Ver rotación"
+        ) {
+            store.selected = .rotation
+        }
+    }
+
+    private var trackThesisCard: some View {
+        let thesis = store.snapshot?.intelligence?.trackThesis
+        let headline = thesis?.headline ?? "Aún no hay muestra para contrastar la tesis"
+        let detail = thesis?.detail ?? "Se rellenará tras varias capturas persistidas."
+        return VStack(alignment: .leading, spacing: 6) {
+            NexusSectionHeader(
+                title: "Tesis vs SPY",
+                help: "Cuando la señal fue COMPRAR, ¿subió el S&P 500 a 5 y 20 días? No es la rentabilidad de una cartera NEXUS."
+            )
+            Text(headline)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(NexusTheme.toneColor(thesis?.tone))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if let count = thesis?.buyCount, let sample = thesis?.sampleSize {
+                Text("Muestra: \(count) COMPRAR · \(sample) lecturas")
+                    .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
-                Spacer()
-                Text(relativeAge(from: store.snapshot?.capturedAtUtc))
+            }
+        }
+        .nexusCard()
+    }
+
+    private var freshnessShort: String {
+        let statuses = (store.snapshot?.freshness?.layers ?? []).compactMap(\.status)
+        if statuses.contains(where: { $0 == "MISSING" || $0 == "ERROR" }) { return "Huecos" }
+        if statuses.contains("STALE") { return "Caducado" }
+        if statuses.contains("OK") { return "Al día" }
+        return relativeAge(from: store.snapshot?.capturedAtUtc)
+    }
+
+    private var calendarCard: some View {
+        let events = store.snapshot?.calendar?.upcoming ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(
+                title: "Calendario 72h",
+                help: "Eventos US de las próximas 72 horas. Si la hora es RSS o manual, es una ventana aproximada, no un FOMC datado."
+            )
+            if events.isEmpty {
+                Text("No hay FOMC, CPI o NFP en las próximas 72 horas.")
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
-            }
-            if let score = decision?.score {
-                ProgressView(value: Double(score), total: 100)
-                    .tint(actionColor)
             } else {
-                ProgressView(value: 0, total: 100)
-                    .tint(NexusTheme.muted)
-                    .opacity(0.35)
-            }
-            if let favored = decision?.favoredAssets, !favored.isEmpty {
-                Text("Favorecidos: \(favored.joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundStyle(NexusTheme.muted)
-            }
-            if let rationale = decision?.rationale, !rationale.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("POR QUÉ")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(NexusTheme.accent)
-                    Text(rationale)
-                        .font(.caption)
-                        .foregroundStyle(NexusTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                ForEach(events) { event in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 5)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title ?? "Evento")
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(2)
+                            Text(calendarWhen(event))
+                                .font(.caption2)
+                                .foregroundStyle(NexusTheme.muted)
+                        }
+                        Spacer(minLength: 4)
+                        Text(event.impact ?? "")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                    }
                 }
             }
         }
         .nexusCard()
-        .frame(minHeight: 235)
     }
 
-    private var overviewGuidance: some View {
-        NexusGuidanceCard(
-            doing: decision?.operationalAction ?? decision?.action ?? "Esperar una señal operativa válida.",
-            avoiding: decision?.operationalPauseReason
-                ?? "No actuar contra la asignación recomendada ni decidir por una sola métrica.",
-            changes: signalChangeCondition
-        )
+    private func calendarWhen(_ event: CalendarEventItem) -> String {
+        var base = "fecha estimada"
+        if let hours = event.hoursUntil {
+            if hours < 1 { base = "en \(Int(hours * 60)) min" }
+            else if hours < 24 { base = "en \(Int(hours.rounded())) h" }
+            else { base = "en \(Int((hours / 24).rounded())) d" }
+        } else if let when = event.whenUtc {
+            base = when
+        }
+        let source = (event.source ?? "").lowercased()
+        if source.contains("estimado") || source.contains("manual") || event.estimated == true {
+            return "\(base) · hora estimada"
+        }
+        if source.contains("rss") || source.contains("myfxbook") {
+            return "\(base) · horario RSS"
+        }
+        return base
+    }
+
+    private var vixCard: some View {
+        let value = market("VIX")
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "VIX",
+                help: "Termómetro de estrés. Calma favorece riesgo; estrés pide liquidez. No es una orden."
+            )
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(value.map { String(format: "%.1f", $0) } ?? "—")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(vixColor(value))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(vixLabel(value))
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(vixColor(value))
+                    Text("MA5 \(number(market("VIX_MA5"))) · MA20 \(number(market("VIX_MA20")))")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                }
+                Spacer(minLength: 8)
+                NexusMiniSparkline(points: sparkline(for: "VIX"), width: 120, height: 44)
+            }
+            vixMeter(value)
+            Text(macroInterpretation)
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+    }
+
+    private func vixMeter(_ value: Double?) -> some View {
+        let position = min(1, max(0, ((value ?? 18) - 10) / 30))
+        return VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    HStack(spacing: 0) {
+                        vixBand("Calma", NexusTheme.good)
+                        vixBand("Normal", NexusTheme.accent)
+                        vixBand("Cautela", NexusTheme.warn)
+                        vixBand("Estrés", NexusTheme.bad)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    Circle()
+                        .fill(NexusTheme.text)
+                        .frame(width: 9, height: 9)
+                        .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+                        .offset(x: max(0, min(geo.size.width - 9, geo.size.width * position - 4.5)))
+                }
+            }
+            .frame(height: 22)
+            HStack {
+                Text("<15")
+                Spacer()
+                Text("15–20")
+                Spacer()
+                Text("20–30")
+                Spacer()
+                Text(">30")
+            }
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(NexusTheme.muted)
+        }
+    }
+
+    private var kpiItems: [NexusKPI] {
+        let blocked = store.snapshot?.calendar?.shouldBlock == true
+        let cash = decision?.allocation?["CASH"]
+        return [
+            NexusKPI(
+                title: "SCORE",
+                value: decision?.score.map { "\($0)/100" } ?? "—",
+                hint: plan?.confidence ?? decision?.confidence ?? "convicción",
+                tone: actionColor,
+                help: "Convicción macro. La confianza baja si el dato está caducado o el calendario es estimado."
+            ),
+            NexusKPI(
+                title: "BLOQUEO",
+                value: blocked ? "Activo" : "Libre",
+                hint: blocked ? "\(store.snapshot?.calendar?.blockHours ?? 0)h" : "sin filtro de calendario",
+                tone: blocked ? NexusTheme.bad : NexusTheme.good
+            ),
+            NexusKPI(
+                title: "LIQUIDEZ",
+                value: cash.map { "\($0)%" } ?? "—",
+                hint: "peso de cartera ahora",
+                tone: NexusTheme.good,
+                help: "Porcentaje de CASH en la asignación operativa actual."
+            ),
+            NexusKPI(
+                title: "DATOS",
+                value: freshnessShort,
+                hint: store.snapshot?.freshness?.headline ?? store.engineStatus,
+                tone: NexusTheme.toneColor(store.snapshot?.freshness?.tone),
+                help: "Frescura por capa: mercado (Yahoo), macro (FRED/PER) y empresas. No es una sola hora de captura."
+            ),
+        ]
     }
 
     private var comparisonCard: some View {
@@ -138,51 +283,54 @@ struct OverviewView: View {
             }
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
     }
 
     private var macroPulseCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("PULSO MACRO")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(NexusTheme.accent)
-            vixIndicator
-            vixScale
+            NexusSectionHeader(
+                title: "Tipos e inflación",
+                help: "Condicionan valoración y duración. El VIX está en la tarjeta de arriba."
+            )
             macroRow("Bono 10Y", market("US10Y"), suffix: "%")
             macroRow("Inflación", market("CPI_YoY_Pct"), suffix: "%")
             macroRow("Curva 10Y–2Y", market("Yield_Curve_Spread"), suffix: " pp")
-            Text(macroInterpretation)
+            Text(ratesInterpretation)
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
     }
 
     private var rankingCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("RANKING DE ACTIVOS")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(NexusTheme.accent)
+            NexusSectionHeader(
+                title: "Ranking de activos",
+                help: "Score técnico 0–100. La columna de la derecha es la lectura del activo, no el permiso operativo."
+            )
             let ranked = (decision?.assetScores ?? [:]).sorted { ($0.value.score ?? 0) > ($1.value.score ?? 0) }
             ForEach(Array(ranked.prefix(6)), id: \.key) { ticker, asset in
                 Button {
                     store.showAsset(ticker)
                 } label: {
-                    HStack(alignment: .top, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(asset.label ?? ticker)
-                                .lineLimit(2)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
                             Text(rankingMovement(ticker))
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(rankingMovementColor(ticker))
-                        }
-                        .frame(minWidth: 112, maxWidth: 150, alignment: .leading)
-                        VStack(alignment: .trailing, spacing: 3) {
-                            NexusScoreBar(value: asset.score.map(Double.init))
-                            Text(asset.action ?? "")
+                            Text("1M \(formatPct(asset.momentum1m)) · 3M \(formatPct(asset.momentum3m))")
                                 .font(.caption2)
                                 .foregroundStyle(NexusTheme.muted)
+                        }
+                        .frame(minWidth: 108, maxWidth: 150, alignment: .leading)
+                        NexusMiniSparkline(points: sparkline(for: ticker))
+                        VStack(alignment: .trailing, spacing: 3) {
+                            NexusScoreBar(value: asset.score.map(Double.init))
+                            Text(rankingInstruction(ticker, asset.action))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(NexusTheme.toneColor(rankingInstruction(ticker, asset.action)))
                                 .lineLimit(2)
                                 .multilineTextAlignment(.trailing)
                         }
@@ -197,67 +345,129 @@ struct OverviewView: View {
             }
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
     }
 
     private var allocationCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("ASIGNACIÓN OPERATIVA")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(NexusTheme.accent)
-            let alloc = (decision?.allocation ?? [:]).sorted { $0.value > $1.value }
-            ForEach(alloc, id: \.key) { key, value in
-                if value > 0 {
-                    HStack {
-                        Text(key).frame(width: 52, alignment: .leading)
-                        ProgressView(value: Double(value), total: 100)
-                            .tint(key == "CASH" ? NexusTheme.good : NexusTheme.accent)
-                        Text("\(value)%").frame(width: 40, alignment: .trailing)
-                    }
-                    .font(.caption)
-                }
+        let operational = (decision?.allocation ?? [:]).filter { $0.value > 0 }.sorted { $0.value > $1.value }
+        let macro = decision?.macroAllocation ?? [:]
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "Asignación de cartera",
+                help: "El % es peso sobre 100 de cartera. La barra de arriba es lo que manda ahora; abajo, lo que usaría el modelo si se abriera."
+            )
+            if !operational.isEmpty {
+                allocationStack(operational)
             }
-            if let macro = decision?.macroAllocation,
-               macro != decision?.allocation {
+            ForEach(operational, id: \.key) { key, value in
+                HStack(spacing: 8) {
+                    Text(allocationLabel(key))
+                        .frame(minWidth: 88, alignment: .leading)
+                    ProgressView(value: Double(value), total: 100)
+                        .tint(key == "CASH" ? NexusTheme.good : NexusTheme.accent)
+                    Text("\(value)%")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .frame(width: 36, alignment: .trailing)
+                    Text(plan?.allowsEntry == true ? "ahora" : (key == "CASH" ? "ahora" : "bloqueo"))
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .font(.caption)
+            }
+            if !macro.isEmpty, macro != decision?.allocation {
                 Divider().opacity(0.12)
-                Text("Visión macro sin bloqueo")
+                Text("SI SE ABRIERA · peso de cartera")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(NexusTheme.warn)
+                allocationStack(macro.filter { $0.value > 0 }.sorted { $0.value > $1.value })
                 Text(allocationSummary(macro))
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .nexusCard()
-        .nexusSizedCard(NexusLayout.standardCardHeight)
     }
 
-    private func previewCard(title: String, headline: String, detail: String, destination: NavItem) -> some View {
-        Button {
-            store.selected = destination
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(title)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(NexusTheme.accent)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(NexusTheme.muted)
+    private func allocationStack(_ items: [Dictionary<String, Int>.Element]) -> some View {
+        GeometryReader { geo in
+            HStack(spacing: 1) {
+                ForEach(items, id: \.key) { key, value in
+                    Rectangle()
+                        .fill(allocationColor(key))
+                        .frame(width: max(2, geo.size.width * CGFloat(value) / 100))
                 }
-                Text(headline)
-                    .font(.headline)
-                    .foregroundStyle(NexusTheme.text)
-                Text(detail)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .frame(height: 12)
+    }
+
+    private func allocationColor(_ key: String) -> Color {
+        switch key.uppercased() {
+        case "CASH": return NexusTheme.good
+        case "SPY", "QQQ": return NexusTheme.accent
+        case "TLT": return NexusTheme.warn
+        case "GLD": return Color.orange
+        default: return NexusTheme.muted
+        }
+    }
+
+    private func allocationLabel(_ key: String) -> String {
+        switch key.uppercased() {
+        case "SPY": return "S&P 500"
+        case "QQQ": return "Nasdaq"
+        case "TLT": return "Bonos"
+        case "GLD": return "Oro"
+        case "UUP": return "Dólar"
+        case "CASH": return "Liquidez"
+        case "EURUSD": return "Euro/USD"
+        default: return key
+        }
+    }
+
+    private var newsPulseCard: some View {
+        let news = store.snapshot?.news
+        let sentiment = news?.sentiment
+        return VStack(alignment: .leading, spacing: 9) {
+            Text("PULSO DE NOTICIAS")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            HStack(alignment: .firstTextBaseline) {
+                Text(sentiment?.dominant ?? "Neutral")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(NexusTheme.toneColor(sentiment?.dominant))
+                Spacer()
+                Text("\(news?.count ?? 0) titulares")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            if let details = sentiment?.details, !details.isEmpty {
+                Text(details)
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
-                    .lineLimit(3)
-                Spacer(minLength: 0)
+                    .lineLimit(4)
             }
-            .nexusCard()
-            .nexusSizedCard(NexusLayout.previewCardHeight)
+            if let narratives = news?.narratives?.narratives {
+                ForEach(narratives.prefix(2)) { narrative in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(NexusTheme.toneColor(narrative.dominantTone))
+                            .frame(width: 6, height: 6)
+                        Text(narrative.topic ?? "Tema")
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Text("\(narrative.headlineCount ?? 0)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .nexusCard()
+        .contentShape(Rectangle())
+        .onTapGesture { store.selected = .news }
+        .help("Abrir noticias")
     }
 
     private func macroRow(_ label: String, _ value: Double?, suffix: String) -> some View {
@@ -268,32 +478,6 @@ struct OverviewView: View {
                 .fontWeight(.semibold)
         }
         .font(.caption)
-    }
-
-    private var vixIndicator: some View {
-        let value = market("VIX")
-        return HStack(spacing: 8) {
-            Circle()
-                .fill(vixColor(value))
-                .frame(width: 10, height: 10)
-            Text("VIX")
-                .foregroundStyle(NexusTheme.muted)
-            Spacer()
-            Text(vixLabel(value))
-                .font(.caption.weight(.bold))
-                .foregroundStyle(vixColor(value))
-            Text(value.map { String(format: "%.2f", $0) } ?? "—")
-                .font(.headline.monospacedDigit())
-        }
-    }
-
-    private var vixScale: some View {
-        HStack(spacing: 0) {
-            vixBand("Calma <15", NexusTheme.good)
-            vixBand("Normal 15–20", NexusTheme.accent)
-            vixBand("Cautela 20–30", NexusTheme.warn)
-            vixBand("Estrés >30", NexusTheme.bad)
-        }
     }
 
     private func vixBand(_ label: String, _ color: Color) -> some View {
@@ -321,22 +505,6 @@ struct OverviewView: View {
         return "Estrés"
     }
 
-    private func scoreColor(_ score: Int?) -> Color {
-        guard let score else { return NexusTheme.muted }
-        if score >= 65 { return NexusTheme.good }
-        if score >= 45 { return NexusTheme.warn }
-        return NexusTheme.bad
-    }
-
-    private var signalChangeCondition: String {
-        let macro = decision?.macroAction ?? decision?.action ?? "—"
-        let operational = decision?.operationalAction ?? decision?.action ?? "—"
-        if macro != operational {
-            return "La operativa podrá acercarse a «\(macro)» cuando desaparezca el bloqueo y la reevaluación mantenga el score."
-        }
-        return "Una variación material del score, del riesgo macro o del liderazgo de activos activaría una nueva decisión."
-    }
-
     private func rankingMovement(_ ticker: String) -> String {
         guard let delta = rankingDelta(for: ticker) else { return "sin comparación" }
         if let rankDelta = delta.rankDelta, rankDelta != 0 {
@@ -346,6 +514,28 @@ struct OverviewView: View {
             return "score \(scoreDelta >= 0 ? "+" : "")\(String(format: "%.1f", scoreDelta))"
         }
         return "sin cambio"
+    }
+
+    private func rankingInstruction(_ ticker: String, _ technical: String?) -> String {
+        guard let leg = plan?.legs?.first(where: { $0.ticker == ticker }) else {
+            return technical ?? "—"
+        }
+        if leg.now == "NO ABRIR" { return "NO ABRIR ahora" }
+        if leg.now == "COMPRAR", let weight = leg.openWeight {
+            return "COMPRAR \(weight)%"
+        }
+        if let now = leg.now, !now.isEmpty { return now }
+        return technical ?? "—"
+    }
+
+    private func sparkline(for ticker: String) -> [SparklinePoint] {
+        store.snapshot?.sparklines?[ticker]
+            ?? store.snapshot?.sparklines?["^\(ticker)"]
+            ?? []
+    }
+
+    private func number(_ value: Double?) -> String {
+        value.map { String(format: "%.1f", $0) } ?? "—"
     }
 
     private func rankingMovementColor(_ ticker: String) -> Color {
@@ -367,13 +557,20 @@ struct OverviewView: View {
         if let vix = market("VIX"), vix > 25 {
             return "Volatilidad alta: priorizar liquidez y reducir tamaño."
         }
+        if let vix = market("VIX"), vix < 15 {
+            return "Volatilidad baja: el entorno no está en estrés, pero el bloqueo sigue mandando."
+        }
+        return "VIX en zona normal. No sustituye al permiso operativo."
+    }
+
+    private var ratesInterpretation: String {
         if let yield = market("US10Y"), yield > 4.5 {
             return "Tipos elevados: presión para activos de larga duración."
         }
-        if market("VIX") == nil && market("US10Y") == nil {
-            return "Datos macro insuficientes para interpretar el entorno."
+        if market("US10Y") == nil && market("CPI_YoY_Pct") == nil {
+            return "Datos de tipos e inflación insuficientes."
         }
-        return "Entorno sin estrés extremo; respetar igualmente el bloqueo operativo."
+        return "Revisa tipos e inflación junto con el VIX de arriba; no son una orden."
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -445,7 +642,7 @@ struct BlockBannerView: View {
 
     private var compactBody: some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: banner.estimated == true ? "clock.badge.exclamationmark" : "exclamationmark.triangle.fill")
             Text(banner.title)
                 .font(.subheadline.weight(.bold))
                 .lineLimit(1)
@@ -457,19 +654,16 @@ struct BlockBannerView: View {
                 Text(countdownLabel)
                     .font(.caption.monospacedDigit().weight(.bold))
             }
-            Button("Detalle") {
+            NexusActionButton(title: "Detalle", role: .onAccent) {
                 withAnimation(.easeInOut(duration: 0.18)) { expanded = true }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(.white)
         }
     }
 
     private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
+                Image(systemName: banner.estimated == true ? "clock.badge.exclamationmark" : "exclamationmark.triangle.fill")
                 Text(banner.title)
                     .font(.headline)
                 Spacer()
@@ -478,17 +672,18 @@ struct BlockBannerView: View {
                         .font(.caption.monospacedDigit().weight(.bold))
                 }
                 if compact {
-                    Button {
+                    NexusActionButton(title: "Ocultar", systemImage: "chevron.up", role: .onAccent, helpText: "Contraer aviso") {
                         withAnimation(.easeInOut(duration: 0.18)) { expanded = false }
-                    } label: {
-                        Image(systemName: "chevron.up")
                     }
-                    .buttonStyle(.plain)
-                    .help("Contraer aviso")
                 }
             }
             Text(banner.guidance)
                 .font(.subheadline)
+            if banner.estimated == true {
+                Text("La hora es una ventana aproximada (RSS o manual), no un datado FRED.")
+                    .font(.caption)
+                    .opacity(0.9)
+            }
             if let event = banner.eventTitle {
                 Text("Evento: \(event)")
                     .font(.caption)
@@ -497,20 +692,18 @@ struct BlockBannerView: View {
             Text("Sugerencia: \(banner.actionHint ?? "ESPERAR")")
                 .font(.caption.weight(.semibold))
             HStack(spacing: 8) {
-                Button("Ver histórico") {
+                NexusActionButton(title: "Ver histórico", systemImage: "chart.xyaxis.line", role: .onAccent) {
                     store.selected = .history
                 }
-                .buttonStyle(.bordered)
-                .tint(.white)
-
-                Button("Reevaluar") {
+                NexusActionButton(
+                    title: "Reevaluar",
+                    systemImage: "arrow.clockwise",
+                    role: .prominent,
+                    disabled: store.loading
+                ) {
                     Task { await store.refresh(persist: true) }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.white.opacity(0.24))
-                .disabled(store.loading)
             }
-            .font(.caption.weight(.semibold))
         }
     }
 

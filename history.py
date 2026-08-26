@@ -37,8 +37,24 @@ def build_decision_snapshot(
     decision,
     news_items: List[Dict[str, Any]],
     market_status: str | None = None,
+    rotation: Any = None,
 ) -> Dict[str, Any]:
+    from decision_intelligence import compact_rotation_themes
+    from forex_engine import forex_signal, gold_signal
+
     macro_allocation = decision.macro_allocation or decision.allocation
+    vix = data.get("VIX")
+    fx = (data.get("Forex") or {}).get("EURUSD") or {}
+    uup = (data.get("Assets") or {}).get("UUP") or {}
+    gld = (data.get("Assets") or {}).get("GLD") or {}
+    fx_sig = forex_signal(fx, uup, news_items)
+    gold_sig = gold_signal(
+        gld,
+        uup,
+        vix=vix,
+        us10y=data.get("US10Y"),
+        cpi_yoy=data.get("CPI_YoY_Pct"),
+    )
     return {
         "captured_at": _now_utc_iso(),
         "action": decision.operational_action,
@@ -48,6 +64,7 @@ def build_decision_snapshot(
         "market_status": market_status,
         "score": decision.score,
         "confidence": decision.confidence,
+        "confidence_note": getattr(decision, "confidence_note", None),
         "favored_assets": decision.favored_assets,
         "allocation": decision.allocation,
         "macro_allocation": macro_allocation,
@@ -56,6 +73,10 @@ def build_decision_snapshot(
         "inputs_used": decision.inputs_used,
         "missing_inputs": decision.missing_inputs,
         "prices": _price_snapshot(data),
+        "vix": float(vix) if isinstance(vix, (int, float)) else None,
+        "rotation_themes": compact_rotation_themes(rotation),
+        "forex_action": fx_sig.get("action"),
+        "gold_bias": gold_sig.get("bias"),
         "data_quality": data.get("DataQuality", {}),
         "news_count": len(news_items),
         "news_sources": sorted({item.get("source", "RSS") for item in news_items}),
@@ -69,8 +90,11 @@ def export_decision_snapshot(
     jsonl_path: Path = DECISIONS_HISTORY_JSONL,
     csv_path: Path = DECISIONS_HISTORY_CSV,
     market_status: str | None = None,
+    rotation: Any = None,
 ) -> Dict[str, str]:
-    snapshot = build_decision_snapshot(data, decision, news_items, market_status=market_status)
+    snapshot = build_decision_snapshot(
+        data, decision, news_items, market_status=market_status, rotation=rotation
+    )
 
     row = {
         "captured_at": snapshot["captured_at"],

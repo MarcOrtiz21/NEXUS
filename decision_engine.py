@@ -35,13 +35,13 @@ from config import (
     US10Y_BENIGN_THRESHOLD,
     US10Y_DANGER_THRESHOLD,
     US10Y_WARNING_THRESHOLD,
-    VIX_CALM_THRESHOLD,
-    VIX_ELEVATED_THRESHOLD,
-    VIX_PANIC_THRESHOLD,
+    MOMENTUM_1M_SCALE,
+    MOMENTUM_3M_SCALE,
     allocation_for_score,
 )
 from logic_engine import MarketStatus
-from utils import trend_label
+from decision_intelligence import classify_vix_regime
+from utils import trend_label, weighted_signed
 
 
 ASSET_LABELS = {
@@ -50,6 +50,7 @@ ASSET_LABELS = {
     "TLT": "Bonos largos",
     "GLD": "Oro",
     "UUP": "Dólar",
+    "EURUSD": "Euro / dólar",
     "CASH": "Liquidez",
 }
 
@@ -77,6 +78,8 @@ class DecisionResult:
     operational_pause_reason: str | None = None
     macro_allocation: Dict[str, int] | None = None
     score_breakdown: List[Dict[str, str]] | None = None
+    confidence_note: str | None = None
+    confidence_reasons: List[str] | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -85,12 +88,21 @@ class DecisionResult:
 class DecisionEngine:
     """Genera una decisión final a partir de datos y estado de mercado."""
 
-    def __init__(self, data: Dict[str, Any], status: MarketStatus, alerts: List[str],
-                 sentiment_result: Dict[str, Any] | None = None):
+    def __init__(
+        self,
+        data: Dict[str, Any],
+        status: MarketStatus,
+        alerts: List[str],
+        sentiment_result: Dict[str, Any] | None = None,
+        history_scale: float = 1.0,
+        history_reason: str | None = None,
+    ):
         self.data = data
         self.status = status
         self.alerts = alerts
         self.sentiment_result = sentiment_result
+        self.history_scale = history_scale
+        self.history_reason = history_reason
 
     def evaluate(self) -> DecisionResult:
         missing = self._missing_required_inputs()
@@ -180,6 +192,7 @@ class DecisionEngine:
             "Noticias": ("sentimiento",),
             "Mercados globales": ("global",),
             "Riesgo operativo": ("pausada", "filtro"),
+            "Historial": ("muestra reciente",),
         }
         result = []
         for reason in reasons:
@@ -210,20 +223,6 @@ class DecisionEngine:
     def _macro_score(self) -> tuple[int, List[str]]:
         score = 50
         reasons: List[str] = []
-
-        vix = self.data.get("VIX")
-        if vix < VIX_CALM_THRESHOLD:
-            score += 12
-            reasons.append("VIX contenido")
-        elif vix < VIX_ELEVATED_THRESHOLD:
-            score += 4
-            reasons.append("VIX en zona normal")
-        elif vix < VIX_PANIC_THRESHOLD:
-            score -= 15
-            reasons.append("VIX elevado")
-        else:
-            score -= 35
-            reasons.append("VIX en zona de pánico")
 
         corr = self.data.get("Correlation_Proxy")
         if corr is not None:
@@ -299,13 +298,6 @@ class DecisionEngine:
             elif momentum_adjustment < -3:
                 reasons.append("momentum débil en SPY y Nasdaq")
 
-        if self.status == MarketStatus.CAUTION:
-            score -= 10
-            reasons.append("el motor lógico pide precaución")
-        elif self.status == MarketStatus.HEALTHY:
-            score += 5
-            reasons.append("el motor lógico confirma entorno saludable")
-
         # ─── Sentimiento (fuente estructurada, sin string parsing) ───
         if self.sentiment_result:
             sentiment_label = self.sentiment_result.get("dominant_sentiment", "NEUTRAL")
@@ -324,7 +316,35 @@ class DecisionEngine:
         score += global_adj
         reasons.extend(global_reasons)
 
+        score = self._apply_vix_regime(score, reasons)
+        score = self._apply_history_calibration(score, reasons)
+
         return score, reasons
+
+    def _apply_vix_regime(self, score: int, reasons: List[str]) -> int:
+        """Comprime el sesgo alcista según el régimen de VIX; no suma un segundo bloque de puntos."""
+        regime = classify_vix_regime(self.data.get("VIX"), self.data.get("VIX_MA20"))
+        excess = score - 50
+        multiplier = float(regime.get("multiplier") or 1.0)
+        penalty = int(regime.get("penalty") or 0)
+        if excess > 0 and multiplier != 1.0:
+            score = 50 + round(excess * multiplier)
+        score -= penalty
+        reason = regime.get("reason")
+        if reason:
+            reasons.append(reason)
+        return score
+
+    def _apply_history_calibration(self, score: int, reasons: List[str]) -> int:
+        """Modula el sesgo alcista si la muestra COMPRAR vs SPY es débil. No reescribe umbrales VIX."""
+        scale = self.history_scale if isinstance(self.history_scale, (int, float)) else 1.0
+        excess = score - 50
+        if scale >= 1 or excess <= 0:
+            return score
+        score = 50 + round(excess * float(scale))
+        if self.history_reason:
+            reasons.append(self.history_reason)
+        return score
 
     def _global_markets_adjustment(self) -> tuple[int, List[str]]:
         global_markets = self.data.get("GlobalMarkets", {})
@@ -356,11 +376,14 @@ class DecisionEngine:
                 continue
             score += weight if price > ma else -weight
 
-        for mom_key, weight in (("momentum_1m", 6), ("momentum_3m", 8)):
+        for mom_key, weight, scale in (
+            ("momentum_1m", 6, MOMENTUM_1M_SCALE),
+            ("momentum_3m", 8, MOMENTUM_3M_SCALE),
+        ):
             momentum = metrics.get(mom_key)
             if momentum is None:
                 continue
-            score += weight if momentum > 0 else -weight
+            score += weighted_signed(momentum, weight, scale)
 
         volatility = metrics.get("volatility_20d")
         if volatility is not None:
@@ -408,6 +431,19 @@ class DecisionEngine:
                 "momentum_1m": metrics.get("momentum_1m"),
                 "momentum_3m": metrics.get("momentum_3m"),
                 "volatility_20d": metrics.get("volatility_20d"),
+            }
+
+        fx_metrics = (self.data.get("Forex") or {}).get("EURUSD") or {}
+        fx_trend = self._asset_trend_score(fx_metrics)
+        if fx_trend is not None:
+            result["EURUSD"] = {
+                "label": ASSET_LABELS["EURUSD"],
+                "score": fx_trend,
+                "action": self._action_from_score(fx_trend),
+                "trend": trend_label(fx_metrics),
+                "momentum_1m": fx_metrics.get("momentum_1m"),
+                "momentum_3m": fx_metrics.get("momentum_3m"),
+                "volatility_20d": fx_metrics.get("volatility_20d"),
             }
 
         cash_score = max(20, min(100, 100 - macro_score + defensive_boost))
@@ -482,6 +518,7 @@ class DecisionEngine:
     def _build_rationale(self, reasons: List[str]) -> str:
         if not reasons:
             return "Sin catalizadores dominantes. Se recomienda esperar datos más claros."
-        # Agrupar en positivos y negativos para claridad
-        main_reasons = reasons[:6]
+        highlighted = [reason for reason in reasons if "régimen VIX" in reason or "muestra reciente" in reason]
+        rest = [reason for reason in reasons if reason not in highlighted]
+        main_reasons = (highlighted + rest)[:6]
         return "Factores clave: " + "; ".join(main_reasons) + "."

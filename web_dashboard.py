@@ -4,62 +4,45 @@ Dashboard web local para NEXUS (FastAPI).
 
 from __future__ import annotations
 
-import json
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from chart_series import ChartSeriesUnavailable, chart_series_service
 from config import WEB_DASHBOARD_HOST, WEB_DASHBOARD_PORT
-from data_ingestion import fetch_market_data
-from decision_engine import DecisionEngine
 from history_view import summarize_history
-from logic_engine import LogicEngine
-from native_api import build_native_snapshot
 from paper_trading import summarize_paper_trading
-from risk_filters.calendar import check_macro_events
-from risk_filters.news_feed import fetch_news_items
-from rotation_engine import RotationEngine
 from signal_track_record import evaluate_track_record
+from snapshot_service import snapshot_service
+from user_settings import (
+    NATIVE_SETTINGS_KEYS,
+    native_settings_payload,
+    normalize_watchlist,
+    save_user_settings,
+)
 
-app = FastAPI(title="NEXUS Dashboard", version="1.4")
+app = FastAPI(title="NEXUS Dashboard", version="1.5")
 
 
 def _build_live_snapshot() -> dict:
-    data = fetch_market_data()
-    news_items = fetch_news_items(max_per_feed=6)
-    logic = LogicEngine(data, news_items=news_items)
-    status, alerts = logic.evaluate()
-    sentiment_result = getattr(logic, "sentiment_result", None)
-    decision = DecisionEngine(data, status, alerts, sentiment_result=sentiment_result).evaluate()
-    rotation = RotationEngine(data).evaluate()
-    calendar = check_macro_events()
+    snapshot = snapshot_service.get()
+    market = snapshot.get("market") or {}
+    calendar = snapshot.get("calendar") or {}
+    news = snapshot.get("news") or {}
     return {
-        "status": status.value,
-        "alerts": alerts[:12],
-        "decision": decision.to_dict(),
-        "rotation": rotation.to_dict(),
+        "status": snapshot.get("status"),
+        "alerts": (snapshot.get("alerts") or [])[:12],
+        "decision": snapshot.get("decision") or {},
+        "rotation": snapshot.get("rotation") or {},
         "calendar": {
-            "should_block": calendar.get("should_block_signals"),
+            "should_block": calendar.get("should_block"),
             "block_hours": calendar.get("block_hours"),
             "next_event": calendar.get("next_event"),
         },
-        "market": {
-            "VIX": data.get("VIX"),
-            "VIX_MA20": data.get("VIX_MA20"),
-            "US10Y": data.get("US10Y"),
-            "US2Y": data.get("US2Y"),
-            "Yield_Curve_Spread": data.get("Yield_Curve_Spread"),
-            "CPI_YoY_Pct": data.get("CPI_YoY_Pct"),
-            "M2_Change_Pct": data.get("M2_Change_Pct"),
-            "China_M2_YoY_Pct": data.get("China_M2_YoY_Pct"),
-            "PE_Forward": data.get("PE_Forward"),
-            "PE_Forward_Percentile": data.get("PE_Forward_Percentile"),
-            "Correlation_Proxy": data.get("Correlation_Proxy"),
-        },
-        "global_markets": data.get("GlobalMarkets", {}),
-        "news_count": len(news_items),
-        "news_items": news_items[:24],
-        "news_sources": sorted({str(i.get("source") or "RSS") for i in news_items}),
+        "market": market,
+        "global_markets": snapshot.get("global_markets") or {},
+        "news_count": news.get("count", 0),
+        "news_items": (news.get("items") or [])[:24],
+        "news_sources": news.get("sources") or [],
     }
 
 
@@ -226,13 +209,52 @@ def api_live() -> JSONResponse:
 @app.get("/api/native")
 def api_native() -> JSONResponse:
     """Contrato completo para la app SwiftUI."""
-    return JSONResponse(build_native_snapshot(export=False))
+    return JSONResponse(snapshot_service.get())
+
+
+@app.get("/api/native/chart/{ticker}")
+def api_native_chart(
+    ticker: str,
+    refresh: bool = False,
+    interval: str = "1d",
+    range: str = "1y",
+) -> JSONResponse:
+    """Serie OHLCV bajo demanda; intervalo y rango son independientes."""
+    try:
+        return JSONResponse(
+            chart_series_service.get(
+                ticker,
+                interval=interval,
+                range_name=range,
+                force=refresh,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ChartSeriesUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/native/watchlist")
+def api_watchlist(payload: dict) -> JSONResponse:
+    tickers = normalize_watchlist((payload or {}).get("tickers"))
+    saved = save_user_settings({"watchlist": tickers})
+    return JSONResponse({"watchlist": saved.get("watchlist") or tickers})
+
+
+@app.post("/api/native/settings")
+def api_native_settings(payload: dict) -> JSONResponse:
+    updates = {key: payload[key] for key in NATIVE_SETTINGS_KEYS if key in (payload or {})}
+    saved = save_user_settings(updates)
+    snapshot_service.invalidate()
+    return JSONResponse({"settings": native_settings_payload(saved)})
 
 
 @app.get("/api/native/refresh")
+@app.post("/api/native/refresh")
 def api_native_refresh() -> JSONResponse:
     """Igual que /api/native pero persistiendo snapshot en historial."""
-    return JSONResponse(build_native_snapshot(export=True))
+    return JSONResponse(snapshot_service.get(force=True, export=True))
 
 
 @app.get("/api/history")
@@ -255,8 +277,12 @@ def api_health() -> JSONResponse:
     return JSONResponse({
         "ok": True,
         "service": "nexus",
-        "version": "1.4",
-        "capabilities": {"rotation_companies": True, "native_settings": True},
+        "version": "1.5",
+        "capabilities": {
+            "rotation_companies": True,
+            "native_settings": True,
+            "shared_snapshot_cache": True,
+        },
     })
 
 

@@ -11,6 +11,7 @@ import re
 from html import unescape
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from time import monotonic
 from typing import List, Dict, Any
 
 try:
@@ -21,6 +22,7 @@ except ImportError:
 import requests
 
 from config import RSS_FEEDS, NEWSAPI_KEY
+from rotation_catalog import ROTATION_COMPANY_TICKERS
 from risk_filters.sentiment import enrich_news_items_with_tone
 
 LOW_RELEVANCE_CALENDAR_TERMS = [
@@ -34,16 +36,21 @@ HIGH_RELEVANCE_TERMS = [
     "jobless claims", "ism", "consumer confidence",
 ]
 
-LINKED_TOPIC_TERMS = {
+EVENT_TOPIC_TERMS = {
     "Fed/tipos": ["fed", "federal reserve", "fomc", "interest rate", "treasury yield"],
     "Inflación": ["inflation", "cpi", "pce"],
+    "Recesión/empleo": ["recession", "unemployment", "payroll", "jobless claims", "nfp", "nonfarm"],
+}
+
+CONTEXT_TOPIC_TERMS = {
     "Resultados": ["earnings", "revenue", "profit", "guidance"],
     "IA/tecnología": ["artificial intelligence", "semiconductor", "chip"],
-    "Recesión/empleo": ["recession", "unemployment", "payroll", "jobless claims"],
     "Geopolítica": ["tariff", "sanction", "geopolitical", "war"],
     "Divisas": ["forex", "currency", "exchange rate"],
     "Asia": ["china", "japan", "korea", "taiwan", "asia", "beijing", "tokyo", "seoul"],
 }
+
+LINKED_TOPIC_TERMS = {**EVENT_TOPIC_TERMS, **CONTEXT_TOPIC_TERMS}
 
 LINKED_ASSET_TERMS = {
     "SPY": ["spy", "s&p 500", "s&p500"],
@@ -52,6 +59,14 @@ LINKED_ASSET_TERMS = {
     "GLD": ["gld", "gold", "bullion"],
     "UUP": ["uup", "dollar index", "dxy"],
     "EURUSD": ["eur/usd", "eurusd", "euro-dollar"],
+}
+
+
+FX_GOLD_HEADLINE_ASSETS = ("EURUSD", "GLD", "UUP")
+_FX_GOLD_HEADLINE_TERMS = {
+    "EURUSD": ("eur/usd", "eurusd", "euro-dollar", "euro", "ecb"),
+    "GLD": ("gold", "gld", "bullion"),
+    "UUP": ("dollar index", "dxy", "uup", "greenback", "strong dollar", "weak dollar"),
 }
 
 
@@ -89,22 +104,89 @@ def _contains_term(text: str, term: str) -> bool:
 
 
 def _link_news_context(title: Any, summary: Any = None, description: Any = None) -> Dict[str, Any]:
-    """Asocia temas/activos explícitos; describe relación, nunca causalidad."""
+    """Asocia temas/activos explícitos; describe relación, nunca causalidad.
+
+    Los temas de evento (Fed/CPI/NFP) sirven para el filtro de calendario.
+    Resultados o IA/tecnología no se usan para colgar un titular de un cesto.
+    """
     text = " ".join(str(value or "") for value in (title, summary, description))
-    topics = [
-        topic for topic, terms in LINKED_TOPIC_TERMS.items()
+    event_topics = [
+        topic for topic, terms in EVENT_TOPIC_TERMS.items()
+        if any(_contains_term(text, term) for term in terms)
+    ]
+    context_topics = [
+        topic for topic, terms in CONTEXT_TOPIC_TERMS.items()
         if any(_contains_term(text, term) for term in terms)
     ]
     assets = [
         ticker for ticker, terms in LINKED_ASSET_TERMS.items()
         if any(_contains_term(text, term) for term in terms)
     ]
+    companies = _link_company_names(text)
     return {
-        "linked_topics": topics,
+        "linked_topics": event_topics + [topic for topic in context_topics if topic not in event_topics],
+        "event_topics": event_topics,
         "linked_assets": assets,
+        "linked_companies": companies,
         "linkage_method": "explicit_keyword_heuristic",
         "linkage_note": "Coincidencia contextual; no implica causalidad ni impacto.",
     }
+
+
+def _link_company_names(text: str) -> list[str]:
+    """Tickers cuyo nombre aparece en el titular. No usa temas genéricos."""
+    hits: list[str] = []
+    names = sorted(ROTATION_COMPANY_TICKERS.items(), key=lambda item: len(item[0]), reverse=True)
+    for name, ticker in names:
+        if len(name) < 4 and len(str(ticker)) < 3:
+            continue
+        matched = False
+        if len(name) >= 4 and _contains_term(text, name):
+            matched = True
+        elif len(str(ticker)) >= 3 and _contains_term(text, str(ticker)):
+            matched = True
+        if matched and ticker not in hits:
+            hits.append(ticker)
+        if len(hits) >= 8:
+            break
+    return hits
+
+
+def _fx_gold_tags(item: Dict[str, Any]) -> list[str]:
+    tags = [
+        asset for asset in (item.get("linked_assets") or [])
+        if asset in FX_GOLD_HEADLINE_ASSETS
+    ]
+    text = " ".join(str(item.get(key) or "") for key in ("title", "summary", "description"))
+    for asset, terms in _FX_GOLD_HEADLINE_TERMS.items():
+        if asset in tags:
+            continue
+        if any(_contains_term(text, term) for term in terms):
+            tags.append(asset)
+    if "Divisas" in (item.get("linked_topics") or []) and "EURUSD" not in tags:
+        tags.append("EURUSD")
+    return tags
+
+
+def fx_gold_headlines(news_items: List[Dict[str, Any]] | None, limit: int = 3) -> List[Dict[str, Any]]:
+    """Hasta tres titulares de euro, dólar u oro, sin afirmar causalidad."""
+    selected: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in news_items or []:
+        tags = _fx_gold_tags(item)
+        if not tags:
+            continue
+        title = str(item.get("title") or "").strip()
+        key = _normalize_title(title)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        row = dict(item)
+        row["linked_assets"] = tags
+        selected.append(row)
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def _enrich_item_context(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -227,10 +309,24 @@ def _fetch_newsapi_items(max_items: int = 20) -> List[Dict[str, Any]]:
         return []
 
 
-def fetch_news_items(max_per_feed: int = 10) -> List[Dict[str, Any]]:
+def _parse_rss_feed(feed_url: str, timeout: float = 4.0):
+    """Lee un RSS con tope de tiempo; feedparser.parse(url) no tiene timeout."""
+    response = requests.get(
+        feed_url,
+        timeout=timeout,
+        headers={"User-Agent": "NEXUS/1.0"},
+    )
+    response.raise_for_status()
+    return feedparser.parse(response.content)
+
+
+def fetch_news_items(max_per_feed: int = 10, *, budget_seconds: float | None = 12.0) -> List[Dict[str, Any]]:
     """
     Descarga titulares con metadata trazable, pesos por fuente y recencia.
     """
+    started = monotonic()
+    deadline = None if budget_seconds is None else started + max(0.5, float(budget_seconds))
+
     if feedparser is None:
         logging.warning("feedparser no instalado. Ejecuta: pip install feedparser")
         rss_items: List[Dict[str, Any]] = []
@@ -240,13 +336,17 @@ def fetch_news_items(max_per_feed: int = 10) -> List[Dict[str, Any]]:
         captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         for feed_config in RSS_FEEDS:
+            if deadline is not None and monotonic() >= deadline:
+                logging.info("Presupuesto de noticias agotado; se omiten RSS restantes.")
+                break
             feed_url = _feed_url(feed_config)
             source = _feed_name(feed_config)
             base_weight = _feed_weight(feed_config)
             if not feed_url:
                 continue
             try:
-                feed = feedparser.parse(feed_url)
+                remaining = 4.0 if deadline is None else max(0.8, min(4.0, deadline - monotonic()))
+                feed = _parse_rss_feed(feed_url, timeout=remaining)
                 for entry in feed.entries[:max_per_feed]:
                     title = entry.get("title", "").strip()
                     if not title:
@@ -272,7 +372,9 @@ def fetch_news_items(max_per_feed: int = 10) -> List[Dict[str, Any]]:
             except Exception as exc:
                 logging.warning(f"Error al leer RSS {source}: {exc}")
 
-    api_items = _fetch_newsapi_items()
+    api_items: List[Dict[str, Any]] = []
+    if deadline is None or monotonic() < deadline:
+        api_items = _fetch_newsapi_items()
     merged: List[Dict[str, Any]] = []
     seen = set()
     for item in api_items + rss_items:
