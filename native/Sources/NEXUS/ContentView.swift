@@ -3,23 +3,6 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: NexusStore
-    @SceneStorage("nexus.inspectorWidth") private var inspectorWidthStored = Double(NexusLayout.inspectorIdealWidth)
-
-    private var inspectorWidth: Binding<CGFloat> {
-        Binding(
-            get: { max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth) },
-            set: { inspectorWidthStored = Double($0) }
-        )
-    }
-
-    private var prefersWideAssetInspector: Bool {
-        switch store.selected {
-        case .watchlist, .forexGold, .charts:
-            return true
-        default:
-            return false
-        }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,11 +13,8 @@ struct ContentView: View {
                     NexusLayout.inspectorMaxWidth,
                     max(NexusLayout.inspectorMinWidth, proxy.size.width - NexusLayout.mainFloorWidth)
                 )
-                let requestedInspector = prefersWideAssetInspector
-                    ? max(CGFloat(inspectorWidthStored), NexusLayout.inspectorWatchlistWidth)
-                    : max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth)
                 let shownWidth = min(
-                    requestedInspector,
+                    NexusLayout.inspectorWatchlistWidth,
                     maxInspector
                 )
                 HStack(spacing: 0) {
@@ -42,11 +22,6 @@ struct ContentView: View {
                         .frame(minWidth: 0)
                         .frame(maxWidth: .infinity)
                     if let ticker = store.selectedAssetKey {
-                        NexusResizeHandle(
-                            width: inspectorWidth,
-                            minWidth: NexusLayout.inspectorMinWidth,
-                            maxWidth: maxInspector
-                        )
                         inspectorPane(ticker)
                             .frame(width: max(0, shownWidth - NexusLayout.inspectorEdgeInset))
                             .frame(maxHeight: .infinity)
