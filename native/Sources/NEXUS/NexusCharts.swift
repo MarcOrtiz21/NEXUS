@@ -517,42 +517,59 @@ struct NexusSparklineCard: View {
     }
 
     private var chartRangeControls: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Text("Velas")
-                    .font(.caption2)
-                    .foregroundStyle(NexusTheme.muted)
-                Picker("Intervalo", selection: intervalBinding) {
-                    ForEach(NexusChartInterval.allCases) { item in
-                        Text(LocalizedStringKey(item.label)).tag(item)
-                    }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("Velas")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                    intervalPicker
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-            }
-            .help("Duración de cada vela. El menú muestra el intervalo activo.")
+                .help("Duración de cada vela. El menú muestra el intervalo activo.")
 
-            ViewThatFits(in: .horizontal) {
                 NexusChoicePills(
                     values: interval.allowedRanges,
                     selection: rangeBinding,
                     title: { $0.label },
                     helpText: "Ventana histórica independiente del intervalo de cada vela."
                 )
-
-                Picker("Rango", selection: rangeBinding) {
-                    ForEach(interval.allowedRanges) { item in
-                        Text(LocalizedStringKey(item.label)).tag(item)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-                .help("Ventana histórica independiente del intervalo de cada vela.")
+            }
+            HStack(spacing: 8) {
+                Text("Velas")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                intervalPicker
+                Text("Rango")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                rangePicker
+                Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var intervalPicker: some View {
+        Picker("Intervalo", selection: intervalBinding) {
+            ForEach(NexusChartInterval.allCases) { item in
+                Text(LocalizedStringKey(item.label)).tag(item)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    private var rangePicker: some View {
+        Picker("Rango", selection: rangeBinding) {
+            ForEach(interval.allowedRanges) { item in
+                Text(LocalizedStringKey(item.label)).tag(item)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+        .help("Ventana histórica independiente del intervalo de cada vela.")
     }
 
     @ViewBuilder

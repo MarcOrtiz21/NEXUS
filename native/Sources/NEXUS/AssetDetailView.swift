@@ -110,32 +110,7 @@ struct AssetDetailView: View {
                     if isFxPair {
                         fxInspectorPlan
                     }
-                    NexusAdaptiveGrid(minimumWidth: 260, spacing: 12) {
-                        if isFxPair {
-                            dualFxStrengthCard
-                        } else {
-                            technicalStrengthCard
-                        }
-                        VStack(alignment: .leading, spacing: 9) {
-                            NexusSectionHeader(title: "Datos técnicos")
-                            NexusKVRow(label: "Precio", value: number(metrics?.price, digits: priceDigits))
-                            if company == nil {
-                                NexusKVRow(label: "Media 20", value: number(metrics?.ma20, digits: priceDigits), help: "Promedio de las últimas 20 sesiones.")
-                                NexusKVRow(label: "Media 50", value: number(metrics?.ma50, digits: priceDigits), help: "Promedio de las últimas 50 sesiones.")
-                                NexusKVRow(label: "Media 200", value: number(metrics?.ma200, digits: priceDigits), help: "Referencia de tendencia de largo plazo.")
-                            }
-                            NexusKVRow(label: "Tendencia", value: company?.trend ?? score?.trend ?? rotationTheme?.trend ?? inferredTrend)
-                            MetricBar(label: "Momentum 1 mes", value: score?.momentum1m ?? company?.momentum1m ?? rotationTheme?.momentum1m ?? metrics?.momentum1m, range: -10...10)
-                            MetricBar(label: "Momentum 3 meses", value: score?.momentum3m ?? company?.momentum3m ?? rotationTheme?.momentum3m ?? metrics?.momentum3m, range: -20...20)
-                            NexusKVRow(
-                                label: "Volatilidad 20 días",
-                                value: formatPct(score?.volatility20d ?? company?.volatility20d ?? metrics?.volatility20d),
-                                help: "Variación anualizada reciente. Una cifra alta implica mayor incertidumbre y menor tamaño prudente."
-                            )
-                        }
-                        .nexusCard()
-                    }
-
+                    compactInspectorSummary
                     sparklineCard
                     }
 
@@ -275,8 +250,8 @@ struct AssetDetailView: View {
                     .foregroundStyle(NexusTheme.muted)
                     .lineLimit(2)
             }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
             NexusToolbarButton(
                 systemImage: store.isWatched(ticker) ? "star.fill" : "star",
                 label: store.isWatched(ticker) ? "Quitar de seguimiento" : "Añadir a seguimiento",
@@ -284,6 +259,7 @@ struct AssetDetailView: View {
             ) {
                 Task { await store.toggleWatchlist(ticker) }
             }
+            .layoutPriority(2)
             NexusActionButton(
                 title: "Cerrar",
                 systemImage: "xmark",
@@ -291,7 +267,7 @@ struct AssetDetailView: View {
             ) {
                 store.closeAssetInspector()
             }
-            .layoutPriority(2)
+            .layoutPriority(3)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -361,7 +337,7 @@ struct AssetDetailView: View {
             fxStrengthRow("Dólar", strength?.usd, highlight: ticker == "USDEUR")
             HStack {
                 Text(highlighted.map { "\(Int($0.rounded()))" } ?? "—")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(scoreColor(for: highlighted.map { Int($0.rounded()) }))
                 Text("/ 100 · \(ticker == "USDEUR" ? "dólar" : "euro")")
                     .foregroundStyle(NexusTheme.muted)
@@ -371,8 +347,8 @@ struct AssetDetailView: View {
             Text(store.snapshot?.forex?.dual?[ticker == "USDEUR" ? "usd_view" : "eur_view"] ?? "Sin vista direccional.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
+                .lineLimit(2)
         }
-        .nexusCard()
     }
 
     private func fxStrengthRow(_ label: String, _ value: Double?, highlight: Bool) -> some View {
@@ -389,37 +365,66 @@ struct AssetDetailView: View {
         }
     }
 
-    private var technicalStrengthCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NexusSectionHeader(
-                title: "Fortaleza técnica",
-                help: "Score relativo de 0 a 100. No equivale por sí solo a permiso para operar."
-            )
-            HStack(alignment: .firstTextBaseline) {
-                Text(scoreValue.map(String.init) ?? "—")
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundStyle(scoreColor)
-                Text("/ 100")
-                    .foregroundStyle(NexusTheme.muted)
-                Spacer()
-                ToneBadge(
-                    tone: company != nil
-                        ? companyTechnicalTone(company?.action, allowsEntry: store.snapshot?.sessionPlan?.allowsEntry == true)
-                        : actionValue,
-                    label: actionValue
-                )
-            }
-            NexusScoreBar(value: scoreValue.map(Double.init))
-            if let delta {
-                HStack {
-                    Label(deltaText(delta.scoreDelta), systemImage: deltaSymbol(delta.scoreDelta))
-                    Spacer()
-                    if let rank = delta.rank {
-                        Text("Puesto \(rank)\(rankChange(delta))")
-                    }
+    private var compactInspectorSummary: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if isFxPair {
+                dualFxStrengthCard
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(scoreValue.map(String.init) ?? "—")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(scoreColor)
+                    Text("/ 100")
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.muted)
+                    NexusScoreBar(value: scoreValue.map(Double.init), showValue: false)
+                        .frame(maxWidth: 160)
+                    Spacer(minLength: 8)
+                    ToneBadge(
+                        tone: company != nil
+                            ? companyTechnicalTone(company?.action, allowsEntry: store.snapshot?.sessionPlan?.allowsEntry == true)
+                            : actionValue,
+                        label: actionValue
+                    )
                 }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(deltaColor(delta.scoreDelta))
+                if let delta {
+                    HStack {
+                        Label(deltaText(delta.scoreDelta), systemImage: deltaSymbol(delta.scoreDelta))
+                        Spacer()
+                        if let rank = delta.rank {
+                            Text("Puesto \(rank)\(rankChange(delta))")
+                        }
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(deltaColor(delta.scoreDelta))
+                }
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                alignment: .leading,
+                spacing: 6
+            ) {
+                NexusKVRow(label: "Precio", value: number(metrics?.price, digits: priceDigits))
+                NexusKVRow(label: "Tendencia", value: company?.trend ?? score?.trend ?? rotationTheme?.trend ?? inferredTrend)
+                if company == nil {
+                    NexusKVRow(label: "Media 20", value: number(metrics?.ma20, digits: priceDigits), help: "Promedio de las últimas 20 sesiones.")
+                    NexusKVRow(label: "Media 50", value: number(metrics?.ma50, digits: priceDigits), help: "Promedio de las últimas 50 sesiones.")
+                    NexusKVRow(label: "Media 200", value: number(metrics?.ma200, digits: priceDigits), help: "Referencia de tendencia de largo plazo.")
+                }
+                NexusKVRow(
+                    label: "Mom 1M",
+                    value: formatPct(score?.momentum1m ?? company?.momentum1m ?? rotationTheme?.momentum1m ?? metrics?.momentum1m)
+                )
+                NexusKVRow(
+                    label: "Mom 3M",
+                    value: formatPct(score?.momentum3m ?? company?.momentum3m ?? rotationTheme?.momentum3m ?? metrics?.momentum3m)
+                )
+                NexusKVRow(
+                    label: "Vol 20d",
+                    value: formatPct(score?.volatility20d ?? company?.volatility20d ?? metrics?.volatility20d),
+                    help: "Variación anualizada reciente. Una cifra alta implica mayor incertidumbre y menor tamaño prudente."
+                )
             }
         }
         .nexusCard()
@@ -446,7 +451,7 @@ struct AssetDetailView: View {
             title: "Precio",
             help: "Elige intervalo y rango; pulsa y arrastra para recorrer OHLCV, pellizca para ampliar y desplaza horizontalmente. Los puntos son titulares ligados a este activo, no órdenes.",
             points: sparklinePoints,
-            minHeight: 240,
+            minHeight: 300,
             valueDigits: priceDigits,
             ticker: ticker,
             news: newsLinked(

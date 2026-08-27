@@ -91,9 +91,10 @@ enum NexusLayout {
     static let previewCardHeight: CGFloat = 140
     static let metricCardHeight: CGFloat = 96
     static let tableRowHeight: CGFloat = 92
-    static let inspectorMinWidth: CGFloat = 440
-    static let inspectorIdealWidth: CGFloat = 580
-    static let inspectorMaxWidth: CGFloat = 760
+    static let inspectorMinWidth: CGFloat = 460
+    static let inspectorIdealWidth: CGFloat = 600
+    static let inspectorWatchlistWidth: CGFloat = 720
+    static let inspectorMaxWidth: CGFloat = 820
     static let inspectorEdgeInset: CGFloat = 10
     static let mainMinWidth: CGFloat = 480
     static let mainFloorWidth: CGFloat = 320

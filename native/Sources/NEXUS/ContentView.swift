@@ -21,8 +21,11 @@ struct ContentView: View {
                     NexusLayout.inspectorMaxWidth,
                     max(NexusLayout.inspectorMinWidth, proxy.size.width - NexusLayout.mainFloorWidth)
                 )
+                let requestedInspector = store.selected == .watchlist
+                    ? max(CGFloat(inspectorWidthStored), NexusLayout.inspectorWatchlistWidth)
+                    : max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth)
                 let shownWidth = min(
-                    max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth),
+                    requestedInspector,
                     maxInspector
                 )
                 HStack(spacing: 0) {
