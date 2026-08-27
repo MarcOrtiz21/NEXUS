@@ -20,9 +20,42 @@ _TICKER_RE = re.compile(r"^[A-Z0-9^][A-Z0-9.^=_-]{0,19}$")
 _ALIASES = {
     "EURUSD": ("EURUSD", "EURUSD=X"),
     "EURUSD=X": ("EURUSD", "EURUSD=X"),
+    "USDEUR": ("USDEUR", "EURUSD=X"),
+    "EURCAD": ("EURCAD", "EURCAD=X"),
+    "USDCAD": ("USDCAD", "CAD=X"),
+    "GBPUSD": ("GBPUSD", "GBPUSD=X"),
+    "EURGBP": ("EURGBP", "EURGBP=X"),
+    "USDJPY": ("USDJPY", "JPY=X"),
+    "USDCHF": ("USDCHF", "CHF=X"),
+    "AUDUSD": ("AUDUSD", "AUDUSD=X"),
+    "NZDUSD": ("NZDUSD", "NZDUSD=X"),
+    "XAUUSD": ("XAUUSD", "GC=F"),
+    "XAUUSD=X": ("XAUUSD", "GC=F"),
+    "GC=F": ("XAUUSD", "GC=F"),
     "VIX": ("VIX", "^VIX"),
     "^VIX": ("VIX", "^VIX"),
+    "SSNLF": ("SSNLF", "005930.KS"),
 }
+_YF_FALLBACKS = {
+    "XAUUSD": ("GC=F", "XAUUSD=X"),
+    "EURUSD": ("EURUSD=X",),
+    "USDEUR": ("EURUSD=X",),
+    "EURCAD": ("EURCAD=X",),
+    "USDCAD": ("CAD=X", "USDCAD=X"),
+    "GBPUSD": ("GBPUSD=X",),
+    "EURGBP": ("EURGBP=X",),
+    "USDJPY": ("JPY=X", "USDJPY=X"),
+    "USDCHF": ("CHF=X", "USDCHF=X"),
+    "AUDUSD": ("AUDUSD=X",),
+    "NZDUSD": ("NZDUSD=X",),
+    "VIX": ("^VIX", "VIX"),
+    "SSNLF": ("005930.KS", "SSNLF"),
+}
+_FX_SPOT_TICKERS = frozenset({
+    "EURUSD", "USDEUR", "EURCAD", "USDCAD", "GBPUSD",
+    "EURGBP", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD",
+})
+_INVERTED_FX_TICKERS = frozenset({"USDEUR"})
 SUPPORTED_INTERVALS = ("1m", "5m", "15m", "1h", "4h", "1d", "1wk")
 SUPPORTED_RANGES = ("1d", "5d", "1mo", "3mo", "6mo", "ytd", "1y", "5y", "max")
 INTERVAL_RANGE_COMPATIBILITY = {
@@ -143,16 +176,16 @@ class ChartSeriesService:
             for name, payload in refreshed.items():
                 if payload is not None:
                     cached[name] = payload
-            if any(cached[name] is None for name, _ in wanted):
+            if cached[ticker] is None:
                 raise ChartSeriesUnavailable(f"Sin datos de gráfico para {ticker}")
-            status = "live" if live_keys else "stale"
-            source = "yahoo_finance" if live_keys else "cache"
+            status = "live" if ticker in live_keys else "stale"
+            source = "yahoo_finance" if ticker in live_keys else "cache"
         elif missing:
-            refreshed, _ = self._fetch_and_store(missing, interval, range_name)
+            refreshed, live_keys = self._fetch_and_store(missing, interval, range_name)
             cached.update(refreshed)
-            if any(cached[name] is None for name, _ in wanted):
+            if cached[ticker] is None:
                 raise ChartSeriesUnavailable(f"Sin datos de gráfico para {ticker}")
-            status, source = "live", "yahoo_finance"
+            status, source = ("live", "yahoo_finance") if ticker in live_keys else ("stale", "cache")
         elif stale:
             self._refresh_in_background(stale, interval, range_name)
             status, source = "stale", "cache"
@@ -258,13 +291,33 @@ class ChartSeriesService:
                     points, metadata = self._frame_points(
                         frame, ticker, yf_ticker, interval, range_name
                     )
+                    used_yf = yf_ticker
+                    if not points:
+                        retry_symbols = [yf_ticker]
+                        for alt in _YF_FALLBACKS.get(ticker, ()):
+                            if alt not in retry_symbols:
+                                retry_symbols.append(alt)
+                        if len(owned) == 1:
+                            retry_symbols = [symbol for symbol in retry_symbols if symbol != yf_ticker]
+                        for alt in retry_symbols:
+                            alt_frame = _yf_download(
+                                [alt],
+                                period=_FETCH_PERIODS[interval][range_name],
+                                interval=_FETCH_INTERVAL.get(interval, interval),
+                            )
+                            points, metadata = self._frame_points(
+                                alt_frame, ticker, alt, interval, range_name
+                            )
+                            if points:
+                                used_yf = alt
+                                break
                     if not points:
                         result[ticker] = self._load(ticker, interval, range_name)
                         continue
                     payload = {
                         "schema": 2,
                         "ticker": ticker,
-                        "yf_ticker": yf_ticker,
+                        "yf_ticker": used_yf,
                         "interval": interval,
                         "range": range_name,
                         "points": points,
@@ -321,16 +374,41 @@ class ChartSeriesService:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if frame is None:
             return [], {}
-        series = {
-            field.lower(): _ohlc_series(frame, field, yf_ticker)
-            for field in ("Open", "High", "Low", "Close", "Volume")
-        }
-        close = series["close"]
-        if close is None:
+        candidates = (yf_ticker,) + tuple(
+            alt for alt in _YF_FALLBACKS.get(ticker, ()) if alt != yf_ticker
+        )
+        series = None
+        for candidate in candidates:
+            series = {
+                field.lower(): _ohlc_series(frame, field, candidate)
+                for field in ("Open", "High", "Low", "Close", "Volume")
+            }
+            if series["close"] is not None and not series["close"].dropna().empty:
+                break
+        if series is None or series["close"] is None or not isinstance(series["close"], pd.Series):
             return [], {}
-        data = pd.DataFrame(series).dropna(subset=["close"]).sort_index()
+        if series["close"].dropna().empty:
+            return [], {}
+        data = pd.DataFrame({
+            key: value for key, value in series.items()
+            if isinstance(value, pd.Series)
+        })
+        if "close" not in data.columns:
+            return [], {}
+        data = data.dropna(subset=["close"]).sort_index()
         if data.empty:
             return [], {}
+        if ticker in _INVERTED_FX_TICKERS:
+            original_open = data.get("open")
+            original_high = data.get("high")
+            original_low = data.get("low")
+            data["close"] = 1 / data["close"]
+            if original_open is not None:
+                data["open"] = 1 / original_open
+            if original_low is not None:
+                data["high"] = 1 / original_low
+            if original_high is not None:
+                data["low"] = 1 / original_high
         if interval == "4h":
             data = self._aggregate_four_hour(data)
         data["ma20"] = data["close"].rolling(20, min_periods=20).mean()
@@ -341,8 +419,8 @@ class ChartSeriesService:
             data = data.tail(max(self.points, 252))
 
         timezone_name = self._timezone_name(data.index, ticker)
-        session = "24x5" if ticker == "EURUSD" else "regular"
-        decimals = 5 if ticker == "EURUSD" else 2
+        session = "24x5" if ticker in _FX_SPOT_TICKERS else "regular"
+        decimals = 3 if ticker == "USDJPY" else (5 if ticker in _FX_SPOT_TICKERS else 2)
         points: list[dict[str, Any]] = []
         for idx, row in data.iterrows():
             timestamp = pd.Timestamp(idx)
@@ -362,7 +440,7 @@ class ChartSeriesService:
             close_value = number("close")
             open_value, high_value, low_value = number("open"), number("high"), number("low")
             synthetic = any(value is None for value in (open_value, high_value, low_value))
-            volume = None if ticker == "EURUSD" else number("volume", precision=0)
+            volume = None if ticker in _FX_SPOT_TICKERS else number("volume", precision=0)
             points.append({
                 "date": date,
                 "epoch": int(utc_timestamp.timestamp()),
@@ -430,7 +508,7 @@ class ChartSeriesService:
         tz = getattr(index, "tz", None)
         if tz is not None:
             return str(tz)
-        return "UTC" if ticker == "EURUSD" else "America/New_York"
+        return "UTC" if ticker in _FX_SPOT_TICKERS else "America/New_York"
 
     @staticmethod
     def _with_relative_spy(points: list[dict], benchmark: list[dict]) -> list[dict]:

@@ -11,6 +11,17 @@ struct AssetDetailView: View {
 
     private var metrics: AssetMetrics? {
         if ticker == "EURUSD" { return store.snapshot?.forex?.EURUSD }
+        if ticker == "USDEUR", let eur = store.snapshot?.forex?.EURUSD {
+            return AssetMetrics(
+                price: inverse(eur.price),
+                ma20: inverse(eur.ma20),
+                ma50: inverse(eur.ma50),
+                ma200: inverse(eur.ma200),
+                momentum1m: inverseReturn(eur.momentum1m),
+                momentum3m: inverseReturn(eur.momentum3m),
+                volatility20d: eur.volatility20d
+            )
+        }
         if let asset = store.snapshot?.assets?[ticker] { return asset }
         if let company {
             return AssetMetrics(
@@ -107,11 +118,11 @@ struct AssetDetailView: View {
                         }
                         VStack(alignment: .leading, spacing: 9) {
                             NexusSectionHeader(title: "Datos técnicos")
-                            NexusKVRow(label: "Precio", value: number(metrics?.price, digits: ticker == "EURUSD" ? 4 : 2))
+                            NexusKVRow(label: "Precio", value: number(metrics?.price, digits: priceDigits))
                             if company == nil {
-                                NexusKVRow(label: "Media 20", value: number(metrics?.ma20, digits: ticker == "EURUSD" ? 4 : 2), help: "Promedio de las últimas 20 sesiones.")
-                                NexusKVRow(label: "Media 50", value: number(metrics?.ma50, digits: ticker == "EURUSD" ? 4 : 2), help: "Promedio de las últimas 50 sesiones.")
-                                NexusKVRow(label: "Media 200", value: number(metrics?.ma200, digits: ticker == "EURUSD" ? 4 : 2), help: "Referencia de tendencia de largo plazo.")
+                                NexusKVRow(label: "Media 20", value: number(metrics?.ma20, digits: priceDigits), help: "Promedio de las últimas 20 sesiones.")
+                                NexusKVRow(label: "Media 50", value: number(metrics?.ma50, digits: priceDigits), help: "Promedio de las últimas 50 sesiones.")
+                                NexusKVRow(label: "Media 200", value: number(metrics?.ma200, digits: priceDigits), help: "Referencia de tendencia de largo plazo.")
                             }
                             NexusKVRow(label: "Tendencia", value: company?.trend ?? score?.trend ?? rotationTheme?.trend ?? inferredTrend)
                             MetricBar(label: "Momentum 1 mes", value: score?.momentum1m ?? company?.momentum1m ?? rotationTheme?.momentum1m ?? metrics?.momentum1m, range: -10...10)
@@ -247,6 +258,7 @@ struct AssetDetailView: View {
         }
         .background(NexusTheme.inspector)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .onChange(of: ticker) { _, _ in
             inspectorTab = "resumen"
         }
@@ -272,13 +284,14 @@ struct AssetDetailView: View {
             ) {
                 Task { await store.toggleWatchlist(ticker) }
             }
-            NexusToolbarButton(
+            NexusActionButton(
+                title: "Cerrar",
                 systemImage: "xmark",
-                label: "Cerrar",
                 helpText: "Cerrar detalle (Esc)"
             ) {
                 store.closeAssetInspector()
             }
+            .layoutPriority(2)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -308,7 +321,19 @@ struct AssetDetailView: View {
         Text("Metodología").tag("metodo")
     }
 
-    private var isFxPair: Bool { ticker == "EURUSD" || ticker == "UUP" }
+    private var isFxPair: Bool { ticker == "EURUSD" || ticker == "USDEUR" }
+
+    private var isCurrencyPair: Bool {
+        [
+            "EURUSD", "USDEUR", "EURCAD", "USDCAD", "GBPUSD",
+            "EURGBP", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD",
+        ].contains(ticker)
+    }
+
+    private var priceDigits: Int {
+        if ticker == "USDJPY" { return 3 }
+        return isCurrencyPair ? 5 : 2
+    }
 
     private var fxInspectorPlan: some View {
         let plan = store.snapshot?.forex?.plan
@@ -319,30 +344,31 @@ struct AssetDetailView: View {
             doing: plan?.doing ?? "Confirmar tendencia y permiso operativo.",
             avoiding: plan?.avoiding ?? "No operar este par por un score aislado.",
             changes: plan?.changes,
-            help: "Mismo veredicto que en Divisas y oro. 50/100 es neutro, no falta de datos."
+            help: "Mismo veredicto que en Forex y oro. 50/100 es neutro, no falta de datos."
         )
+        .environment(\.nexusBreakpoint, .narrow)
     }
 
     private var dualFxStrengthCard: some View {
         let strength = store.snapshot?.forex?.strength
-        let highlighted = ticker == "UUP" ? strength?.usd : strength?.eur
+        let highlighted = ticker == "USDEUR" ? strength?.usd : strength?.eur
         return VStack(alignment: .leading, spacing: 10) {
             NexusSectionHeader(
                 title: "Fortaleza del par",
                 help: "Cada pata usa precio, medias y momentum. 50 es neutro. 0 solo si el cálculo da debilidad real, no por falta de score."
             )
             fxStrengthRow("Euro", strength?.eur, highlight: ticker == "EURUSD")
-            fxStrengthRow("Dólar", strength?.usd, highlight: ticker == "UUP")
+            fxStrengthRow("Dólar", strength?.usd, highlight: ticker == "USDEUR")
             HStack {
                 Text(highlighted.map { "\(Int($0.rounded()))" } ?? "—")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .foregroundStyle(scoreColor(for: highlighted.map { Int($0.rounded()) }))
-                Text("/ 100 · \(ticker == "UUP" ? "dólar" : "euro")")
+                Text("/ 100 · \(ticker == "USDEUR" ? "dólar" : "euro")")
                     .foregroundStyle(NexusTheme.muted)
                 Spacer()
                 ToneBadge(tone: fxActionBadge, label: fxActionBadge)
             }
-            Text(store.snapshot?.forex?.dual?[ticker == "UUP" ? "usd_view" : "eur_view"] ?? "Sin vista direccional.")
+            Text(store.snapshot?.forex?.dual?[ticker == "USDEUR" ? "usd_view" : "eur_view"] ?? "Sin vista direccional.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
         }
@@ -352,7 +378,7 @@ struct AssetDetailView: View {
     private func fxStrengthRow(_ label: String, _ value: Double?, highlight: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(label)
+                Text(LocalizedStringKey(label))
                     .font(.caption.weight(highlight ? .bold : .regular))
                 Spacer()
                 Text(value.map { String(format: "%.0f", $0) } ?? "sin dato")
@@ -421,12 +447,16 @@ struct AssetDetailView: View {
             help: "Elige intervalo y rango; pulsa y arrastra para recorrer OHLCV, pellizca para ampliar y desplaza horizontalmente. Los puntos son titulares ligados a este activo, no órdenes.",
             points: sparklinePoints,
             minHeight: 240,
-            valueDigits: ticker == "EURUSD" ? 4 : 2,
+            valueDigits: priceDigits,
             ticker: ticker,
             news: newsLinked(
                 to: ticker,
                 items: store.snapshot?.news?.items ?? [],
-                extra: relatedNews
+                extra: relatedNews + (
+                    ticker == "XAUUSD"
+                        ? newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? [])
+                        : []
+                )
             ),
             spyPoints: store.snapshot?.sparklines?["SPY"] ?? [],
             onOpenNews: { item in
@@ -489,7 +519,7 @@ struct AssetDetailView: View {
 
     private func basketStat(_ title: String, _ value: String, _ tone: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption2)
                 .foregroundStyle(NexusTheme.muted)
             Text(value)
@@ -609,9 +639,19 @@ struct AssetDetailView: View {
         case "SPY": return "S&P 500"
         case "QQQ": return "Nasdaq 100"
         case "TLT": return "Bonos largos"
-        case "GLD": return "Oro"
+        case "GLD": return "Oro ETF"
+        case "XAUUSD": return "Oro spot"
         case "UUP": return "Dólar"
         case "EURUSD": return "Euro / dólar"
+        case "USDEUR": return "Dólar / euro"
+        case "EURCAD": return "Euro / dólar canadiense"
+        case "USDCAD": return "Dólar / dólar canadiense"
+        case "GBPUSD": return "Libra / dólar"
+        case "EURGBP": return "Euro / libra"
+        case "USDJPY": return "Dólar / yen"
+        case "USDCHF": return "Dólar / franco suizo"
+        case "AUDUSD": return "Dólar australiano / dólar"
+        case "NZDUSD": return "Dólar neozelandés / dólar"
         case "CASH": return "Liquidez"
         case "EWJ": return "Japón"
         case "FXI": return "China"
@@ -673,7 +713,7 @@ struct AssetDetailView: View {
         if ticker == "EURUSD", let eur = store.snapshot?.forex?.strength?.eur {
             return Int(eur.rounded())
         }
-        if ticker == "UUP", let usd = store.snapshot?.forex?.strength?.usd {
+        if ticker == "USDEUR", let usd = store.snapshot?.forex?.strength?.usd {
             return Int(usd.rounded())
         }
         if let score = score?.score { return score }
@@ -697,6 +737,18 @@ struct AssetDetailView: View {
     private func number(_ value: Double?, digits: Int) -> String {
         guard let value else { return "—" }
         return String(format: "%.\(digits)f", value)
+    }
+
+    private func inverse(_ value: Double?) -> Double? {
+        guard let value, value != 0 else { return nil }
+        return 1 / value
+    }
+
+    private func inverseReturn(_ percent: Double?) -> Double? {
+        guard let percent else { return nil }
+        let factor = 1 + percent / 100
+        guard factor > 0 else { return nil }
+        return (1 / factor - 1) * 100
     }
 
     private func deltaText(_ value: Double?) -> String {

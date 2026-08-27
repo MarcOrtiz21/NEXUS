@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: NexusStore
@@ -6,7 +7,7 @@ struct ContentView: View {
 
     private var inspectorWidth: Binding<CGFloat> {
         Binding(
-            get: { CGFloat(inspectorWidthStored) },
+            get: { max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth) },
             set: { inspectorWidthStored = Double($0) }
         )
     }
@@ -20,7 +21,10 @@ struct ContentView: View {
                     NexusLayout.inspectorMaxWidth,
                     max(NexusLayout.inspectorMinWidth, proxy.size.width - NexusLayout.mainFloorWidth)
                 )
-                let shownWidth = min(CGFloat(inspectorWidthStored), maxInspector)
+                let shownWidth = min(
+                    max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth),
+                    maxInspector
+                )
                 HStack(spacing: 0) {
                     mainDetailColumn
                         .frame(minWidth: 0)
@@ -32,8 +36,10 @@ struct ContentView: View {
                             maxWidth: maxInspector
                         )
                         inspectorPane(ticker)
-                            .frame(width: shownWidth)
+                            .frame(width: max(0, shownWidth - NexusLayout.inspectorEdgeInset))
                             .frame(maxHeight: .infinity)
+                            .padding(.vertical, 8)
+                            .padding(.trailing, NexusLayout.inspectorEdgeInset)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -57,6 +63,11 @@ struct ContentView: View {
                 .id(ticker)
         }
         .background(NexusTheme.inspector)
+        .clipShape(RoundedRectangle(cornerRadius: NexusLayout.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: NexusLayout.cardRadius, style: .continuous)
+                .stroke(NexusTheme.border, lineWidth: 1)
+        )
     }
 
     private var mainDetailColumn: some View {
@@ -148,27 +159,18 @@ struct ContentView: View {
 
     private var toolbar: some View {
         HStack(alignment: .center, spacing: 10) {
-            Color.clear
-                .frame(width: NexusLayout.trafficLightGutter, height: 1)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(store.selected.rawValue)
-                    .font(.headline.weight(.bold))
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(NexusTheme.muted)
-                    .lineLimit(1)
-            }
-            .frame(minWidth: 108, idealWidth: 168, maxWidth: 200, alignment: .leading)
-            .accessibilityElement(children: .combine)
-
-            Divider().frame(height: 22)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 26, height: 26)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .padding(.leading, NexusLayout.trafficLightGutter)
+                .accessibilityLabel("NEXUS")
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    toolbarGroup([.overview, .report])
+                    toolbarGroup([.overview])
                     Divider().frame(height: 18)
                     toolbarGroup([.news, .forexGold, .rotation, .global, .charts])
                     Divider().frame(height: 18)
@@ -255,14 +257,14 @@ struct ContentView: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 5) {
                             Image(systemName: item.symbol)
-                            Text(item.rawValue)
+                            Text(LocalizedStringKey(item.rawValue))
                             Text(item.shortcutHint)
                                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(store.selected == item ? NexusTheme.accent : NexusTheme.muted.opacity(0.75))
                         }
                         HStack(spacing: 5) {
                             Image(systemName: item.symbol)
-                            Text(item.rawValue)
+                            Text(LocalizedStringKey(item.rawValue))
                         }
                     }
                     .font(.caption.weight(store.selected == item ? .semibold : .regular))
@@ -290,7 +292,7 @@ struct ContentView: View {
         case .news: return "Fuentes múltiples · clic para abrir · tono"
         case .watchlist: return "Hasta 8 nombres vigilados"
         case .history: return "Eventos, score, oro y forex"
-        case .forexGold: return "EUR/USD y GLD con histórico"
+        case .forexGold: return "USD/EUR, EUR/USD y oro spot"
         case .rotation: return "Qué sale del liderazgo y qué recibe el flujo"
         case .paper: return "Cartera virtual vs SPY"
         case .global: return "Mapa de mercado y factores de riesgo"

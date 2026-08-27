@@ -91,9 +91,10 @@ enum NexusLayout {
     static let previewCardHeight: CGFloat = 140
     static let metricCardHeight: CGFloat = 96
     static let tableRowHeight: CGFloat = 92
-    static let inspectorMinWidth: CGFloat = 380
-    static let inspectorIdealWidth: CGFloat = 520
+    static let inspectorMinWidth: CGFloat = 440
+    static let inspectorIdealWidth: CGFloat = 580
     static let inspectorMaxWidth: CGFloat = 760
+    static let inspectorEdgeInset: CGFloat = 10
     static let mainMinWidth: CGFloat = 480
     static let mainFloorWidth: CGFloat = 320
     static let newsReaderMinWidth: CGFloat = 360
@@ -102,7 +103,7 @@ enum NexusLayout {
     static let newsReaderCompactWidth: CGFloat = 640
     static let newsListMinWidth: CGFloat = 280
     /// Hueco izquierdo para los semáforos nativos con titlebar oculta.
-    static let trafficLightGutter: CGFloat = 78
+    static let trafficLightGutter: CGFloat = 14
     static let toolbarButtonSize: CGFloat = 28
 }
 
@@ -351,7 +352,7 @@ struct NexusActionButton: View {
                 if let systemImage {
                     Image(systemName: systemImage)
                 }
-                Text(title)
+                Text(LocalizedStringKey(title))
             }
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 10)

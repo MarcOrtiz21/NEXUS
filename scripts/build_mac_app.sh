@@ -12,7 +12,7 @@ CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 ICON_SRC="$NEXUS_ROOT/assets/AppIcon.png"
-VERSION="3.0.0"
+VERSION="3.5.0"
 
 echo "Construyendo ${APP_NAME} v${VERSION}"
 echo "  Fuente: $NEXUS_ROOT"
@@ -21,6 +21,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS" "$RESOURCES"
 
 printf '%s\n' "$NEXUS_ROOT" > "$RESOURCES/nexus_root.txt"
+for locale_dir in "$NEXUS_ROOT"/native/Sources/NEXUS/Resources/*.lproj; do
+  [[ -d "$locale_dir" ]] && cp -R "$locale_dir" "$RESOURCES/"
+done
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "ERROR: Swift no está disponible. Instala Command Line Tools: xcode-select --install" >&2

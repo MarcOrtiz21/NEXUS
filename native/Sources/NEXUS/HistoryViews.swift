@@ -314,6 +314,7 @@ struct HistoryView: View {
 struct ForexGoldView: View {
     @EnvironmentObject private var store: NexusStore
     @State private var selectedHeadline: NewsItem?
+    @AppStorage("nexus.forexGold.primaryPair") private var primaryPair = "USDEUR"
 
     var body: some View {
         NexusPage {
@@ -326,7 +327,6 @@ struct ForexGoldView: View {
             }
             fxPlanCard
             NexusKPIStrip(items: [
-                NexusKPI(title: "EUR/USD", value: fx?.EURUSD?.price.map { String(format: "%.4f", $0) } ?? "—", hint: fx?.signal?.eurTrend ?? "sin tendencia", tone: NexusTheme.toneColor(fx?.signal?.action)),
                 NexusKPI(title: "GLD", value: number(gld?.price, digits: 2), hint: gold?.signal?.bias ?? "1M \(formatPct(gld?.momentum1m))", tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias)),
                 NexusKPI(title: "ACCIÓN FX", value: fx?.signal?.action ?? "—", hint: "confianza \(fx?.signal?.confidence ?? "—")", tone: NexusTheme.toneColor(fx?.signal?.action)),
                 NexusKPI(
@@ -334,17 +334,14 @@ struct ForexGoldView: View {
                     value: gold?.signal?.bias ?? "—",
                     hint: "confianza \(gold?.signal?.confidence ?? "—")",
                     tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias),
-                    help: "Combina GLD frente al dólar (UUP), tipos reales (10Y menos IPC) y VIX. No es una orden."
+                    help: "Combina la fortaleza del oro frente al dólar, tipos reales (10Y menos IPC) y VIX. No es una orden."
                 ),
             ])
+            pairSelector
             sparklineStrip
             NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                euroCard
+                currencyOverviewCard
                 goldCard
-            }
-            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                dollarCard
-                relativeCard
             }
             NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
                 goldVsDollarCard
@@ -392,7 +389,7 @@ struct ForexGoldView: View {
                     .foregroundStyle(NexusTheme.muted)
             }
             .nexusCard()
-            .onTapGesture { store.showAsset("EURUSD") }
+            .onTapGesture { store.showAsset("USDEUR") }
         }
         .help("Ambos lados del mismo tipo de cambio. Clic para abrir el inspector de EUR/USD.")
     }
@@ -437,39 +434,131 @@ struct ForexGoldView: View {
         .nexusCard()
     }
 
+    private var pairSelector: some View {
+        HStack(spacing: 8) {
+            Text("PAR PRINCIPAL")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            Image(systemName: "questionmark.circle")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .help("Elige qué orientación del mismo tipo de cambio se muestra. USD/EUR es la vista inicial.")
+            Picker("Par principal", selection: $primaryPair) {
+                Text("USD/EUR").tag("USDEUR")
+                Text("EUR/USD").tag("EURUSD")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 190)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var sparklineStrip: some View {
-        LazyVStack(spacing: NexusLayout.spacing) {
+        NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
             NexusSparklineCard(
-                title: "EUR/USD",
-                help: "Intervalo y rango independientes, zoom/pan, selección continua y titulares ligados al par. Ficha abre el inspector.",
-                points: store.snapshot?.sparklines?["EURUSD"] ?? [],
+                title: primaryPair == "USDEUR" ? "USD/EUR" : "EUR/USD",
+                help: "Par seleccionado con intervalo y rango independientes, zoom/pan e indicadores técnicos.",
+                points: store.snapshot?.sparklines?[primaryPair] ?? [],
                 showRelative: false,
                 minHeight: 220,
-                valueDigits: 4,
-                ticker: "EURUSD",
+                valueDigits: 5,
+                ticker: primaryPair,
                 news: newsLinked(to: "EURUSD", items: store.snapshot?.news?.items ?? []),
-                onTap: { store.showAsset("EURUSD") },
+                onTap: { store.showAsset(primaryPair) },
                 onOpenNews: { item in
                     store.selectedNewsID = item.id
                     store.selected = .news
                 }
             )
+            .id(primaryPair)
             NexusSparklineCard(
-                title: "GLD",
-                help: "Intervalo y rango independientes, zoom/pan, selección continua y titulares ligados al metal.",
-                points: store.snapshot?.sparklines?["GLD"] ?? [],
+                title: "Oro · XAUUSD",
+                help: "Oro spot frente al dólar, no el ETF GLD. Intervalo y rango independientes; ficha abre el inspector.",
+                points: store.snapshot?.sparklines?["XAUUSD"] ?? [],
+                showRelative: false,
                 minHeight: 220,
                 valueDigits: 2,
-                ticker: "GLD",
-                news: newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? []),
+                ticker: "XAUUSD",
+                news: newsLinked(
+                    to: "XAUUSD",
+                    items: store.snapshot?.news?.items ?? [],
+                    extra: newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? [])
+                ),
                 spyPoints: store.snapshot?.sparklines?["SPY"] ?? [],
-                onTap: { store.showAsset("GLD") },
+                onTap: { store.showAsset("XAUUSD") },
                 onOpenNews: { item in
                     store.selectedNewsID = item.id
                     store.selected = .news
                 }
             )
         }
+    }
+
+    private var currencyOverviewCard: some View {
+        let fx = store.snapshot?.forex
+        let eur = fx?.EURUSD
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "USD/EUR & EUR/USD",
+                help: "Dos orientaciones del mismo tipo de cambio. Los movimientos y medias de USD/EUR se calculan invirtiendo EUR/USD."
+            )
+            HStack(alignment: .top, spacing: 18) {
+                currencySide(
+                    title: "USD/EUR",
+                    spot: inverse(eur?.price),
+                    ma20: inverse(eur?.ma20),
+                    ma50: inverse(eur?.ma50),
+                    momentum1m: inverseReturn(eur?.momentum1m),
+                    momentum3m: inverseReturn(eur?.momentum3m),
+                    trend: fx?.signal?.usdTrend
+                )
+                Divider()
+                currencySide(
+                    title: "EUR/USD",
+                    spot: eur?.price,
+                    ma20: eur?.ma20,
+                    ma50: eur?.ma50,
+                    momentum1m: eur?.momentum1m,
+                    momentum3m: eur?.momentum3m,
+                    trend: fx?.signal?.eurTrend
+                )
+            }
+            Divider().opacity(0.12)
+            HStack(spacing: 14) {
+                metric("Relativo 1M", formatPct(fx?.signal?.rel1m))
+                metric("Relativo 3M", formatPct(fx?.signal?.rel3m))
+            }
+            Text(fx?.signal?.evolution ?? fx?.signal?.summary ?? "Sin evolución relativa disponible.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+    }
+
+    private func currencySide(
+        title: String,
+        spot: Double?,
+        ma20: Double?,
+        ma50: Double?,
+        momentum1m: Double?,
+        momentum3m: Double?,
+        trend: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(LocalizedStringKey(title))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            metric("Spot", number(spot, digits: 5))
+            metric("MA20 / MA50", "\(number(ma20, digits: 5)) / \(number(ma50, digits: 5))")
+            metric("Tendencia", trend ?? "—")
+            MetricBar(label: "Mom 1M", value: momentum1m, range: -5...5)
+            MetricBar(label: "Mom 3M", value: momentum3m, range: -10...10)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var euroCard: some View {
@@ -497,16 +586,16 @@ struct ForexGoldView: View {
 
     private var dollarCard: some View {
         let fx = store.snapshot?.forex
-        let uup = store.snapshot?.assets?["UUP"]
+        let eur = fx?.EURUSD
         return VStack(alignment: .leading, spacing: 8) {
-            Text("DÓLAR (UUP)")
+            Text("USD/EUR")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(NexusTheme.accent)
-            metric("Spot", number(uup?.price, digits: 2))
-            metric("MA20 / MA50", "\(number(uup?.ma20, digits: 2)) / \(number(uup?.ma50, digits: 2))")
+            metric("Spot", number(inverse(eur?.price), digits: 5))
+            metric("MA20 / MA50", "\(number(inverse(eur?.ma20), digits: 5)) / \(number(inverse(eur?.ma50), digits: 5))")
             metric("Tendencia", fx?.signal?.usdTrend ?? "—")
-            MetricBar(label: "Mom 1M", value: uup?.momentum1m, range: -5...5)
-            MetricBar(label: "Mom 3M", value: uup?.momentum3m, range: -10...10)
+            MetricBar(label: "Mom 1M", value: inverseReturn(eur?.momentum1m), range: -5...5)
+            MetricBar(label: "Mom 3M", value: inverseReturn(eur?.momentum3m), range: -10...10)
             Text(fx?.dual?["usd_view"] ?? "—")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
@@ -514,8 +603,8 @@ struct ForexGoldView: View {
         .nexusCard()
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
-        .onTapGesture { store.showAsset("UUP") }
-        .help("Abrir detalle del dólar")
+        .onTapGesture { store.showAsset("USDEUR") }
+        .help("Abrir detalle de USD/EUR")
     }
 
     private var goldCard: some View {
@@ -566,17 +655,20 @@ struct ForexGoldView: View {
 
     private var goldVsDollarCard: some View {
         let gld = store.snapshot?.gold?.GLD
-        let uup = store.snapshot?.assets?["UUP"]
-        let signal = store.snapshot?.gold?.signal
+        let usdEurMomentum = inverseReturn(store.snapshot?.forex?.EURUSD?.momentum1m)
+        let relative = {
+            guard let gold = gld?.momentum1m, let dollar = usdEurMomentum else { return nil as Double? }
+            return gold - dollar
+        }()
         return VStack(alignment: .leading, spacing: 8) {
             NexusSectionHeader(
-                title: "GLD vs dólar · 1M",
-                help: "Momentum a 1 mes de GLD y UUP, y la diferencia. El oro fuerte con dólar fuerte no se lee igual que con dólar débil."
+                title: "GLD vs USD/EUR · 1M",
+                help: "Momentum a un mes del oro y de USD/EUR. El oro fuerte con dólar fuerte no se interpreta igual que con dólar débil."
             )
             MetricBar(label: "GLD 1M", value: gld?.momentum1m, range: -8...8)
-            MetricBar(label: "Dólar (UUP) 1M", value: uup?.momentum1m, range: -8...8)
-            MetricBar(label: "Relativo GLD−UUP", value: signal?.vsDollar1m, range: -8...8)
-            Text(signal?.vsDollarNote ?? "Sin comparación con el dólar todavía.")
+            MetricBar(label: "USD/EUR 1M", value: usdEurMomentum, range: -8...8)
+            MetricBar(label: "Relativo GLD−USD/EUR", value: relative, range: -8...8)
+            Text(relative.map { $0 >= 0 ? "El oro gana fuerza relativa frente al dólar bilateral." : "USD/EUR gana fuerza relativa frente al oro." } ?? "Sin comparación con el dólar todavía.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -641,6 +733,7 @@ struct ForexGoldView: View {
     private func headlineAssetLabel(_ ticker: String) -> String {
         switch ticker {
         case "EURUSD": return "EUR/USD"
+        case "XAUUSD": return "Oro spot"
         case "GLD": return "Oro"
         case "UUP": return "Dólar"
         default: return ticker
@@ -742,7 +835,7 @@ struct ForexGoldView: View {
 
     private func digestMetric(_ title: String, _ value: String, _ tone: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(NexusTheme.muted)
             Text(value)
@@ -804,7 +897,7 @@ struct ForexGoldView: View {
 
     private func metric(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).foregroundStyle(NexusTheme.muted)
+            Text(LocalizedStringKey(label)).foregroundStyle(NexusTheme.muted)
             Spacer()
             Text(value).fontWeight(.semibold)
         }
@@ -814,6 +907,18 @@ struct ForexGoldView: View {
     private func number(_ value: Double?, digits: Int) -> String {
         guard let value else { return "—" }
         return String(format: "%.\(digits)f", value)
+    }
+
+    private func inverse(_ value: Double?) -> Double? {
+        guard let value, value != 0 else { return nil }
+        return 1 / value
+    }
+
+    private func inverseReturn(_ percent: Double?) -> Double? {
+        guard let percent else { return nil }
+        let factor = 1 + percent / 100
+        guard factor > 0 else { return nil }
+        return (1 / factor - 1) * 100
     }
 }
 
@@ -825,7 +930,7 @@ struct MetricBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(label).foregroundStyle(NexusTheme.muted)
+                Text(LocalizedStringKey(label)).foregroundStyle(NexusTheme.muted)
                 Spacer()
                 Text(formatPct(value))
                     .foregroundStyle(color)
@@ -1020,7 +1125,7 @@ struct PaperView: View {
 
     private func metric(_ title: String, _ value: String, _ hint: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(NexusTheme.muted)
+            Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(NexusTheme.muted)
             Text(value).font(.title2.monospacedDigit().weight(.bold))
             Text(hint).font(.caption2).foregroundStyle(NexusTheme.muted)
         }
@@ -1162,7 +1267,7 @@ struct PaperView: View {
 
     private func trackMetric(_ title: String, _ rate: Double?, _ count: Int?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption).foregroundStyle(NexusTheme.muted)
+            Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(NexusTheme.muted)
             Text(rate.map { String(format: "%.1f%%", $0) } ?? "—")
                 .font(.headline.monospacedDigit())
             Text("\(count ?? 0) observaciones").font(.caption2).foregroundStyle(NexusTheme.muted)

@@ -8,7 +8,7 @@ struct GlobalView: View {
             NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2) {
                 marketCard("BOLSA", "SPY", "Índice de referencia")
                 marketCard("ORO", "GLD", "Activo defensivo")
-                marketCard("DÓLAR", "UUP", "Fuerza del dólar")
+                fxMarketCard
                 metricCard("VOLATILIDAD", number("VIX", decimals: 1), vixHint)
             }
             regionalHeatmap
@@ -16,7 +16,7 @@ struct GlobalView: View {
                 riskCard
                 ratesCard
             }
-            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
                 liquidityCard
                 valuationCard
                 correlationCard
@@ -94,6 +94,29 @@ struct GlobalView: View {
         )
     }
 
+    private var fxMarketCard: some View {
+        let asset = usdEurMetrics
+        return NexusSummaryMetricCard(
+            title: "USD/EUR",
+            value: asset?.price.map { String(format: "%.5f", $0) } ?? "—",
+            hint: asset?.price == nil ? "Sin dato: actualiza EUR/USD" : "Fuerza bilateral del dólar · 1M \(formatPct(asset?.momentum1m))",
+            tone: (asset?.momentum1m ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad
+        )
+    }
+
+    private var usdEurMetrics: AssetMetrics? {
+        guard let eur = store.snapshot?.forex?.EURUSD else { return nil }
+        return AssetMetrics(
+            price: inverse(eur.price),
+            ma20: inverse(eur.ma20),
+            ma50: inverse(eur.ma50),
+            ma200: inverse(eur.ma200),
+            momentum1m: inverseReturn(eur.momentum1m),
+            momentum3m: inverseReturn(eur.momentum3m),
+            volatility20d: eur.volatility20d
+        )
+    }
+
     private func metricCard(_ title: String, _ value: String, _ hint: String) -> some View {
         NexusSummaryMetricCard(title: title, value: value, hint: hint, tone: vixTone)
     }
@@ -127,8 +150,10 @@ struct GlobalView: View {
     private var assetsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             NexusSectionHeader(title: "ACTIVOS CLAVE", detail: "precio, momentum y volatilidad")
-            ForEach(["SPY", "GLD", "UUP", "EURUSD"], id: \.self) { ticker in
-                let asset = store.snapshot?.assets?[ticker] ?? (ticker == "EURUSD" ? store.snapshot?.forex?.EURUSD : nil)
+            ForEach(["SPY", "GLD", "USDEUR", "EURUSD"], id: \.self) { ticker in
+                let asset = ticker == "USDEUR"
+                    ? usdEurMetrics
+                    : (store.snapshot?.assets?[ticker] ?? (ticker == "EURUSD" ? store.snapshot?.forex?.EURUSD : nil))
                 assetRow(ticker: ticker, asset: asset)
                 Divider().opacity(0.12)
             }
@@ -141,7 +166,7 @@ struct GlobalView: View {
             HStack {
                 Text(ticker).frame(width: 62, alignment: .leading)
                 NexusMiniSparkline(points: sparkline(for: ticker), width: 72, height: 26)
-                Text(price(asset?.price)).frame(width: 78, alignment: .trailing)
+                Text(assetPrice(ticker, asset?.price)).frame(width: 78, alignment: .trailing)
                 Text("1M \(formatPct(asset?.momentum1m))").frame(width: 86, alignment: .trailing)
                 Text("Vol \(formatPct(asset?.volatility20d))").frame(width: 86, alignment: .trailing)
                 Spacer()
@@ -150,7 +175,7 @@ struct GlobalView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(ticker).fontWeight(.semibold)
-                    Text(price(asset?.price)).foregroundStyle(NexusTheme.muted)
+                    Text(assetPrice(ticker, asset?.price)).foregroundStyle(NexusTheme.muted)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
@@ -269,6 +294,25 @@ struct GlobalView: View {
         return String(format: value < 10 ? "%.4f" : "%.2f", value)
     }
 
+    private func assetPrice(_ ticker: String, _ value: Double?) -> String {
+        guard let value else { return "No disponible" }
+        return ticker == "USDEUR" || ticker == "EURUSD"
+            ? String(format: "%.5f", value)
+            : price(value)
+    }
+
+    private func inverse(_ value: Double?) -> Double? {
+        guard let value, value != 0 else { return nil }
+        return 1 / value
+    }
+
+    private func inverseReturn(_ percent: Double?) -> Double? {
+        guard let percent else { return nil }
+        let factor = 1 + percent / 100
+        guard factor > 0 else { return nil }
+        return (1 / factor - 1) * 100
+    }
+
     private func regionTicker(_ key: String) -> String {
         switch key {
         case "Europa": return "FEZ"
@@ -335,24 +379,6 @@ struct ReportView: View {
                     Text("Un bloqueo o VIX elevado anula entradas aunque el score técnico sea alto.")
                         .font(.caption2)
                         .foregroundStyle(NexusTheme.muted)
-                }
-                .nexusCard()
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                VStack(alignment: .leading, spacing: 8) {
-                    NexusSectionHeader(title: "Señales confirmadas")
-                    ForEach(store.snapshot?.decision?.favoredAssets ?? [], id: \.self) { asset in
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(NexusTheme.good)
-                            Text(asset).fontWeight(.semibold)
-                            Spacer()
-                        }
-                        .font(.caption)
-                    }
-                    if (store.snapshot?.decision?.favoredAssets ?? []).isEmpty {
-                        Text("Ningún activo pasa el umbral de prioridad en esta evaluación.")
-                            .font(.caption)
-                            .foregroundStyle(NexusTheme.muted)
-                    }
                 }
                 .nexusCard()
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -449,6 +475,160 @@ struct ReportView: View {
                 .font(.caption2).foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
+    }
+}
+
+struct ReportOverviewContent: View {
+    @EnvironmentObject private var store: NexusStore
+
+    var body: some View {
+        NexusResponsiveGrid(wideColumns: 3, mediumColumns: 3) {
+            newsPulseCard
+            dataQualityCard
+            diagnosticCard
+            risksCard
+            changesCard
+            reevaluationCard
+        }
+    }
+
+    private var newsPulseCard: some View {
+        let news = store.snapshot?.news
+        let sentiment = news?.sentiment
+        return VStack(alignment: .leading, spacing: 6) {
+            NexusSectionHeader(title: "Pulso de noticias")
+            HStack(alignment: .firstTextBaseline) {
+                Text(sentiment?.dominant ?? "Neutral")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(NexusTheme.toneColor(sentiment?.dominant))
+                Spacer()
+                Text("\(news?.count ?? 0) titulares")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            if let details = sentiment?.details, !details.isEmpty {
+                Text(details)
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .lineLimit(2)
+            }
+            if let narrative = news?.narratives?.narratives?.first {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(NexusTheme.toneColor(narrative.dominantTone))
+                        .frame(width: 6, height: 6)
+                    Text(narrative.topic ?? "Tema")
+                        .font(.caption2.weight(.semibold))
+                    Spacer()
+                    Text("\(narrative.headlineCount ?? 0)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(NexusTheme.muted)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+        .contentShape(Rectangle())
+        .onTapGesture { store.selected = .news }
+        .help("Abrir noticias")
+    }
+
+    private var dataQualityCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            NexusSectionHeader(
+                title: "Calidad de datos",
+                help: "Frescura por capa: mercado (Yahoo), macro (FRED/PER) y empresas."
+            )
+            Text(freshnessShort)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(NexusTheme.toneColor(store.snapshot?.freshness?.tone))
+            Text(store.snapshot?.freshness?.headline ?? store.engineStatus)
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+    }
+
+    private var diagnosticCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Diagnóstico actual")
+            Text(store.snapshot?.decision?.operationalAction ?? "Sin decisión")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(NexusTheme.toneColor(store.snapshot?.decision?.operationalAction))
+            Text(store.snapshot?.decision?.rationale ?? "Actualiza para generar una lectura razonada.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+    }
+
+    private var risksCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Riesgos")
+            NexusKVRow(label: "VIX", value: GlobalViewRiskLabel(vix: store.snapshot?.market?["VIX"]?.value))
+            NexusKVRow(label: "Bloqueo", value: store.snapshot?.calendar?.shouldBlock == true ? "Activo" : "Libre")
+            NexusKVRow(label: "Noticias", value: store.snapshot?.news?.sentiment?.dominant ?? "—")
+            Text("El bloqueo y el VIX prevalecen sobre la fuerza técnica.")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+    }
+
+    private var changesCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Cambios por activo")
+            let changes = store.snapshot?.changeAttribution?.topAssetMovers ?? []
+            ForEach(changes.prefix(4), id: \.ticker) { item in
+                NexusKVRow(
+                    label: item.label ?? item.ticker ?? "Activo",
+                    value: "score \(formatDelta(item.scoreDelta))",
+                    tone: (item.scoreDelta ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad
+                )
+            }
+            if changes.isEmpty {
+                Text("Aún no hay comparación anterior persistida.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+    }
+
+    private var reevaluationCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "Próxima reevaluación")
+            Text(reevaluationText)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Datos \(relativeAge(from: store.snapshot?.capturedAtUtc))")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+        }
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .nexusCard()
+    }
+
+    private var freshnessShort: String {
+        let statuses = (store.snapshot?.freshness?.layers ?? []).compactMap(\.status)
+        if statuses.contains(where: { $0 == "MISSING" || $0 == "ERROR" }) { return "Huecos" }
+        if statuses.contains("STALE") { return "Caducado" }
+        if statuses.contains("OK") { return "Al día" }
+        return relativeAge(from: store.snapshot?.capturedAtUtc)
+    }
+
+    private var reevaluationText: String {
+        let next = store.snapshot?.calendar?.nextEvent?.title
+        if store.snapshot?.calendar?.shouldBlock == true {
+            return "Reevaluar cuando expire el bloqueo\(next.map { " y se publique \($0)" } ?? "")."
+        }
+        return "Un cambio material del score, VIX o liderazgo activará una nueva decisión."
     }
 }
 

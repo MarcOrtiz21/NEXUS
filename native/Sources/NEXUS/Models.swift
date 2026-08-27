@@ -6,7 +6,7 @@ enum NavItem: String, CaseIterable, Identifiable {
     case news = "Noticias"
     case watchlist = "Seguimiento"
     case history = "Historial"
-    case forexGold = "Divisas y oro"
+    case forexGold = "Forex y oro"
     case rotation = "Rotación sectorial"
     case paper = "Cartera virtual"
     case global = "Global"
@@ -18,14 +18,14 @@ enum NavItem: String, CaseIterable, Identifiable {
     var shortcut: KeyEquivalent {
         switch self {
         case .overview: return "1"
-        case .report: return "2"
-        case .news: return "3"
-        case .forexGold: return "4"
-        case .rotation: return "5"
-        case .global: return "6"
+        case .news: return "2"
+        case .forexGold: return "3"
+        case .rotation: return "4"
+        case .global: return "5"
+        case .charts: return "6"
         case .watchlist: return "7"
         case .history: return "8"
-        case .charts: return "9"
+        case .report: return "9"
         case .paper: return "0"
         }
     }
@@ -33,14 +33,14 @@ enum NavItem: String, CaseIterable, Identifiable {
     var shortcutHint: String {
         switch self {
         case .overview: return "⌘1"
-        case .report: return "⌘2"
-        case .news: return "⌘3"
-        case .forexGold: return "⌘4"
-        case .rotation: return "⌘5"
-        case .global: return "⌘6"
+        case .news: return "⌘2"
+        case .forexGold: return "⌘3"
+        case .rotation: return "⌘4"
+        case .global: return "⌘5"
+        case .charts: return "⌘6"
         case .watchlist: return "⌘7"
         case .history: return "⌘8"
-        case .charts: return "⌘9"
+        case .report: return "⌘9"
         case .paper: return "⌘0"
         }
     }

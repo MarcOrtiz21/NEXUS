@@ -20,6 +20,7 @@ struct NexusSparklineCard: View {
     var focused = false
     var sharedSelectedDate: Date? = nil
     var preferenceNamespace: String? = nil
+    var preferencesResetID = 0
     var synchronizationLocked: Bool? = nil
     var onToggleSynchronization: (() -> Void)? = nil
     var onRemove: (() -> Void)? = nil
@@ -194,7 +195,7 @@ struct NexusSparklineCard: View {
     }
 
     private func applyLifecycle<Content: View>(to view: Content) -> some View {
-        view
+        let base = view
             .onAppear(perform: handleAppear)
             .onChange(of: fingerprint) { _, _ in reparseIfNeeded() }
             .onChange(of: intervalRaw) { _, _ in
@@ -213,6 +214,11 @@ struct NexusSparklineCard: View {
                 cachedNewsFlags = newsFlags
             }
             .onChange(of: newsFingerprint) { _, _ in cachedNewsFlags = newsFlags }
+        return applyPreferenceLifecycle(to: base)
+    }
+
+    private func applyPreferenceLifecycle<Content: View>(to view: Content) -> some View {
+        view
             .onChange(of: showVolume) { _, _ in persistPreferences() }
             .onChange(of: showMA20) { _, _ in persistPreferences() }
             .onChange(of: showMA50) { _, _ in persistPreferences() }
@@ -228,6 +234,7 @@ struct NexusSparklineCard: View {
             }
             .onChange(of: showRSI) { _, _ in persistPreferences() }
             .onChange(of: showMACD) { _, _ in persistPreferences() }
+            .onChange(of: preferencesResetID) { _, _ in restoreChartDefaults() }
             .onChange(of: sharedSelectedDate) { _, date in
                 if selectedDate != date {
                     selectedDate = date
@@ -258,11 +265,11 @@ struct NexusSparklineCard: View {
     private var chartContent: some View {
         if windowedPoints.count >= 2 {
             candlePlot
-            if showRSI, !compactMode || focused {
-                NexusIndicatorPlot(rows: windowedPoints, kind: .rsi)
+            if showRSI {
+                NexusIndicatorPlot(rows: windowedPoints, kind: .rsi, selectedDate: selectedDate)
             }
-            if showMACD, !compactMode || focused {
-                NexusIndicatorPlot(rows: windowedPoints, kind: .macd)
+            if showMACD {
+                NexusIndicatorPlot(rows: windowedPoints, kind: .macd, selectedDate: selectedDate)
             }
             if !compactMode || focused {
                 chartCaption
@@ -362,6 +369,22 @@ struct NexusSparklineCard: View {
         defaults.set(showMACD, forKey: "\(preferencesKey).macd")
     }
 
+    private func restoreChartDefaults() {
+        showNews = !compactMode
+        showVolume = true
+        showMA20 = true
+        showMA50 = false
+        showMA200 = false
+        styleRaw = NexusChartStyle.candles.rawValue
+        scaleRaw = NexusChartScale.linear.rawValue
+        compareSPY = false
+        showRSI = false
+        showMACD = false
+        viewportResetID += 1
+        clearSelection()
+        persistPreferences()
+    }
+
     private func normalizeRangeForInterval() {
         guard !interval.allowedRanges.contains(range) else { return }
         let preferred: NexusChartRange = interval.allowedRanges.contains(.threeMonths)
@@ -408,7 +431,7 @@ struct NexusSparklineCard: View {
     private var terminalHeader: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
                 if focused {
@@ -432,6 +455,7 @@ struct NexusSparklineCard: View {
             if series.loading {
                 ProgressView().controlSize(.mini)
             }
+            chartSettingsMenu
             compactQuote
         }
         .help(help ?? title)
@@ -500,7 +524,7 @@ struct NexusSparklineCard: View {
                     .foregroundStyle(NexusTheme.muted)
                 Picker("Intervalo", selection: intervalBinding) {
                     ForEach(NexusChartInterval.allCases) { item in
-                        Text(item.label).tag(item)
+                        Text(LocalizedStringKey(item.label)).tag(item)
                     }
                 }
                 .pickerStyle(.menu)
@@ -519,7 +543,7 @@ struct NexusSparklineCard: View {
 
                 Picker("Rango", selection: rangeBinding) {
                     ForEach(interval.allowedRanges) { item in
-                        Text(item.label).tag(item)
+                        Text(LocalizedStringKey(item.label)).tag(item)
                     }
                 }
                 .pickerStyle(.menu)
@@ -561,6 +585,13 @@ struct NexusSparklineCard: View {
     }
 
     private var chartActions: some View {
+        ViewThatFits(in: .horizontal) {
+            fullChartActions
+            compactChartActions
+        }
+    }
+
+    private var fullChartActions: some View {
         HStack(spacing: 6) {
             if let synchronizationLocked, let onToggleSynchronization {
                 NexusToolbarButton(
@@ -575,34 +606,7 @@ struct NexusSparklineCard: View {
                 }
             }
 
-            Menu {
-                Picker("Tipo", selection: $styleRaw) {
-                    ForEach(NexusChartStyle.allCases) { style in
-                        Text(style.label).tag(style.rawValue)
-                    }
-                }
-                Picker("Escala", selection: $scaleRaw) {
-                    ForEach(NexusChartScale.allCases) { scale in
-                        Text(scale.label).tag(scale.rawValue)
-                    }
-                }
-                Divider()
-                Toggle("Comparar con SPY (base 100)", isOn: $compareSPY)
-                    .disabled((ticker ?? "").uppercased() == "SPY")
-                Divider()
-                Toggle("Volumen", isOn: $showVolume)
-                Toggle("MA20", isOn: $showMA20)
-                Toggle("MA50", isOn: $showMA50)
-                Toggle("MA200", isOn: $showMA200)
-                Divider()
-                Toggle("RSI 14", isOn: $showRSI)
-                Toggle("MACD 12/26/9", isOn: $showMACD)
-            } label: {
-                Image(systemName: "function")
-                    .frame(width: 20, height: 20)
-            }
-            .menuStyle(.borderlessButton)
-            .help("Volumen y medias móviles.")
+            chartSettingsMenu
 
             NexusToolbarButton(
                 systemImage: "arrow.right.to.line",
@@ -644,6 +648,71 @@ struct NexusSparklineCard: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var compactChartActions: some View {
+        HStack(spacing: 6) {
+            chartSettingsMenu
+            NexusToolbarButton(
+                systemImage: "arrow.right.to.line",
+                label: "Ir a la última vela",
+                helpText: "Conservar el zoom y volver al dato más reciente."
+            ) {
+                goLatestID += 1
+            }
+            Menu {
+                Button("Restablecer gráfico", systemImage: "scope") {
+                    viewportResetID += 1
+                }
+                Button(showNews ? "Ocultar noticias" : "Mostrar noticias", systemImage: "newspaper") {
+                    showNews.toggle()
+                }
+                if let onRemove {
+                    Divider()
+                    Button("Quitar panel", systemImage: "xmark", role: .destructive) {
+                        onRemove()
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 20, height: 20)
+            }
+            .menuStyle(.borderlessButton)
+            .help("Más acciones del gráfico")
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var chartSettingsMenu: some View {
+        Menu {
+            Picker("Tipo de gráfica", selection: $styleRaw) {
+                ForEach(NexusChartStyle.allCases) { style in
+                    Text(LocalizedStringKey(style.label)).tag(style.rawValue)
+                }
+            }
+            Picker("Escala", selection: $scaleRaw) {
+                ForEach(NexusChartScale.allCases) { scale in
+                    Text(LocalizedStringKey(scale.label)).tag(scale.rawValue)
+                }
+            }
+            Divider()
+            Toggle("Comparar con SPY (base 100)", isOn: $compareSPY)
+                .disabled((ticker ?? "").uppercased() == "SPY")
+            Divider()
+            Toggle("Volumen", isOn: $showVolume)
+            Toggle("MA20", isOn: $showMA20)
+            Toggle("MA50", isOn: $showMA50)
+            Toggle("MA200", isOn: $showMA200)
+            Divider()
+            Toggle("RSI 14", isOn: $showRSI)
+            Toggle("MACD 12/26/9", isOn: $showMACD)
+        } label: {
+            Image(systemName: "function")
+                .frame(width: 20, height: 20)
+        }
+        .menuStyle(.borderlessButton)
+        .help("Tipo de gráfica, escala e indicadores técnicos.")
+        .accessibilityLabel("Configurar gráfica e indicadores")
     }
 
     @ViewBuilder
@@ -742,7 +811,7 @@ struct NexusSparklineCard: View {
 
     private func ohlcvMetric(_ label: String, _ value: String, tone: Color = NexusTheme.muted) -> some View {
         HStack(spacing: 3) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .foregroundStyle(NexusTheme.muted)
             Text(value)
                 .foregroundStyle(tone)
@@ -869,7 +938,7 @@ struct NexusSparklineCard: View {
 
     private func captionInline(_ title: String, _ value: String) -> some View {
         HStack(spacing: 4) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(NexusTheme.muted)
             Text(value)
@@ -882,7 +951,7 @@ struct NexusSparklineCard: View {
             Circle()
                 .fill(color)
                 .frame(width: 5, height: 5)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.caption2)
                 .foregroundStyle(NexusTheme.muted)
         }
@@ -1520,18 +1589,20 @@ private enum NexusIndicatorKind {
 private struct NexusIndicatorPlot: View {
     let rows: [CandlePoint]
     let kind: NexusIndicatorKind
+    let selectedDate: Date?
 
     var body: some View {
         Canvas { context, size in
-            let plot = CGRect(x: 42, y: 5, width: max(1, size.width - 48), height: max(1, size.height - 10))
+            let plot = CGRect(x: 34, y: 7, width: max(1, size.width - 40), height: max(1, size.height - 14))
             switch kind {
             case .rsi:
                 drawRSI(context: context, plot: plot)
             case .macd:
                 drawMACD(context: context, plot: plot)
             }
+            drawSelection(context: context, plot: plot)
         }
-        .frame(height: 76)
+        .frame(height: kind == .rsi ? 112 : 92)
         .background(NexusTheme.cardInner.opacity(0.65))
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .accessibilityElement(children: .ignore)
@@ -1543,10 +1614,26 @@ private struct NexusIndicatorPlot: View {
         func y(_ value: Double) -> CGFloat {
             plot.maxY - CGFloat(value / 100) * plot.height
         }
-        var guides = Path()
-        for value in [30.0, 50.0, 70.0] {
-            guides.move(to: CGPoint(x: plot.minX, y: y(value)))
-            guides.addLine(to: CGPoint(x: plot.maxX, y: y(value)))
+        func x(_ index: Int) -> CGFloat {
+            plot.minX + (CGFloat(index) + 0.5) / CGFloat(max(rows.count, 1)) * plot.width
+        }
+
+        context.fill(
+            Path(CGRect(x: plot.minX, y: plot.minY, width: plot.width, height: max(0, y(70) - plot.minY))),
+            with: .color(NexusTheme.bad.opacity(0.055))
+        )
+        context.fill(
+            Path(CGRect(x: plot.minX, y: y(30), width: plot.width, height: max(0, plot.maxY - y(30)))),
+            with: .color(NexusTheme.good.opacity(0.055))
+        )
+
+        let levels: [(Double, Color)] = [
+            (70, Color.purple),
+            (60, NexusTheme.bad),
+            (30, NexusTheme.good),
+            (20, Color.cyan),
+        ]
+        for (value, color) in levels {
             context.draw(
                 Text(String(format: "%.0f", value))
                     .font(.system(size: 8, design: .monospaced))
@@ -1554,21 +1641,101 @@ private struct NexusIndicatorPlot: View {
                 at: CGPoint(x: 3, y: y(value)),
                 anchor: .leading
             )
+            var level = Path()
+            level.move(to: CGPoint(x: plot.minX, y: y(value)))
+            level.addLine(to: CGPoint(x: plot.maxX, y: y(value)))
+            context.stroke(
+                level,
+                with: .color(color.opacity(0.72)),
+                style: StrokeStyle(lineWidth: 0.65, dash: [2, 3])
+            )
         }
-        context.stroke(
-            guides,
-            with: .color(NexusTheme.border.opacity(0.55)),
-            style: StrokeStyle(lineWidth: 0.5, dash: [3, 3])
-        )
         var line = Path()
         var started = false
         for (index, row) in rows.enumerated() {
             guard let value = row.rsi14 else { continue }
-            let x = plot.minX + (CGFloat(index) + 0.5) / CGFloat(max(rows.count, 1)) * plot.width
-            let point = CGPoint(x: x, y: y(value))
+            let point = CGPoint(x: x(index), y: y(value))
             if started { line.addLine(to: point) } else { line.move(to: point); started = true }
         }
-        context.stroke(line, with: .color(NexusTheme.accent), lineWidth: 1.25)
+        context.stroke(line, with: .color(.white.opacity(0.92)), lineWidth: 1.3)
+
+        for divergence in rsiDivergences() {
+            guard let fromRSI = rows[divergence.from].rsi14,
+                  let toRSI = rows[divergence.to].rsi14 else { continue }
+            let tone = divergence.bullish ? NexusTheme.good : NexusTheme.bad
+            let start = CGPoint(x: x(divergence.from), y: y(fromRSI))
+            let end = CGPoint(x: x(divergence.to), y: y(toRSI))
+            var path = Path()
+            path.move(to: start)
+            path.addLine(to: end)
+            context.stroke(path, with: .color(tone), lineWidth: 1.7)
+            context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)), with: .color(tone))
+            context.draw(
+                Text(divergence.bullish ? "ALC" : "BAJ")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(tone),
+                at: CGPoint(x: end.x, y: end.y + (divergence.bullish ? -8 : 8)),
+                anchor: .center
+            )
+        }
+    }
+
+    private struct RSIDivergence {
+        let from: Int
+        let to: Int
+        let bullish: Bool
+    }
+
+    private func rsiDivergences() -> [RSIDivergence] {
+        let leftBars = 15
+        let rightBars = 2
+        let pivotLookback = 5
+        guard rows.count > leftBars + rightBars else { return [] }
+
+        var highs: [Int] = []
+        var lows: [Int] = []
+        var result: [RSIDivergence] = []
+
+        for index in leftBars..<(rows.count - rightBars) {
+            guard let rsi = rows[index].rsi14 else { continue }
+            let close = rows[index].close
+
+            if isPivot(index: index, left: leftBars, right: rightBars, high: true) {
+                if let previous = highs.suffix(pivotLookback).reversed().first(where: { prior in
+                    guard let priorRSI = rows[prior].rsi14 else { return false }
+                    return close > rows[prior].close
+                        && rsi < priorRSI
+                        && max(rsi, priorRSI) >= 70
+                }) {
+                    result.append(RSIDivergence(from: previous, to: index, bullish: false))
+                }
+                highs.append(index)
+            }
+
+            if isPivot(index: index, left: leftBars, right: rightBars, high: false) {
+                if let previous = lows.suffix(pivotLookback).reversed().first(where: { prior in
+                    guard let priorRSI = rows[prior].rsi14 else { return false }
+                    return close < rows[prior].close
+                        && rsi > priorRSI
+                        && min(rsi, priorRSI) <= 30
+                }) {
+                    result.append(RSIDivergence(from: previous, to: index, bullish: true))
+                }
+                lows.append(index)
+            }
+        }
+        return Array(result.suffix(8))
+    }
+
+    private func isPivot(index: Int, left: Int, right: Int, high: Bool) -> Bool {
+        let value = rows[index].close
+        let lower = index - left
+        let upper = index + right
+        for candidate in lower...upper where candidate != index {
+            if high, rows[candidate].close >= value { return false }
+            if !high, rows[candidate].close <= value { return false }
+        }
+        return true
     }
 
     private func drawMACD(context: GraphicsContext, plot: CGRect) {
@@ -1614,6 +1781,23 @@ private struct NexusIndicatorPlot: View {
         }
         context.stroke(macdPath, with: .color(NexusTheme.accent), lineWidth: 1.15)
         context.stroke(signalPath, with: .color(NexusTheme.warn), lineWidth: 1)
+    }
+
+    private func drawSelection(context: GraphicsContext, plot: CGRect) {
+        guard let selectedDate,
+              let index = rows.enumerated().min(by: {
+                  abs($0.element.date.timeIntervalSince(selectedDate))
+                      < abs($1.element.date.timeIntervalSince(selectedDate))
+              })?.offset else { return }
+        let x = plot.minX + (CGFloat(index) + 0.5) / CGFloat(max(rows.count, 1)) * plot.width
+        var line = Path()
+        line.move(to: CGPoint(x: x, y: plot.minY))
+        line.addLine(to: CGPoint(x: x, y: plot.maxY))
+        context.stroke(
+            line,
+            with: .color(NexusTheme.text.opacity(0.4)),
+            style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+        )
     }
 
     private var accessibilityValue: String {
@@ -1763,8 +1947,8 @@ private final class ChartInteractionNSView: NSView {
             onReset?()
             return
         }
+        onClear?()
         onPinChange?(false)
-        onSelect?(swiftUILocation(event))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -1772,8 +1956,8 @@ private final class ChartInteractionNSView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        onSelect?(swiftUILocation(event))
-        onPinChange?(true)
+        onClear?()
+        onPinChange?(false)
     }
 
     override func scrollWheel(with event: NSEvent) {

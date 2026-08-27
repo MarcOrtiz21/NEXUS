@@ -34,7 +34,13 @@ def _ohlc_frame(tickers=("AAPL", "SPY"), rows=300, freq="B", start="2025-01-01")
 class ChartSeriesTests(unittest.TestCase):
     def test_ticker_sanitization_and_aliases(self):
         self.assertEqual(normalize_chart_ticker(" eurusd "), ("EURUSD", "EURUSD=X"))
+        self.assertEqual(normalize_chart_ticker("usdeur"), ("USDEUR", "EURUSD=X"))
+        self.assertEqual(normalize_chart_ticker("usdcad"), ("USDCAD", "CAD=X"))
+        self.assertEqual(normalize_chart_ticker("gbpusd"), ("GBPUSD", "GBPUSD=X"))
+        self.assertEqual(normalize_chart_ticker("xauusd"), ("XAUUSD", "GC=F"))
+        self.assertEqual(normalize_chart_ticker("gc=f"), ("XAUUSD", "GC=F"))
         self.assertEqual(normalize_chart_ticker("^vix"), ("VIX", "^VIX"))
+        self.assertEqual(normalize_chart_ticker("ssnlf"), ("SSNLF", "005930.KS"))
         self.assertEqual(normalize_chart_ticker("000660.ks"), ("000660.KS", "000660.KS"))
         with self.assertRaises(ValueError):
             normalize_chart_ticker("../../AAPL")
@@ -122,6 +128,75 @@ class ChartSeriesTests(unittest.TestCase):
             self.assertEqual(len(one_year["points"]), 252)
             self.assertTrue(all(point["volume"] is None for point in one_year["points"]))
             self.assertEqual(one_year["session"], "24x5")
+
+    def test_usdeur_inverts_eurusd_ohlc_without_swapping_the_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp), ttl_seconds=3600)
+            frame = _ohlc_frame(("EURUSD=X", "SPY"), rows=80)
+            with patch("chart_series._yf_download", return_value=frame):
+                payload = service.get("USDEUR", range_name="3mo")
+
+            first = payload["points"][0]
+            self.assertEqual(payload["ticker"], "USDEUR")
+            self.assertEqual(payload["session"], "24x5")
+            self.assertAlmostEqual(first["close"], round(1 / 114, 5))
+            self.assertAlmostEqual(first["open"], round(1 / 113, 5))
+            self.assertAlmostEqual(first["high"], round(1 / 112, 5))
+            self.assertAlmostEqual(first["low"], round(1 / 116, 5))
+            self.assertGreater(first["high"], first["low"])
+
+    def test_xauusd_uses_comex_gold_not_missing_fx_symbol(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp), ttl_seconds=3600)
+            frame = _ohlc_frame(("GC=F", "SPY"), rows=80)
+            with patch("chart_series._yf_download", return_value=frame) as download:
+                payload = service.get("XAUUSD", range_name="3mo")
+
+            self.assertIn("GC=F", download.call_args[0][0])
+            self.assertEqual(payload["ticker"], "XAUUSD")
+            self.assertEqual(payload["session"], "regular")
+            self.assertGreater(len(payload["points"]), 20)
+            self.assertIsNotNone(payload["points"][-1]["close"])
+
+    def test_samsung_otc_symbol_uses_liquid_korean_listing_for_intraday(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp), ttl_seconds=3600)
+            frame = _ohlc_frame(("005930.KS", "SPY"), rows=80, freq="h")
+            with patch("chart_series._yf_download", return_value=frame) as download:
+                payload = service.get("SSNLF", interval="1h", range_name="1mo")
+
+            self.assertIn("005930.KS", download.call_args[0][0])
+            self.assertEqual(payload["ticker"], "SSNLF")
+            self.assertGreater(len(payload["points"]), 20)
+
+    def test_xauusd_retries_gc_futures_when_fx_symbol_is_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp), ttl_seconds=3600)
+            empty_fx = _ohlc_frame(("XAUUSD=X", "SPY"), rows=3)
+            empty_fx.loc[:, (slice(None), "XAUUSD=X")] = float("nan")
+            gold = _ohlc_frame(("GC=F",), rows=80)
+
+            def download(tickers, period="2y", timeout=20, interval="1d"):
+                if "GC=F" in tickers and "SPY" not in tickers:
+                    return gold
+                return empty_fx
+
+            with patch("chart_series._yf_download", side_effect=download) as mocked:
+                payload = service.get("XAUUSD", range_name="3mo")
+
+            called = [call[0][0] for call in mocked.call_args_list]
+            self.assertTrue(any("GC=F" in tickers for tickers in called))
+            self.assertEqual(payload["ticker"], "XAUUSD")
+            self.assertGreater(len(payload["points"]), 20)
+
+    def test_missing_spy_does_not_block_the_requested_series(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp), ttl_seconds=3600)
+            frame = _ohlc_frame(("GC=F",), rows=80)
+            with patch("chart_series._yf_download", return_value=frame):
+                payload = service.get("XAUUSD", range_name="3mo")
+            self.assertEqual(payload["ticker"], "XAUUSD")
+            self.assertGreater(len(payload["points"]), 20)
 
     def test_ohlcv_and_metadata_contract(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,12 +4,18 @@ import SwiftUI
 struct NEXUSApp: App {
     @StateObject private var store = NexusStore()
     @StateObject private var chartData = ChartDataStore()
+    @AppStorage("nexus.app.language") private var languageRaw = AppLanguage.spanish.rawValue
+
+    private var language: AppLanguage {
+        AppLanguage(rawValue: languageRaw) ?? .spanish
+    }
 
     var body: some Scene {
         WindowGroup("NEXUS Workstation") {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(chartData)
+                .nexusLanguage(language)
                 .frame(minWidth: 820, minHeight: 680)
                 .preferredColorScheme(.dark)
                 .background(WindowConfigurator())
@@ -18,23 +24,30 @@ struct NEXUSApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appSettings) {
-                Button("Ajustes…") { store.showSettings = true }
+                Button(L10n.string("Ajustes…", language: language)) { store.showSettings = true }
                     .keyboardShortcut(",", modifiers: [.command])
             }
             CommandGroup(after: .windowArrangement) {
-                Button("Cerrar panel") { store.dismissFrontPanel() }
+                Button(L10n.string("Cerrar panel", language: language)) { store.dismissFrontPanel() }
                     .keyboardShortcut(.escape, modifiers: [])
                     .disabled(!store.hasDismissiblePanel)
             }
             CommandMenu("NEXUS") {
-                Button("Actualizar") { Task { await store.refresh(persist: true) } }
+                Button(L10n.string("Actualizar", language: language)) { Task { await store.refresh(persist: true) } }
                     .keyboardShortcut("r", modifiers: [.command])
-                Button(store.autoRefresh ? "Desactivar actualización automática" : "Activar actualización automática") {
+                Button(L10n.string(
+                    store.autoRefresh ? "Desactivar actualización automática" : "Activar actualización automática",
+                    language: language
+                )) {
                     store.autoRefresh.toggle()
                 }
                 Divider()
-                ForEach([NavItem.overview, .report, .news, .forexGold, .rotation, .global, .charts, .watchlist, .history], id: \.self) { item in
-                    Button(item.rawValue) { store.selected = item }
+                ForEach([NavItem.overview, .news, .forexGold, .rotation, .global, .charts, .watchlist, .history], id: \.self) { item in
+                    Button {
+                        store.selected = item
+                    } label: {
+                        Text(L10n.string(item.rawValue, language: language))
+                    }
                         .keyboardShortcut(item.shortcut, modifiers: [.command])
                 }
             }

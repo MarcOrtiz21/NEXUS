@@ -198,11 +198,12 @@ struct NexusSectionHeader: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(title.uppercased())
+            Text(LocalizedStringKey(title))
                 .font(.caption.weight(.bold))
                 .foregroundStyle(NexusTheme.accent)
+                .textCase(.uppercase)
             if let detail {
-                Text(detail)
+                Text(LocalizedStringKey(detail))
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
             }
@@ -227,7 +228,7 @@ struct NexusKVRow: View {
     var body: some View {
         HStack {
             HStack(spacing: 4) {
-                Text(label)
+                Text(LocalizedStringKey(label))
                 if let help {
                     Image(systemName: "questionmark.circle")
                         .font(.system(size: 9))
@@ -287,6 +288,8 @@ struct NexusStanceCard: View {
     var confidenceNote: String? = nil
     var score: Int? = nil
     var scoreDrivers: [ScoreDriver] = []
+    var assetScores: [String: AssetScore] = [:]
+    var sparklines: [String: [SparklinePoint]] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -311,6 +314,17 @@ struct NexusStanceCard: View {
                     }
                     .frame(minWidth: 88, alignment: .leading)
                 }
+                if let score {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SCORE")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(NexusTheme.muted)
+                        Text("\(score)/100")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                            .foregroundStyle(NexusTheme.toneColor(stance))
+                    }
+                    .frame(minWidth: 76, alignment: .leading)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(buyLabel.uppercased())
                         .font(.caption2.weight(.bold))
@@ -328,26 +342,23 @@ struct NexusStanceCard: View {
             }
             if !scoreDrivers.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("POR QUÉ ESTE SCORE")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(NexusTheme.muted)
-                        Spacer()
-                        if let score {
-                            Text("\(score)/100")
-                                .font(.caption2.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(NexusTheme.muted)
-                        }
-                    }
-                    ForEach(scoreDrivers.prefix(5)) { driver in
+                    Text("POR QUÉ ESTE SCORE")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(NexusTheme.muted)
+                    ViewThatFits(in: .horizontal) {
                         HStack(alignment: .top, spacing: 8) {
-                            Text(driver.factor ?? "Factor")
-                                .font(.caption.weight(.semibold))
-                                .frame(width: 110, alignment: .leading)
-                            Text(driver.detail ?? "—")
-                                .font(.caption)
-                                .foregroundStyle(NexusTheme.muted)
-                                .fixedSize(horizontal: false, vertical: true)
+                            ForEach(scoreDrivers.prefix(5)) { driver in
+                                scoreDriverCard(driver)
+                            }
+                        }
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 160), spacing: 8, alignment: .top)],
+                            alignment: .leading,
+                            spacing: 8
+                        ) {
+                            ForEach(scoreDrivers.prefix(5)) { driver in
+                                scoreDriverCard(driver)
+                            }
                         }
                     }
                 }
@@ -368,49 +379,7 @@ struct NexusStanceCard: View {
                 }
             }
             if !legs.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("POR ACTIVO")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(NexusTheme.muted)
-                        Spacer()
-                        Text("AHORA")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(NexusTheme.muted)
-                            .frame(width: 88, alignment: .trailing)
-                        Text("SI SE ABRE")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(NexusTheme.muted)
-                            .frame(width: 120, alignment: .trailing)
-                    }
-                    ForEach(legs) { leg in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(leg.label ?? leg.ticker ?? "Activo")
-                                    .font(.caption.weight(.semibold))
-                                Text(leg.weightNote ?? leg.verb ?? "")
-                                    .font(.caption2)
-                                    .foregroundStyle(NexusTheme.muted)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 8)
-                            Text(leg.now ?? "—")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(NexusTheme.toneColor(leg.now))
-                                .frame(width: 88, alignment: .trailing)
-                            Text(openColumn(leg))
-                                .font(.caption.weight(.semibold))
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 120, alignment: .trailing)
-                        }
-                    }
-                    if let weightCaption, !weightCaption.isEmpty {
-                        Text(weightCaption)
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                planByAsset
             }
             Text(verdict)
                 .font(.subheadline.weight(.semibold))
@@ -424,6 +393,106 @@ struct NexusStanceCard: View {
             }
         }
         .nexusCard()
+    }
+
+    private func scoreDriverCard(_ driver: ScoreDriver) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(NexusTheme.accent)
+                    .frame(width: 6, height: 6)
+                Text(driver.factor ?? "Factor")
+                    .font(.caption2.weight(.bold))
+                    .lineLimit(1)
+            }
+            Text(driver.detail ?? "—")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .lineLimit(3)
+        }
+        .padding(8)
+        .frame(minWidth: 110, maxWidth: .infinity, minHeight: 62, maxHeight: 62, alignment: .topLeading)
+        .background(NexusTheme.bg.opacity(0.34))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private var planByAsset: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("PLAN POR ACTIVO")
+                Spacer()
+                Text("TÉCNICA")
+                    .frame(width: 70, alignment: .trailing)
+                Text("AHORA")
+                    .frame(width: 72, alignment: .trailing)
+                Text("SI SE ABRE")
+                    .frame(width: 92, alignment: .trailing)
+            }
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(NexusTheme.muted)
+            ForEach(legs) { leg in
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(leg.label ?? leg.ticker ?? "Activo")
+                            .font(.caption.weight(.semibold))
+                        Text(leg.weightNote ?? leg.verb ?? "")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    NexusMiniSparkline(
+                        points: sparkline(for: leg),
+                        width: 78,
+                        height: 26
+                    )
+                    Text(technicalLabel(for: leg))
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                        .foregroundStyle(technicalColor(for: leg))
+                        .frame(width: 70, alignment: .trailing)
+                    Text(leg.now ?? "—")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NexusTheme.toneColor(leg.now))
+                        .frame(width: 72, alignment: .trailing)
+                    Text(openColumn(leg))
+                        .font(.caption.weight(.semibold))
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 92, alignment: .trailing)
+                }
+            }
+            if let weightCaption, !weightCaption.isEmpty {
+                Text(weightCaption)
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func assetScore(for leg: SessionPlanLeg) -> (key: String, value: AssetScore)? {
+        guard let ticker = leg.ticker?.uppercased() else { return nil }
+        guard let value = assetScores[ticker] else { return nil }
+        return (ticker, value)
+    }
+
+    private var rankedAssets: [Dictionary<String, AssetScore>.Element] {
+        assetScores.sorted { ($0.value.score ?? 0) > ($1.value.score ?? 0) }
+    }
+
+    private func technicalLabel(for leg: SessionPlanLeg) -> String {
+        guard let item = assetScore(for: leg) else { return "—" }
+        let rank = rankedAssets.firstIndex(where: { $0.key == item.key }).map { $0 + 1 }
+        let score = item.value.score.map(String.init) ?? "—"
+        return rank.map { "#\($0) · \(score)" } ?? score
+    }
+
+    private func technicalColor(for leg: SessionPlanLeg) -> Color {
+        NexusTheme.toneColor(assetScore(for: leg)?.value.action)
+    }
+
+    private func sparkline(for leg: SessionPlanLeg) -> [SparklinePoint] {
+        guard let ticker = leg.ticker?.uppercased() else { return [] }
+        return sparklines[ticker] ?? sparklines["^\(ticker)"] ?? []
     }
 
     private func openColumn(_ leg: SessionPlanLeg) -> String {
@@ -493,9 +562,9 @@ struct NexusNoticeCard: View {
                 .foregroundStyle(tone)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.subheadline.weight(.bold))
-                Text(detail)
+                Text(LocalizedStringKey(detail))
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -525,8 +594,8 @@ struct NexusEmptyState: View {
             Image(systemName: symbol)
                 .font(.title2)
                 .foregroundStyle(NexusTheme.muted)
-            Text(title).font(.headline)
-            Text(detail)
+            Text(LocalizedStringKey(title)).font(.headline)
+            Text(LocalizedStringKey(detail))
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
                 .multilineTextAlignment(.center)
@@ -717,7 +786,7 @@ struct NexusCompanyRow: View {
 
     private func metricCell(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.caption2)
                 .foregroundStyle(NexusTheme.muted)
             Text(value)
@@ -803,9 +872,9 @@ struct NexusMissingSource: View {
             Image(systemName: "exclamationmark.circle")
                 .foregroundStyle(NexusTheme.warn)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.caption.weight(.semibold))
-                Text(detail)
+                Text(LocalizedStringKey(detail))
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
             }

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var sentimentBlocksSignals = true
     @State private var macosNotifications = true
     @AppStorage("newsBlockCookieBanners") private var newsBlockCookieBanners = true
+    @AppStorage("nexus.app.language") private var languageRaw = AppLanguage.spanish.rawValue
     @State private var saving = false
 
     private let intervalOptions = [
@@ -43,10 +44,24 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(title: "Idioma")
+                Picker("Idioma de la interfaz", selection: $languageRaw) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("El cambio se aplica inmediatamente. Los análisis generados por el motor conservan el idioma de origen.")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            .nexusCard()
+
+            VStack(alignment: .leading, spacing: 8) {
                 NexusSectionHeader(title: "Actualización")
                 Picker("Intervalo automático", selection: $refreshIntervalSeconds) {
                     ForEach(intervalOptions, id: \.0) { value, label in
-                        Text(label).tag(value)
+                        Text(LocalizedStringKey(label)).tag(value)
                     }
                 }
                 .pickerStyle(.segmented)

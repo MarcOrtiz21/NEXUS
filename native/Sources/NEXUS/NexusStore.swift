@@ -165,7 +165,8 @@ final class NexusStore: ObservableObject {
         }
     }
 
-    func saveSettings(_ settings: NativeSettings) async {
+    @discardableResult
+    func saveSettings(_ settings: NativeSettings) async -> Bool {
         do {
             let saved = try await client.saveSettings(settings)
             applyRefreshInterval(saved.refreshIntervalSeconds)
@@ -174,9 +175,13 @@ final class NexusStore: ObservableObject {
             }
             errorMessage = nil
             showSettings = false
-            await refresh(persist: false)
+            Task { [weak self] in
+                await self?.refresh(persist: false)
+            }
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -195,7 +200,7 @@ final class NexusStore: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 guard self.autoRefresh else { return }
-                // Conserva series EUR/USD y GLD para los gráficos nativos.
+                // Conserva series EUR/USD y XAUUSD para los gráficos nativos.
                 await self.refresh(persist: true)
             }
         }

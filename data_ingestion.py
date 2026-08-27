@@ -504,20 +504,29 @@ def _ohlc_series(df: pd.DataFrame, field: str, ticker: str) -> pd.Series | None:
         if isinstance(df.columns, pd.MultiIndex):
             if field in df.columns.get_level_values(0):
                 chunk = df[field]
-                if isinstance(chunk, pd.Series):
-                    return chunk
-                if ticker in chunk.columns:
-                    return chunk[ticker]
+                series = _single_ohlc_column(chunk, ticker)
+                if series is not None:
+                    return series
             if ticker in df.columns.get_level_values(0):
                 chunk = df[ticker]
-                if isinstance(chunk, pd.Series):
-                    return chunk
-                if field in chunk.columns:
-                    return chunk[field]
+                series = _single_ohlc_column(chunk, field)
+                if series is not None:
+                    return series
         if field in df.columns:
             return df[field]
     except Exception:
         return None
+    return None
+
+
+def _single_ohlc_column(chunk: pd.Series | pd.DataFrame, name: str) -> pd.Series | None:
+    if isinstance(chunk, pd.Series):
+        return chunk
+    if not isinstance(chunk, pd.DataFrame) or chunk.empty:
+        return None
+    if name in chunk.columns:
+        extracted = chunk[name]
+        return extracted if isinstance(extracted, pd.Series) else None
     return None
 
 

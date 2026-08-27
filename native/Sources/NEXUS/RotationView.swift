@@ -23,14 +23,6 @@ struct RotationView: View {
 
             NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
                 flowCard(
-                    title: "Sale del liderazgo",
-                    help: "Temas que pierden fuerza relativa. No es una orden de venta automática.",
-                    themes: Array(leavingThemes.prefix(4)),
-                    empty: "Ningún líder está corrigiendo con claridad.",
-                    tone: NexusTheme.bad,
-                    symbol: "arrow.down.right"
-                )
-                flowCard(
                     title: "Entra el flujo",
                     help: "Temas que baten a SPY. Vigilancia: el permiso operativo sigue mandando.",
                     themes: Array(enteringThemes.prefix(4)),
@@ -38,6 +30,14 @@ struct RotationView: View {
                     tone: NexusTheme.good,
                     symbol: "arrow.up.right",
                     headline: receivingHeadline
+                )
+                flowCard(
+                    title: "Sale del liderazgo",
+                    help: "Temas que pierden fuerza relativa. No es una orden de venta automática.",
+                    themes: Array(leavingThemes.prefix(4)),
+                    empty: "Ningún líder está corrigiendo con claridad.",
+                    tone: NexusTheme.bad,
+                    symbol: "arrow.down.right"
                 )
             }
 
@@ -139,8 +139,8 @@ struct RotationView: View {
                 .buttonStyle(.plain)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .nexusCard()
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var mapCard: some View {
@@ -155,27 +155,20 @@ struct RotationView: View {
                 .textFieldStyle(.roundedBorder)
                 .help("Filtra el mapa. Return abre el único resultado.")
                 .onSubmit { jumpFromSearch() }
-            HStack {
-                Text("Tema")
-                Spacer()
-                Text("1M")
-                    .frame(width: 62, alignment: .trailing)
-                Text("vs SPY")
-                    .frame(width: 64, alignment: .trailing)
-            }
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(NexusTheme.muted)
-            .padding(.top, 2)
-
             if filteredThemes.isEmpty {
                 Text(search.isEmpty ? "Sin temas en este filtro." : "Ningún tema coincide.")
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
                     .padding(.vertical, 10)
             } else {
-                ForEach(filteredThemes) { theme in
-                    mapRow(theme)
-                    Divider().opacity(0.08)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 250), spacing: 10, alignment: .top)],
+                    alignment: .leading,
+                    spacing: 10
+                ) {
+                    ForEach(filteredThemes) { theme in
+                        mapTile(theme)
+                    }
                 }
             }
         }
@@ -204,7 +197,7 @@ struct RotationView: View {
 
     private func pill(_ label: String, selected: Bool, tone: Color = NexusTheme.accent, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(selected ? tone : NexusTheme.muted)
                 .padding(.horizontal, 10)
@@ -259,6 +252,62 @@ struct RotationView: View {
         }
         .buttonStyle(.plain)
         .help("Abrir \(theme.theme ?? theme.ticker ?? "tema"): empresas, gráfico y noticias")
+    }
+
+    private func mapTile(_ theme: RotationTheme) -> some View {
+        Button {
+            openTheme(theme)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(actionColor(theme))
+                        .frame(width: 7, height: 7)
+                    Text(theme.theme ?? theme.ticker ?? "—")
+                        .font(.subheadline.weight(isSelected(theme) ? .bold : .semibold))
+                        .foregroundStyle(isSelected(theme) ? NexusTheme.accent : NexusTheme.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                }
+                Text("\(theme.group ?? "") · \(theme.ticker ?? "")")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .lineLimit(1)
+                HStack(alignment: .center, spacing: 10) {
+                    NexusMiniSparkline(points: sparkline(for: theme.ticker), width: 96, height: 32)
+                    Spacer(minLength: 4)
+                    tileMetric("1M", theme.momentum1m)
+                    tileMetric("vs SPY", theme.relative1mVsSpy)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isSelected(theme) ? NexusTheme.accent.opacity(0.12) : NexusTheme.cardInner)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(isSelected(theme) ? NexusTheme.accent.opacity(0.45) : NexusTheme.border, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Abrir \(theme.theme ?? theme.ticker ?? "tema"): empresas, gráfico y noticias")
+    }
+
+    private func tileMetric(_ label: String, _ value: Double?) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(LocalizedStringKey(label))
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(NexusTheme.muted)
+            Text(formatPct(value))
+                .font(.caption2.monospacedDigit().weight(.bold))
+                .foregroundStyle(relativeColor(value))
+        }
     }
 
     private var rotation: Rotation? { store.snapshot?.rotation }

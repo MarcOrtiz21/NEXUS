@@ -117,6 +117,7 @@ actor NexusAPIClient {
         guard let url = URL(string: "/api/native/watchlist", relativeTo: baseURL) else { throw NexusAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["tickers": tickers])
         let (data, response) = try await session.data(for: request)
@@ -131,6 +132,7 @@ actor NexusAPIClient {
         guard let url = URL(string: "/api/native/settings", relativeTo: baseURL) else { throw NexusAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(settings)
         let (data, response) = try await session.data(for: request)
