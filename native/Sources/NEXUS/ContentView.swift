@@ -12,6 +12,15 @@ struct ContentView: View {
         )
     }
 
+    private var prefersWideAssetInspector: Bool {
+        switch store.selected {
+        case .watchlist, .forexGold, .charts:
+            return true
+        default:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -21,7 +30,7 @@ struct ContentView: View {
                     NexusLayout.inspectorMaxWidth,
                     max(NexusLayout.inspectorMinWidth, proxy.size.width - NexusLayout.mainFloorWidth)
                 )
-                let requestedInspector = store.selected == .watchlist
+                let requestedInspector = prefersWideAssetInspector
                     ? max(CGFloat(inspectorWidthStored), NexusLayout.inspectorWatchlistWidth)
                     : max(CGFloat(inspectorWidthStored), NexusLayout.inspectorMinWidth)
                 let shownWidth = min(

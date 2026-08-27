@@ -457,7 +457,7 @@ struct ForexGoldView: View {
     }
 
     private var sparklineStrip: some View {
-        NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+        VStack(spacing: NexusLayout.spacing) {
             NexusSparklineCard(
                 title: primaryPair == "USDEUR" ? "USD/EUR" : "EUR/USD",
                 help: "Par seleccionado con intervalo y rango independientes, zoom/pan e indicadores técnicos.",
