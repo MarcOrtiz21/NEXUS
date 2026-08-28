@@ -485,7 +485,7 @@ struct ReportOverviewContent: View {
         NexusResponsiveGrid(wideColumns: 3, mediumColumns: 3) {
             newsPulseCard
             dataQualityCard
-            diagnosticCard
+            sessionDigestCard
             risksCard
             changesCard
             reevaluationCard
@@ -551,19 +551,66 @@ struct ReportOverviewContent: View {
         .nexusCard()
     }
 
-    private var diagnosticCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NexusSectionHeader(title: "Diagnóstico actual")
-            Text(store.snapshot?.decision?.operationalAction ?? "Sin decisión")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(NexusTheme.toneColor(store.snapshot?.decision?.operationalAction))
-            Text(store.snapshot?.decision?.rationale ?? "Actualiza para generar una lectura razonada.")
-                .font(.caption)
-                .foregroundStyle(NexusTheme.muted)
-                .lineLimit(3)
+    private var sessionDigestCard: some View {
+        let digest = store.snapshot?.sessionDigest
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(
+                title: "Cambios de sesión",
+                help: "Resume variaciones de score, VIX y cruces de rotación frente a la evaluación anterior."
+            )
+            Text(digest?.headline ?? "Sin comparación todavía")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(digest?.hasPrior == true ? NexusTheme.text : NexusTheme.muted)
+                .lineLimit(2)
+            if digest?.hasPrior == true {
+                HStack(spacing: 14) {
+                    digestMetric("Score", digest?.score?.delta)
+                    digestMetric("VIX", digest?.vix?.delta)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Acción")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                        Text(digest?.action?.label ?? digest?.action?.to ?? "Sin cambio")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(digest?.action?.changed == true ? NexusTheme.warn : NexusTheme.text)
+                            .lineLimit(1)
+                    }
+                }
+                if let crossing = digest?.rotationCrossings?.first {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.swap")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.accent)
+                        Text(crossing.theme ?? crossing.ticker ?? "Tema")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text("\(crossing.fromLabel ?? "—") → \(crossing.toLabel ?? "—")")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                            .lineLimit(1)
+                    }
+                }
+            } else {
+                Text(digest?.summary ?? "Se completará tras disponer de una evaluación anterior.")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .lineLimit(2)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .nexusCard()
+    }
+
+    private func digestMetric(_ label: String, _ delta: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(LocalizedStringKey(label))
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+            Text(delta.map { String(format: "%+.1f", $0) } ?? "—")
+                .font(.caption.monospacedDigit().weight(.bold))
+                .foregroundStyle((delta ?? 0) > 0 ? NexusTheme.good : (delta ?? 0) < 0 ? NexusTheme.bad : NexusTheme.text)
+        }
     }
 
     private var risksCard: some View {

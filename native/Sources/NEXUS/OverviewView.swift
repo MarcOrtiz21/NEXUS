@@ -33,7 +33,6 @@ struct OverviewView: View {
                     vixCard
                     macroPulseCard
                     calendarCard
-                    sessionDigestCard
                 }
                 .frame(width: min(400, max(300, (contentWidth - NexusLayout.pagePadding * 2) * 0.32)), alignment: .top)
                 .layoutPriority(1)
@@ -44,7 +43,6 @@ struct OverviewView: View {
                 vixCard
                 macroPulseCard
                 calendarCard
-                sessionDigestCard
             }
         }
     }
@@ -277,70 +275,6 @@ struct OverviewView: View {
             }
         }
         .nexusCard()
-    }
-
-    private var sessionDigestCard: some View {
-        let digest = store.snapshot?.sessionDigest
-        return VStack(alignment: .leading, spacing: 8) {
-            NexusSectionHeader(
-                title: "Cambios de sesión",
-                help: "Resume variaciones de score, VIX y cruces de rotación frente a la evaluación anterior."
-            )
-            Text(digest?.headline ?? "Sin comparación todavía")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(digest?.hasPrior == true ? NexusTheme.text : NexusTheme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            if digest?.hasPrior == true {
-                HStack(spacing: 14) {
-                    digestMetric("Score", digest?.score?.delta)
-                    digestMetric("VIX", digest?.vix?.delta)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Acción")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                        Text(digest?.action?.label ?? digest?.action?.to ?? "Sin cambio")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(digest?.action?.changed == true ? NexusTheme.warn : NexusTheme.text)
-                            .lineLimit(1)
-                    }
-                }
-                ForEach((digest?.rotationCrossings ?? []).prefix(2)) { crossing in
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.swap")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.accent)
-                        Text(crossing.theme ?? crossing.ticker ?? "Tema")
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        Text("\(crossing.fromLabel ?? "—") → \(crossing.toLabel ?? "—")")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                            .lineLimit(1)
-                    }
-                }
-                Text(digest?.rotationNote ?? digest?.summary ?? "Sin más cambios materiales.")
-                    .font(.caption2)
-                    .foregroundStyle(NexusTheme.muted)
-                    .lineLimit(3)
-            } else {
-                Text(digest?.summary ?? "Se completará tras disponer de una evaluación anterior.")
-                    .font(.caption2)
-                    .foregroundStyle(NexusTheme.muted)
-            }
-        }
-        .nexusCard()
-    }
-
-    private func digestMetric(_ label: String, _ delta: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(LocalizedStringKey(label))
-                .font(.caption2)
-                .foregroundStyle(NexusTheme.muted)
-            Text(delta.map { String(format: "%+.1f", $0) } ?? "—")
-                .font(.caption.monospacedDigit().weight(.bold))
-                .foregroundStyle((delta ?? 0) > 0 ? NexusTheme.good : (delta ?? 0) < 0 ? NexusTheme.bad : NexusTheme.text)
-        }
     }
 
     private var macroPulseCard: some View {
