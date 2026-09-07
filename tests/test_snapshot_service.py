@@ -30,11 +30,14 @@ class SnapshotServiceTests(unittest.TestCase):
             return {"sequence": len(calls)}
 
         service = SnapshotService(builder=builder, ttl_seconds=60)
-        service.get()
+        first = service.get()
         service.invalidate()
         rebuilt = service.get()
 
+        self.assertEqual(first["sequence"], 1)
         self.assertEqual(rebuilt["sequence"], 2)
+        self.assertIsNot(first, rebuilt)
+        self.assertEqual(len(calls), 2)
 
     def test_returns_previous_snapshot_when_rebuild_is_busy(self):
         import threading

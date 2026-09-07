@@ -116,16 +116,28 @@ final class NewsReaderModel: NSObject, ObservableObject, WKNavigationDelegate {
     private func observeState() {
         observations = [
             webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.canGoBack = view.canGoBack }
+                let value = view.canGoBack
+                Task { @MainActor [weak self] in
+                    self?.canGoBack = value
+                }
             },
             webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.canGoForward = view.canGoForward }
+                let value = view.canGoForward
+                Task { @MainActor [weak self] in
+                    self?.canGoForward = value
+                }
             },
             webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.loading = view.isLoading }
+                let value = view.isLoading
+                Task { @MainActor [weak self] in
+                    self?.loading = value
+                }
             },
             webView.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.progress = view.estimatedProgress }
+                let value = view.estimatedProgress
+                Task { @MainActor [weak self] in
+                    self?.progress = value
+                }
             },
         ]
     }

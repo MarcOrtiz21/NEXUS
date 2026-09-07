@@ -62,6 +62,10 @@ class SnapshotService:
     def invalidate(self) -> None:
         """Fuerza la próxima lectura a recalcular el snapshot."""
         with self._lock:
+            # Clear the cached payload. Zeroing the timestamp alone is unsafe:
+            # on some hosts (CI containers) monotonic() starts near 0, so
+            # captured=0.0 can still look "fresh" within the TTL window.
+            self._snapshot = None
             self._captured_monotonic = 0.0
 
 
