@@ -250,4 +250,8 @@ NEXUS/
 
 ## Licencia
 
-Uso privado y experimental. Define la licencia de distribución antes de publicar una versión pública.
+NEXUS no se distribuye bajo una licencia de código abierto. El código fuente, la documentación, la interfaz, los diseños y los recursos propios del proyecto están protegidos por la licencia incluida en [`LICENSE`](LICENSE).
+
+Se permite consultar el repositorio y utilizarlo de forma privada para evaluación local. No se permite copiar, redistribuir, publicar, sublicenciar, modificar para distribuir, incorporar a otro producto o explotar comercialmente cualquier parte del proyecto sin autorización previa, expresa y por escrito de Marc Ortiz.
+
+Las solicitudes de permiso deben dirigirse directamente al titular a través de su [perfil de GitHub](https://github.com/MarcOrtiz21). Las dependencias de terceros mantienen sus propias licencias y condiciones.
