@@ -105,8 +105,11 @@ def _horizon_public(summary: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "forward_days": summary.get("forward_days"),
         "sample_size": summary.get("sample_size"),
+        "independent_sample_size": summary.get("independent_sample_size"),
         "macro_buy_count": summary.get("macro_buy_count"),
+        "independent_macro_buy_count": summary.get("independent_macro_buy_count"),
         "macro_buy_hit_rate_pct": summary.get("macro_buy_hit_rate_pct"),
+        "independent_macro_buy_hit_rate_pct": summary.get("independent_macro_buy_hit_rate_pct"),
         "macro_buy_avg_return_pct": summary.get("macro_buy_avg_return_pct"),
         "defensive_count": summary.get("defensive_count"),
         "defensive_hit_rate_pct": summary.get("defensive_hit_rate_pct"),
@@ -140,9 +143,14 @@ def _summarize_horizon(rows: List[Dict[str, Any]], forward_days: int) -> Dict[st
             "macro_buy_count": 0,
             "macro_buy_avg_return_pct": None,
             "macro_buy_hit_rate_pct": None,
+            "independent_sample_size": 0,
+            "independent_macro_buy_count": 0,
+            "independent_macro_buy_hit_rate_pct": None,
             "defensive_count": 0,
             "defensive_avg_return_pct": None,
             "defensive_hit_rate_pct": None,
+            "independent_defensive_count": 0,
+            "independent_defensive_hit_rate_pct": None,
             "overall_avg_return_pct": None,
             "samples": [],
             "recent_samples": [],
@@ -152,6 +160,21 @@ def _summarize_horizon(rows: List[Dict[str, Any]], forward_days: int) -> Dict[st
 
     buy_macro = [item for item in evaluated if item["macro_action"] in BUY_ACTIONS]
     defensive_ops = [item for item in evaluated if item["operational_action"] in DEFENSIVE_ACTIONS]
+
+    # Varios refreshes al día y ventanas forward solapadas son útiles para
+    # auditoría, pero no constituyen observaciones estadísticas independientes.
+    independent: List[Dict[str, Any]] = []
+    last_ts: datetime | None = None
+    minimum_gap = forward_days * 86400
+    for item in evaluated:
+        captured = _parse_ts(item.get("captured_at"))
+        if captured is None:
+            continue
+        if last_ts is None or captured.timestamp() - last_ts.timestamp() >= minimum_gap:
+            independent.append(item)
+            last_ts = captured
+    independent_buys = [item for item in independent if item["macro_action"] in BUY_ACTIONS]
+    independent_defensive = [item for item in independent if item["operational_action"] in DEFENSIVE_ACTIONS]
 
     def _avg(items: List[Dict[str, Any]], key: str = "spy_forward_return_pct") -> float | None:
         values = [item[key] for item in items]
@@ -181,9 +204,14 @@ def _summarize_horizon(rows: List[Dict[str, Any]], forward_days: int) -> Dict[st
         "macro_buy_count": len(buy_macro),
         "macro_buy_avg_return_pct": _avg(buy_macro),
         "macro_buy_hit_rate_pct": _hit_rate(buy_macro, "macro_correct"),
+        "independent_sample_size": len(independent),
+        "independent_macro_buy_count": len(independent_buys),
+        "independent_macro_buy_hit_rate_pct": _hit_rate(independent_buys, "macro_correct"),
         "defensive_count": len(defensive_ops),
         "defensive_avg_return_pct": _avg(defensive_ops),
         "defensive_hit_rate_pct": _hit_rate(defensive_ops, "defensive_correct"),
+        "independent_defensive_count": len(independent_defensive),
+        "independent_defensive_hit_rate_pct": _hit_rate(independent_defensive, "defensive_correct"),
         "overall_avg_return_pct": _avg(evaluated),
         "samples": evaluated,
         "recent_samples": evaluated[-5:],
@@ -200,10 +228,14 @@ def evaluate_track_record(
     if len(rows) < 2:
         return {
             "sample_size": 0,
+            "independent_sample_size": 0,
             "forward_days": forward_days,
             "macro_buy_count": 0,
+            "independent_macro_buy_count": 0,
             "macro_buy_count_20d": 0,
             "macro_buy_hit_rate_20d_pct": None,
+            "independent_macro_buy_count_20d": 0,
+            "independent_macro_buy_hit_rate_20d_pct": None,
             "vix_buckets": {},
             "message": "Historial insuficiente para calcular track record.",
         }
@@ -215,12 +247,16 @@ def evaluate_track_record(
         primary["macro_buy_count_20d"] = h20.get("macro_buy_count") or 0
         primary["macro_buy_hit_rate_20d_pct"] = h20.get("macro_buy_hit_rate_pct")
         primary["macro_buy_avg_return_20d_pct"] = h20.get("macro_buy_avg_return_pct")
+        primary["independent_macro_buy_count_20d"] = h20.get("independent_macro_buy_count") or 0
+        primary["independent_macro_buy_hit_rate_20d_pct"] = h20.get("independent_macro_buy_hit_rate_pct")
         primary["vix_buckets"] = {}
         return primary
 
     primary["macro_buy_count_20d"] = h20.get("macro_buy_count") or 0
     primary["macro_buy_hit_rate_20d_pct"] = h20.get("macro_buy_hit_rate_pct")
     primary["macro_buy_avg_return_20d_pct"] = h20.get("macro_buy_avg_return_pct")
+    primary["independent_macro_buy_count_20d"] = h20.get("independent_macro_buy_count") or 0
+    primary["independent_macro_buy_hit_rate_20d_pct"] = h20.get("independent_macro_buy_hit_rate_pct")
     primary["forward_horizons"] = {
         forward_days: _horizon_public(primary),
         **{horizon: _horizon_public(summary) for horizon, summary in extra.items()},
@@ -236,13 +272,19 @@ def history_buy_scale(
     """Escala el sesgo alcista según acierto COMPRAR vs SPY. No reescribe umbrales VIX."""
     track = track or {}
     floor = min_samples if min_samples is not None else HISTORY_CALIBRATION_MIN_SAMPLES
-    count = int(track.get("macro_buy_count") or 0)
-    hit = track.get("macro_buy_hit_rate_pct")
+    # Compatibilidad con historiales exportados antes de separar muestras
+    # independientes. Los snapshots nuevos siempre incluyen estas claves.
+    count_key = "independent_macro_buy_count" if "independent_macro_buy_count" in track else "macro_buy_count"
+    hit_key = "independent_macro_buy_hit_rate_pct" if "independent_macro_buy_hit_rate_pct" in track else "macro_buy_hit_rate_pct"
+    count = int(track.get(count_key) or 0)
+    hit = track.get(hit_key)
     if count < floor or not isinstance(hit, (int, float)):
         return 1.0, None
     effective = float(hit)
-    count20 = int(track.get("macro_buy_count_20d") or 0)
-    hit20 = track.get("macro_buy_hit_rate_20d_pct")
+    count20_key = "independent_macro_buy_count_20d" if "independent_macro_buy_count_20d" in track else "macro_buy_count_20d"
+    hit20_key = "independent_macro_buy_hit_rate_20d_pct" if "independent_macro_buy_hit_rate_20d_pct" in track else "macro_buy_hit_rate_20d_pct"
+    count20 = int(track.get(count20_key) or 0)
+    hit20 = track.get(hit20_key)
     if count20 >= floor and isinstance(hit20, (int, float)):
         effective = min(effective, float(hit20))
     if effective >= 55:

@@ -66,7 +66,9 @@ actor NexusAPIClient {
     func fetchNative(persist: Bool) async throws -> NativeSnapshot {
         let path = persist ? "/api/native/refresh" : "/api/native"
         guard let url = URL(string: path, relativeTo: baseURL) else { throw NexusAPIError.badURL }
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.timeoutInterval = 90
+        let (data, response) = try await perform(request, attempts: persist ? 1 : 3)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw NexusAPIError.http(http.statusCode)
         }
@@ -101,7 +103,8 @@ actor NexusAPIClient {
         guard let url = components.url else { throw NexusAPIError.badURL }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-        let (data, response) = try await session.data(for: request)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await perform(request, attempts: 2)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw NexusAPIError.http(http.statusCode)
         }
@@ -141,6 +144,30 @@ actor NexusAPIClient {
         }
         let payload = try JSONDecoder().decode(SettingsPayload.self, from: data)
         return payload.settings ?? settings
+    }
+
+    /// Reintenta únicamente lecturas ante errores de red o 5xx. Las escrituras
+    /// siguen siendo de un solo intento para evitar efectos duplicados.
+    private func perform(_ request: URLRequest, attempts: Int) async throws -> (Data, URLResponse) {
+        let total = max(1, attempts)
+        var lastError: Error?
+        for attempt in 0..<total {
+            do {
+                let result = try await session.data(for: request)
+                if let http = result.1 as? HTTPURLResponse,
+                   http.statusCode >= 500,
+                   attempt + 1 < total {
+                    try await Task.sleep(nanoseconds: UInt64(250_000_000 * (attempt + 1)))
+                    continue
+                }
+                return result
+            } catch {
+                lastError = error
+                guard attempt + 1 < total else { throw error }
+                try await Task.sleep(nanoseconds: UInt64(250_000_000 * (attempt + 1)))
+            }
+        }
+        throw lastError ?? NexusAPIError.empty
     }
 }
 

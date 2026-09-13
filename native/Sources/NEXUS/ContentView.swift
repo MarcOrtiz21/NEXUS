@@ -3,6 +3,15 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: NexusStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("nexus.assetInspectorWidth") private var inspectorWidthValue = Double(NexusLayout.inspectorWatchlistWidth)
+
+    private var inspectorWidth: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(inspectorWidthValue) },
+            set: { inspectorWidthValue = Double($0) }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,7 +23,7 @@ struct ContentView: View {
                     max(NexusLayout.inspectorMinWidth, proxy.size.width - NexusLayout.mainFloorWidth)
                 )
                 let shownWidth = min(
-                    NexusLayout.inspectorWatchlistWidth,
+                    max(NexusLayout.inspectorMinWidth, CGFloat(inspectorWidthValue)),
                     maxInspector
                 )
                 HStack(spacing: 0) {
@@ -22,6 +31,12 @@ struct ContentView: View {
                         .frame(minWidth: 0)
                         .frame(maxWidth: .infinity)
                     if let ticker = store.selectedAssetKey {
+                        NexusResizeHandle(
+                            width: inspectorWidth,
+                            minWidth: NexusLayout.inspectorMinWidth,
+                            maxWidth: maxInspector,
+                            label: "Ancho del inspector de activo"
+                        )
                         inspectorPane(ticker)
                             .frame(width: max(0, shownWidth - NexusLayout.inspectorEdgeInset))
                             .frame(maxHeight: .infinity)
@@ -30,7 +45,7 @@ struct ContentView: View {
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
-                .animation(NexusMotion.panel, value: store.selectedAssetKey != nil)
+                .animation(reduceMotion ? nil : NexusMotion.panel, value: store.selectedAssetKey != nil)
                 .clipped()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -39,6 +54,11 @@ struct ContentView: View {
         .sheet(isPresented: $store.showSettings) {
             SettingsView()
                 .environmentObject(store)
+        }
+        .onExitCommand {
+            if store.hasDismissiblePanel {
+                store.dismissFrontPanel()
+            }
         }
     }
 
@@ -108,13 +128,13 @@ struct ContentView: View {
                         .transition(.opacity)
                 }
             }
-            .animation(NexusMotion.page, value: store.selected)
+            .animation(reduceMotion ? nil : NexusMotion.page, value: store.selected)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         }
         .background(NexusTheme.bg.ignoresSafeArea())
-        .animation(NexusMotion.page, value: store.snapshot?.blockBanner != nil)
-        .animation(NexusMotion.page, value: store.errorMessage)
+        .animation(reduceMotion ? nil : NexusMotion.page, value: store.snapshot?.blockBanner != nil)
+        .animation(reduceMotion ? nil : NexusMotion.page, value: store.errorMessage)
     }
 
     @ViewBuilder
@@ -155,25 +175,9 @@ struct ContentView: View {
                 .padding(.leading, NexusLayout.trafficLightGutter)
                 .accessibilityLabel("NEXUS")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    toolbarGroup([.overview])
-                    Divider().frame(height: 18)
-                    toolbarGroup([.news, .forexGold, .rotation, .global, .charts])
-                    Divider().frame(height: 18)
-                    toolbarGroup([.watchlist, .history])
-                }
-                .padding(.vertical, 2)
-                .padding(.trailing, 18)
-            }
-            .overlay(alignment: .trailing) {
-                LinearGradient(
-                    colors: [NexusTheme.sidebar.opacity(0), NexusTheme.sidebar],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: 22)
-                .allowsHitTesting(false)
+            ViewThatFits(in: .horizontal) {
+                toolbarNavigationFull
+                toolbarNavigationCompact
             }
 
             Spacer(minLength: 8)
@@ -186,6 +190,43 @@ struct ContentView: View {
         .background(NexusTheme.sidebar)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Barra de NEXUS")
+    }
+
+    private var toolbarNavigationFull: some View {
+        HStack(spacing: 8) {
+            toolbarGroup([.overview])
+            Divider().frame(height: 18)
+            toolbarGroup([.report, .news, .forexGold, .rotation, .global, .charts])
+            Divider().frame(height: 18)
+            toolbarGroup([.watchlist, .history])
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.vertical, 2)
+    }
+
+    private var toolbarNavigationCompact: some View {
+        HStack(spacing: 4) {
+            toolbarGroup([.overview, .charts, .rotation])
+            Menu {
+                ForEach([NavItem.report, .news, .forexGold, .global, .watchlist, .history]) { item in
+                    Button {
+                        store.selected = item
+                    } label: {
+                        Label(item.rawValue, systemImage: item.symbol)
+                    }
+                }
+            } label: {
+                Label("Más", systemImage: "ellipsis.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle([NavItem.report, .news, .forexGold, .global, .watchlist, .history].contains(store.selected) ? NexusTheme.accent : NexusTheme.muted)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: NexusLayout.toolbarButtonSize)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Más secciones")
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var toolbarTrailing: some View {
@@ -246,7 +287,7 @@ struct ContentView: View {
                             Image(systemName: item.symbol)
                             Text(LocalizedStringKey(item.rawValue))
                             Text(item.shortcutHint)
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(store.selected == item ? NexusTheme.accent : NexusTheme.muted.opacity(0.75))
                         }
                         HStack(spacing: 5) {

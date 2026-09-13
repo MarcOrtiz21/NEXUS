@@ -58,7 +58,9 @@ ROTATION_FLOW_MOM1 = 1.5
 ROTATION_FLOW_RELATIVE = 1.0
 
 # Calibración con historial: no reescribe umbrales VIX; solo modula el sesgo alcista
-HISTORY_CALIBRATION_MIN_SAMPLES = 8
+# La calibración no debe reaccionar a unas pocas capturas correlacionadas.
+# Se usan muestras independientes (separadas al menos por el horizonte medido).
+HISTORY_CALIBRATION_MIN_SAMPLES = 30
 
 # Saneamiento cruzado: un print raro de Yahoo no debe mover el plan
 SANITY_VIX_MIN = 8.0
@@ -156,7 +158,10 @@ MARKET_CACHE_MAX_AGE_SECONDS = 60 * 60 * 6
 FAST_MARKET_CACHE_FILE = CACHE_DIR / "fast_market.json"
 SLOW_MACRO_CACHE_FILE = CACHE_DIR / "slow_macro.json"
 ROTATION_MARKET_CACHE_FILE = CACHE_DIR / "rotation_companies.json"
-FAST_MARKET_CACHE_TTL_SECONDS = 60 * 2  # FX/GLD: actualización ágil sin saturar Yahoo
+# Debe cubrir el intervalo automático predeterminado (5 min) más un pequeño
+# margen de red/procesado; de lo contrario la UI marca la capa como caducada
+# durante buena parte de un ciclo normal aunque la actualización esté activa.
+FAST_MARKET_CACHE_TTL_SECONDS = 60 * 6
 SLOW_MACRO_CACHE_TTL_SECONDS = 60 * 60 * 6
 ROTATION_MARKET_CACHE_TTL_SECONDS = 60 * 30  # El detalle de empresas cambia más despacio
 CHART_SERIES_CACHE_DIR = CACHE_DIR / "chart_series"

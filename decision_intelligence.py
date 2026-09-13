@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from config import (
+    HISTORY_CALIBRATION_MIN_SAMPLES,
     VIX_ACCELERATION_PCT,
     VIX_CALM_THRESHOLD,
     VIX_ELEVATED_THRESHOLD,
@@ -198,6 +199,11 @@ def freshness_layers(data: Dict[str, Any] | None) -> Dict[str, Any]:
         age = item.get("age_seconds")
         as_of = item.get("as_of")
         age_label = format_age_label(age) if status != "MISSING" else "sin dato"
+        available = item.get("available")
+        total = item.get("total")
+        coverage_pct = item.get("coverage_pct")
+        if isinstance(available, int) and isinstance(total, int) and total > 0:
+            age_label = f"{available}/{total} · {age_label}"
         if key == "macro" and as_of:
             obs = format_obs_date(str(as_of))
             if obs:
@@ -209,6 +215,9 @@ def freshness_layers(data: Dict[str, Any] | None) -> Dict[str, Any]:
             "age_label": age_label,
             "status": status,
             "as_of": as_of,
+            "available": available,
+            "total": total,
+            "coverage_pct": coverage_pct,
         })
     if not raw and isinstance(data.get("_cache_age_seconds"), (int, float)):
         age = data["_cache_age_seconds"]
@@ -223,7 +232,7 @@ def freshness_layers(data: Dict[str, Any] | None) -> Dict[str, Any]:
     statuses = {layer["status"] for layer in layers}
     if "MISSING" in statuses or "ERROR" in statuses:
         tone = "bad"
-    elif "STALE" in statuses:
+    elif "STALE" in statuses or "PARTIAL" in statuses:
         tone = "warn"
     else:
         tone = "good"
@@ -300,7 +309,7 @@ def refine_stance_confidence(
     for reason in reasons:
         if reason not in unique:
             unique.append(reason)
-    note = ("Bajada: " + " · ".join(unique[:3])) if unique else "Convicción según score y datos completos."
+    note = ("Calidad de datos reducida: " + " · ".join(unique[:3])) if unique else "Calidad de datos según frescura y cobertura de inputs."
     return {"level": level, "reasons": unique[:3], "note": note}
 
 
@@ -351,23 +360,38 @@ def track_record_thesis(track: Dict[str, Any] | None) -> Dict[str, Any]:
             "sample_size": 0,
             "forward_days": days,
         }
-    count = int(track.get("macro_buy_count") or 0)
-    hit = track.get("macro_buy_hit_rate_pct")
+    count = int(track.get("independent_macro_buy_count") or 0)
+    hit = track.get("independent_macro_buy_hit_rate_pct")
     avg = track.get("macro_buy_avg_return_pct")
+    required = HISTORY_CALIBRATION_MIN_SAMPLES
     if count <= 0:
         return {
-            "ready": True,
+            "ready": False,
             "tone": "neutral",
-            "headline": f"Sin COMPRAR en {sample} lecturas a {days}d",
-            "detail": "No hay muestra de entradas para contrastar contra el S&P 500.",
+            "headline": f"Sin señales COMPRAR independientes a {days}d",
+            "detail": f"Hay {sample} lecturas observadas, pero todavía no forman una muestra de entradas comparable.",
             "sample_size": sample,
             "buy_count": 0,
+            "required_sample_size": required,
             "forward_days": days,
+            "beats_spy": None,
+        }
+    if count < required:
+        return {
+            "ready": False,
+            "tone": "neutral",
+            "headline": f"Muestra predictiva insuficiente: {count}/{required} señales independientes",
+            "detail": f"Se conservan {sample} lecturas para auditoría, pero no se mostrará una tasa de acierto hasta alcanzar el mínimo estadístico.",
+            "sample_size": sample,
+            "buy_count": count,
+            "required_sample_size": required,
+            "forward_days": days,
+            "beats_spy": None,
         }
     hit_txt = f"{hit:.0f}%" if isinstance(hit, (int, float)) else "—"
     avg_txt = f"{avg:+.1f}%" if isinstance(avg, (int, float)) else "—"
-    count20 = int(track.get("macro_buy_count_20d") or 0)
-    hit20 = track.get("macro_buy_hit_rate_20d_pct")
+    count20 = int(track.get("independent_macro_buy_count_20d") or 0)
+    hit20 = track.get("independent_macro_buy_hit_rate_20d_pct")
     beats = isinstance(hit, (int, float)) and hit >= 50
     if beats:
         headline = f"COMPRAR acertó el sentido de SPY a {days}d en {hit_txt} de {count} casos"
@@ -386,6 +410,7 @@ def track_record_thesis(track: Dict[str, Any] | None) -> Dict[str, Any]:
         "detail": detail,
         "sample_size": sample,
         "buy_count": count,
+        "required_sample_size": required,
         "hit_rate_pct": hit,
         "avg_return_pct": avg,
         "forward_days": days,
@@ -938,6 +963,7 @@ def build_session_plan(
         "context": context,
         "score": decision.get("score"),
         "confidence": confidence,
+        "confidence_basis": "data_quality",
         "confidence_note": confidence_note,
         "score_drivers": drivers,
     }

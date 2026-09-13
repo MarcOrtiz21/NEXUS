@@ -114,11 +114,26 @@ class SignalTrackRecordTests(unittest.TestCase):
         self.assertIsNone(reason)
 
         weak, weak_reason = history_buy_scale({
-            "macro_buy_count": 10,
-            "macro_buy_hit_rate_pct": 30.0,
+            "independent_macro_buy_count": 30,
+            "independent_macro_buy_hit_rate_pct": 30.0,
         })
         self.assertEqual(weak, 0.7)
         self.assertIn("no confirma", weak_reason)
+
+    def test_overlapping_refreshes_count_as_one_independent_sample(self):
+        rows = [
+            _row("2026-01-01T09:00:00+00:00", "COMPRAR", 100.0),
+            _row("2026-01-01T12:00:00+00:00", "COMPRAR", 101.0),
+            _row("2026-01-06T09:00:00+00:00", "COMPRAR", 105.0),
+            _row("2026-01-06T12:00:00+00:00", "COMPRAR", 106.0),
+            _row("2026-01-11T09:00:00+00:00", "ESPERAR", 108.0),
+            _row("2026-01-11T12:00:00+00:00", "ESPERAR", 109.0),
+        ]
+        with patch("signal_track_record.load_history_jsonl", return_value=rows):
+            summary = evaluate_track_record(forward_days=5, limit=10)
+
+        self.assertGreater(summary["sample_size"], summary["independent_sample_size"])
+        self.assertEqual(summary["independent_macro_buy_count"], 2)
 
 
 if __name__ == "__main__":

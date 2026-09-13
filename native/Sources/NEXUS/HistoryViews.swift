@@ -3,6 +3,7 @@ import Charts
 
 struct HistoryView: View {
     @EnvironmentObject private var store: NexusStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var periodDays = 30
     @State private var selectedPointID: String?
     @State private var selectedScoreDate: Date?
@@ -163,7 +164,7 @@ struct HistoryView: View {
                 NexusSectionHeader(title: "Evaluaciones", detail: "Selecciona una para entenderla")
                 ForEach(Array(filteredTimeline.suffix(12).reversed())) { point in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
                             selectedPointID = selectedPointID == point.id ? nil : point.id
                         }
                     } label: {
@@ -328,11 +329,11 @@ struct ForexGoldView: View {
             fxPlanCard
             NexusKPIStrip(items: [
                 NexusKPI(title: "GLD", value: number(gld?.price, digits: 2), hint: gold?.signal?.bias ?? "1M \(formatPct(gld?.momentum1m))", tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias)),
-                NexusKPI(title: "ACCIÓN FX", value: fx?.signal?.action ?? "—", hint: "confianza \(fx?.signal?.confidence ?? "—")", tone: NexusTheme.toneColor(fx?.signal?.action)),
+                NexusKPI(title: "ACCIÓN FX", value: fx?.signal?.action ?? "—", hint: "calidad señal \(fx?.signal?.confidence ?? "—")", tone: NexusTheme.toneColor(fx?.signal?.action)),
                 NexusKPI(
                     title: "SESGO ORO",
                     value: gold?.signal?.bias ?? "—",
-                    hint: "confianza \(gold?.signal?.confidence ?? "—")",
+                    hint: "calidad señal \(gold?.signal?.confidence ?? "—")",
                     tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias),
                     help: "Combina la fortaleza del oro frente al dólar, tipos reales (10Y menos IPC) y VIX. No es una orden."
                 ),
@@ -375,7 +376,7 @@ struct ForexGoldView: View {
                     .foregroundStyle(NexusTheme.muted)
             }
             .nexusCard()
-            .onTapGesture { store.showAsset("EURUSD") }
+            .nexusInteractive(label: "Abrir detalle de EUR/USD") { store.showAsset("EURUSD") }
             VStack(alignment: .leading, spacing: 4) {
                 Text("INVERSO")
                     .font(.caption.weight(.bold))
@@ -389,7 +390,7 @@ struct ForexGoldView: View {
                     .foregroundStyle(NexusTheme.muted)
             }
             .nexusCard()
-            .onTapGesture { store.showAsset("USDEUR") }
+            .nexusInteractive(label: "Abrir detalle de USD/EUR") { store.showAsset("USDEUR") }
         }
         .help("Ambos lados del mismo tipo de cambio. Clic para abrir el inspector de EUR/USD.")
     }
@@ -579,8 +580,7 @@ struct ForexGoldView: View {
         }
         .nexusCard()
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .onTapGesture { store.showAsset("EURUSD") }
+        .nexusInteractive(label: "Abrir detalle de EUR/USD") { store.showAsset("EURUSD") }
         .help("Abrir detalle de EUR/USD")
     }
 
@@ -602,8 +602,7 @@ struct ForexGoldView: View {
         }
         .nexusCard()
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .contentShape(Rectangle())
-        .onTapGesture { store.showAsset("USDEUR") }
+        .nexusInteractive(label: "Abrir detalle de USD/EUR") { store.showAsset("USDEUR") }
         .help("Abrir detalle de USD/EUR")
     }
 
@@ -629,8 +628,7 @@ struct ForexGoldView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .nexusCard()
-        .contentShape(Rectangle())
-        .onTapGesture { store.showAsset("GLD") }
+        .nexusInteractive(label: "Abrir detalle del oro") { store.showAsset("GLD") }
         .help("Abrir detalle del oro")
     }
 
@@ -674,8 +672,7 @@ struct ForexGoldView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .nexusCard()
-        .contentShape(Rectangle())
-        .onTapGesture { store.showAsset("GLD") }
+        .nexusInteractive(label: "Abrir detalle del oro") { store.showAsset("GLD") }
         .help("Abrir detalle del oro")
     }
 

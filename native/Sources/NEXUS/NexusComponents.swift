@@ -39,12 +39,16 @@ struct NexusResizeHandle: View {
     @Binding var width: CGFloat
     var minWidth: CGFloat = NexusLayout.inspectorMinWidth
     var maxWidth: CGFloat = NexusLayout.inspectorMaxWidth
+    var label: String = "Ancho del panel"
     @State private var widthAtDragStart: CGFloat?
     @State private var hovering = false
 
     var body: some View {
         ZStack {
             NexusTheme.border.frame(width: 1)
+            Capsule()
+                .fill(hovering ? NexusTheme.accent : NexusTheme.muted.opacity(0.55))
+                .frame(width: 3, height: 34)
         }
         .frame(width: 8)
         .frame(maxHeight: .infinity)
@@ -76,7 +80,7 @@ struct NexusResizeHandle: View {
                     widthAtDragStart = nil
                 }
         )
-        .accessibilityLabel("Ancho del panel")
+        .accessibilityLabel(label)
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: width = min(width + 24, maxWidth)
@@ -84,6 +88,45 @@ struct NexusResizeHandle: View {
             default: break
             }
         }
+    }
+}
+
+private struct NexusInteractiveModifier: ViewModifier {
+    let label: String
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .focusable()
+            .focused($focused)
+            .onKeyPress(.return) {
+                action()
+                return .handled
+            }
+            .onKeyPress(.space) {
+                action()
+                return .handled
+            }
+            .overlay {
+                if focused {
+                    RoundedRectangle(cornerRadius: NexusLayout.cardRadius, style: .continuous)
+                        .stroke(NexusTheme.accent, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: Text("Activar"), action)
+    }
+}
+
+extension View {
+    func nexusInteractive(label: String, action: @escaping () -> Void) -> some View {
+        modifier(NexusInteractiveModifier(label: label, action: action))
     }
 }
 
@@ -231,7 +274,7 @@ struct NexusKVRow: View {
                 Text(LocalizedStringKey(label))
                 if let help {
                     Image(systemName: "questionmark.circle")
-                        .font(.system(size: 9))
+                        .font(.caption2)
                         .help(help)
                 }
             }
@@ -305,7 +348,7 @@ struct NexusStanceCard: View {
                 }
                 if let confidence {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("CONFIANZA")
+                        Text("CALIDAD DE DATOS")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(NexusTheme.muted)
                         Text(confidence)
@@ -767,7 +810,7 @@ struct NexusCompanyRow: View {
             }
 
             if compact {
-                Text("1M \(formatPct(company.momentum1m)) · 3M \(formatPct(company.momentum3m))")
+                Text("1M \(formatPct(company.momentum1m)) · vs SPY \(formatPct(company.relative1mVsSpy))")
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
             } else {
@@ -775,6 +818,7 @@ struct NexusCompanyRow: View {
                     metricCell("Precio", number(company.price, digits: 2))
                     metricCell("1M", formatPct(company.momentum1m))
                     metricCell("3M", formatPct(company.momentum3m))
+                    metricCell("vs SPY", formatPct(company.relative1mVsSpy))
                     metricCell("Tendencia", company.trend ?? "—")
                     metricCell("Vol 20d", formatPct(company.volatility20d))
                 }
@@ -782,6 +826,19 @@ struct NexusCompanyRow: View {
         }
         .padding(.vertical, compact ? 2 : 5)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        let name = company.name ?? company.ticker ?? "Empresa"
+        let ticker = company.ticker ?? "sin ticker"
+        let score = company.score.map { "score \($0) de 100" } ?? "sin score"
+        let signal = companyTechnicalLabel(company.action, allowsEntry: allowsEntry)
+        let price = number(company.price, digits: 2)
+        let momentum = formatPct(company.momentum1m)
+        let relative = formatPct(company.relative1mVsSpy)
+        return "\(name), \(ticker), \(signal), \(score), precio \(price), un mes \(momentum), frente a S P Y \(relative)"
     }
 
     private func metricCell(_ label: String, _ value: String) -> some View {

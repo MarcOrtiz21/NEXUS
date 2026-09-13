@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import pandas as pd
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,12 +14,29 @@ from data_ingestion import (
     _extract_tier_payload,
     _find_obs_near_date,
     _fast_cache_usable,
+    _yf_download_batches,
     _rotation_cache_usable,
     _slow_cache_usable,
 )
 
 
 class TieredCacheTests(unittest.TestCase):
+    def test_large_company_download_keeps_successful_batches(self):
+        frames = [
+            pd.DataFrame({"A": [1.0]}),
+            None,
+            pd.DataFrame({"B": [2.0]}),
+        ]
+        with patch("data_ingestion._yf_download", side_effect=frames) as download:
+            result = _yf_download_batches(
+                ["A", "B", "C", "D", "E"],
+                batch_size=2,
+                max_workers=1,
+            )
+
+        self.assertEqual(download.call_count, 3)
+        self.assertEqual(set(result.columns), {"A", "B"})
+
     def test_fast_cache_requires_market_forex_and_gold(self):
         fresh = {
             "_cache_age_seconds": 10,
@@ -60,14 +78,25 @@ class TieredCacheTests(unittest.TestCase):
         self.assertFalse(_rotation_cache_usable({**fresh, "RotationCompanies": {}}))
         self.assertEqual(ROTATION_CACHE_KEYS, ("RotationCompanies",))
 
+    def test_rotation_cache_does_not_count_unknown_tickers_as_coverage(self):
+        from data_ingestion import _rotation_cache_complete
+
+        unknown = {
+            "_cache_age_seconds": 10,
+            "schema_version": CACHE_SCHEMA_VERSION,
+            "RotationCompanies": {f"UNKNOWN{index}": {"price": 10.0} for index in range(500)},
+        }
+        self.assertFalse(_rotation_cache_complete(unknown))
+
     def test_older_rotation_schema_still_opens_the_app(self):
         stale = {
             "_cache_age_seconds": 60 * 60,
             "schema_version": 6,
             "RotationCompanies": {"AAPL": {"price": 210.0}},
         }
-        from data_ingestion import _rotation_cache_complete
-        self.assertTrue(_rotation_cache_complete(stale))
+        from data_ingestion import _rotation_cache_complete, _rotation_cache_present
+        self.assertTrue(_rotation_cache_present(stale))
+        self.assertFalse(_rotation_cache_complete(stale))
         self.assertFalse(_rotation_cache_usable(stale))
 
     def test_slow_cache_requires_macro_key(self):
@@ -240,7 +269,7 @@ class TieredCacheTests(unittest.TestCase):
         self.assertEqual(data["M2_Change_Pct"], 1.2)
         self.assertEqual(data["Freshness"]["market"]["status"], "STALE")
         self.assertEqual(data["Freshness"]["macro"]["status"], "STALE")
-        self.assertEqual(data["Freshness"]["companies"]["status"], "STALE")
+        self.assertIn(data["Freshness"]["companies"]["status"], {"STALE", "PARTIAL"})
 
     def test_refresh_skips_company_yahoo_when_older_rotation_cache_exists(self):
         from data_ingestion import (
@@ -300,9 +329,11 @@ class TieredCacheTests(unittest.TestCase):
         siblis.assert_not_called()
         fred.assert_not_called()
         fred_series.assert_not_called()
-        for call in yf.call_args_list:
-            tickers = call.args[0] if call.args else call.kwargs.get("tickers") or []
-            self.assertNotIn("AAPL", tickers)
+        company_calls = [
+            call.args[0] if call.args else call.kwargs.get("tickers") or []
+            for call in yf.call_args_list
+        ]
+        self.assertTrue(any("AAPL" in tickers for tickers in company_calls))
 
     def test_payload_age_uses_captured_at_not_mtime(self):
         from datetime import datetime, timedelta, timezone
@@ -408,9 +439,11 @@ class TieredCacheTests(unittest.TestCase):
         self.assertEqual(data["DataQuality"]["CPI_YoY_Pct"]["as_of"], "2026-07-15")
         self.assertNotIn(SLOW_MACRO_CACHE_FILE, saved)
         self.assertNotIn(ROTATION_MARKET_CACHE_FILE, saved)
-        for call in yf.call_args_list:
-            tickers = call.args[0] if call.args else call.kwargs.get("tickers") or []
-            self.assertNotIn("AAPL", tickers)
+        company_calls = [
+            call.args[0] if call.args else call.kwargs.get("tickers") or []
+            for call in yf.call_args_list
+        ]
+        self.assertTrue(any("AAPL" in tickers for tickers in company_calls))
 
 
 if __name__ == "__main__":

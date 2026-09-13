@@ -363,10 +363,10 @@ class DecisionIntelligenceTests(unittest.TestCase):
 
     def test_track_record_thesis_warns_when_buy_misses_spy(self):
         thesis = track_record_thesis({
-            "sample_size": 20,
+            "sample_size": 160,
             "forward_days": 5,
-            "macro_buy_count": 8,
-            "macro_buy_hit_rate_pct": 37.5,
+            "independent_macro_buy_count": 40,
+            "independent_macro_buy_hit_rate_pct": 37.5,
             "macro_buy_avg_return_pct": -0.4,
         })
         self.assertFalse(thesis["beats_spy"])
@@ -375,16 +375,27 @@ class DecisionIntelligenceTests(unittest.TestCase):
 
     def test_track_record_thesis_mentions_twenty_day_hit_rate(self):
         thesis = track_record_thesis({
-            "sample_size": 20,
+            "sample_size": 160,
             "forward_days": 5,
-            "macro_buy_count": 8,
-            "macro_buy_hit_rate_pct": 62.5,
+            "independent_macro_buy_count": 40,
+            "independent_macro_buy_hit_rate_pct": 62.5,
             "macro_buy_avg_return_pct": 0.8,
-            "macro_buy_count_20d": 8,
-            "macro_buy_hit_rate_20d_pct": 50.0,
+            "independent_macro_buy_count_20d": 35,
+            "independent_macro_buy_hit_rate_20d_pct": 50.0,
         })
         self.assertIn("20d", thesis["detail"])
         self.assertEqual(thesis["hit_rate_20d_pct"], 50.0)
+
+    def test_track_record_thesis_hides_rate_until_sample_is_reliable(self):
+        thesis = track_record_thesis({
+            "sample_size": 80,
+            "forward_days": 5,
+            "independent_macro_buy_count": 12,
+            "independent_macro_buy_hit_rate_pct": 75.0,
+        })
+        self.assertFalse(thesis["ready"])
+        self.assertIsNone(thesis["beats_spy"])
+        self.assertIn("12/30", thesis["headline"])
 
     def test_session_plan_exposes_confidence_and_score_drivers(self):
         plan = build_session_plan(
@@ -403,6 +414,7 @@ class DecisionIntelligenceTests(unittest.TestCase):
             {"bias": "MIXTO"},
         )
         self.assertEqual(plan["confidence"], "MEDIA")
+        self.assertEqual(plan["confidence_basis"], "data_quality")
         self.assertIn("calendario", plan["confidence_note"])
         self.assertEqual(plan["score_drivers"][0]["factor"], "Volatilidad")
         self.assertEqual(plan["score"], 62)

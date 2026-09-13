@@ -440,8 +440,7 @@ struct NexusSparklineCard: View {
                         .foregroundStyle(NexusTheme.accent)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { onFocus?() }
+            .nexusInteractive(label: "Poner \(title) en foco") { onFocus?() }
             Spacer(minLength: 6)
             if focused, let onTap {
                 NexusToolbarButton(
@@ -482,8 +481,7 @@ struct NexusSparklineCard: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle((change ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { onFocus?() }
+        .nexusInteractive(label: "Poner \(title) en foco") { onFocus?() }
     }
 
     private var titleRow: some View {
@@ -1366,7 +1364,9 @@ struct NexusCandlePlot: View {
         }
         context.stroke(bullishWicks, with: .color(NexusTheme.good), lineWidth: 1)
         context.stroke(bearishWicks, with: .color(NexusTheme.bad), lineWidth: 1)
-        context.fill(bullishBodies, with: .color(NexusTheme.good))
+        // Convención redundante para no depender solo del color: alcistas
+        // huecas, bajistas rellenas.
+        context.stroke(bullishBodies, with: .color(NexusTheme.good), lineWidth: 1.2)
         context.fill(bearishBodies, with: .color(NexusTheme.bad))
         context.stroke(
             syntheticCloses,
@@ -1419,7 +1419,7 @@ struct NexusCandlePlot: View {
             grid.addLine(to: CGPoint(x: layout.plot.maxX, y: yValue))
             context.draw(
                 Text(String(format: "%.1f", value))
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.caption2.monospaced())
                     .foregroundColor(NexusTheme.muted),
                 at: CGPoint(x: 2, y: yValue),
                 anchor: .leading
@@ -1515,7 +1515,7 @@ struct NexusCandlePlot: View {
             if flag.items.count > 1 {
                 context.draw(
                     Text("\(flag.items.count)")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .foregroundColor(.white),
                     at: point,
                     anchor: .center
@@ -1550,7 +1550,7 @@ struct NexusCandlePlot: View {
         if horizontal {
             context.draw(
                 Text(priceLabel(layout.rows[index].close))
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.caption2.monospaced())
                     .foregroundColor(NexusTheme.text),
                 at: CGPoint(x: 2, y: y),
                 anchor: .leading
@@ -1573,7 +1573,7 @@ struct NexusCandlePlot: View {
         if showPrices {
             for tick in layout.priceTicks {
                 let text = Text(priceLabel(tick.price))
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.caption2.monospaced())
                     .foregroundColor(NexusTheme.muted)
                 context.draw(text, at: CGPoint(x: 2, y: tick.y), anchor: .leading)
             }
@@ -1587,7 +1587,7 @@ struct NexusCandlePlot: View {
                 ? .dateTime.day().month(.abbreviated)
                 : .dateTime.day().hour().minute()
             let label = Text(row.date, format: format)
-                .font(.system(size: 9))
+                .font(.caption2)
                 .foregroundColor(NexusTheme.muted)
             context.draw(label, at: CGPoint(x: layout.x(for: index), y: layout.size.height - 7), anchor: .center)
         }
@@ -1653,7 +1653,7 @@ private struct NexusIndicatorPlot: View {
         for (value, color) in levels {
             context.draw(
                 Text(String(format: "%.0f", value))
-                    .font(.system(size: 8, design: .monospaced))
+                    .font(.caption2.monospaced())
                     .foregroundColor(NexusTheme.muted),
                 at: CGPoint(x: 3, y: y(value)),
                 anchor: .leading
@@ -1689,7 +1689,7 @@ private struct NexusIndicatorPlot: View {
             context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)), with: .color(tone))
             context.draw(
                 Text(divergence.bullish ? "ALC" : "BAJ")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .foregroundColor(tone),
                 at: CGPoint(x: end.x, y: end.y + (divergence.bullish ? -8 : 8)),
                 anchor: .center
@@ -1767,7 +1767,7 @@ private struct NexusIndicatorPlot: View {
         context.stroke(zero, with: .color(NexusTheme.border), lineWidth: 0.5)
         context.draw(
             Text("MACD")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundColor(NexusTheme.muted),
             at: CGPoint(x: 3, y: 8),
             anchor: .topLeading

@@ -127,7 +127,7 @@ struct GlobalView: View {
             NexusScoreBar(value: Double(store.snapshot?.decision?.score ?? 0))
             NexusKVRow(label: "VIX", value: number("VIX", decimals: 1), tone: vixTone)
             NexusKVRow(label: "Acción", value: store.snapshot?.decision?.operationalAction ?? "—", tone: NexusTheme.toneColor(store.snapshot?.decision?.operationalAction))
-            NexusKVRow(label: "Confianza", value: store.snapshot?.decision?.confidence ?? "—")
+            NexusKVRow(label: "Calidad de datos", value: store.snapshot?.decision?.confidence ?? "—")
         }
         .nexusCard()
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -471,7 +471,7 @@ struct ReportView: View {
                     }
                 }
             }
-            Text("Son las reglas que movieron el score. La confianza baja si el dato está caducado.")
+            Text("Son las reglas que movieron el score. La calidad baja si el dato está caducado o incompleto.")
                 .font(.caption2).foregroundStyle(NexusTheme.muted)
         }
         .nexusCard()
@@ -528,8 +528,7 @@ struct ReportOverviewContent: View {
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .nexusCard()
-        .contentShape(Rectangle())
-        .onTapGesture { store.selected = .news }
+        .nexusInteractive(label: "Abrir noticias") { store.selected = .news }
         .help("Abrir noticias")
     }
 

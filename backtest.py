@@ -151,14 +151,23 @@ def _annualized_volatility(values: List[float], periods_per_year: int) -> float:
 
 def _metrics(values: List[float], periods_per_year: int) -> Dict[str, float]:
     total_return = values[-1] / values[0] - 1
+    periods = max(1, len(values) - 1)
+    annualized_return = (values[-1] / values[0]) ** (periods_per_year / periods) - 1
+    returns = pd.Series(values).pct_change().dropna()
+    volatility = _annualized_volatility(values, periods_per_year)
+    sharpe = 0.0
+    if not returns.empty and returns.std() > 0:
+        sharpe = float(returns.mean() / returns.std() * np.sqrt(periods_per_year))
     return {
         "total_return": total_return,
-        "volatility": _annualized_volatility(values, periods_per_year),
+        "annualized_return": annualized_return,
+        "volatility": volatility,
+        "sharpe": sharpe,
         "max_drawdown": _max_drawdown(values),
     }
 
 
-def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
+def run_backtest(period: str = "5y", rebalance_days: int = 5, transaction_cost_bps: float = 5.0) -> Dict[str, Any]:
     # Close ajustado incorpora dividendos y splits; usar el cierre nominal
     # sesga al alza la comparación de estrategias de largo plazo.
     df = yf.download(BACKTEST_TICKERS, period=period, progress=False, auto_adjust=True)
@@ -175,6 +184,8 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
     spy_values = [1.0]
     qqq_values = [1.0]
     actions = []
+    turnovers: List[float] = []
+    previous_allocation: Dict[str, float] = {"CASH": 1.0}
 
     for idx in range(start_idx, len(df_close) - rebalance_days, rebalance_days):
         next_idx = idx + rebalance_days
@@ -183,14 +194,27 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
         decision = DecisionEngine(data, status, alerts).evaluate()
         period_returns = _period_return(df_close, idx, next_idx)
 
-        portfolio_return = sum(
+        current_allocation = {
+            asset: max(0.0, float(weight) / 100)
+            for asset, weight in decision.allocation.items()
+        }
+        assets = set(previous_allocation) | set(current_allocation)
+        turnover = 0.5 * sum(
+            abs(current_allocation.get(asset, 0.0) - previous_allocation.get(asset, 0.0))
+            for asset in assets
+        )
+        gross_return = sum(
             (weight / 100) * period_returns.get(asset, 0.0)
             for asset, weight in decision.allocation.items()
         )
+        trading_cost = turnover * max(0.0, transaction_cost_bps) / 10_000
+        portfolio_return = gross_return - trading_cost
         nexus_values.append(nexus_values[-1] * (1 + portfolio_return))
         spy_values.append(spy_values[-1] * (1 + period_returns.get("SPY", 0.0)))
         qqq_values.append(qqq_values[-1] * (1 + period_returns.get("QQQ", 0.0)))
         actions.append(decision.action)
+        turnovers.append(turnover)
+        previous_allocation = current_allocation
 
     periods_per_year = round(252 / rebalance_days)
     return {
@@ -198,6 +222,9 @@ def run_backtest(period: str = "5y", rebalance_days: int = 5) -> Dict[str, Any]:
         "rebalance_days": rebalance_days,
         "observations": len(actions),
         "fred_enriched": FRED_API_KEY is not None,
+        "fred_point_in_time": False,
+        "transaction_cost_bps": transaction_cost_bps,
+        "average_turnover": float(np.mean(turnovers)) if turnovers else 0.0,
         "nexus": _metrics(nexus_values, periods_per_year),
         "spy": _metrics(spy_values, periods_per_year),
         "qqq": _metrics(qqq_values, periods_per_year),
@@ -217,7 +244,9 @@ def render_report(result: Dict[str, Any]) -> None:
     )
     table.add_column("Estrategia", style="cyan")
     table.add_column("Retorno", justify="right")
+    table.add_column("CAGR", justify="right")
     table.add_column("Volatilidad", justify="right")
+    table.add_column("Sharpe", justify="right")
     table.add_column("Max Drawdown", justify="right")
 
     for name, key in [("NEXUS", "nexus"), ("Buy & Hold SPY", "spy"), ("Buy & Hold QQQ", "qqq")]:
@@ -225,22 +254,34 @@ def render_report(result: Dict[str, Any]) -> None:
         table.add_row(
             name,
             _fmt_pct(metrics["total_return"]),
+            _fmt_pct(metrics["annualized_return"]),
             _fmt_pct(metrics["volatility"]),
+            f"{metrics['sharpe']:.2f}",
             _fmt_pct(metrics["max_drawdown"]),
         )
 
     console.print(table)
     action_summary = " | ".join(f"{action}: {count}" for action, count in result["actions"].items())
     console.print(f"[dim]Observaciones: {result['observations']} | Señales: {action_summary}[/dim]")
+    console.print(
+        f"[dim]Coste: {result['transaction_cost_bps']:.1f} pb por rotación | "
+        f"Rotación media: {result['average_turnover'] * 100:.1f}% | "
+        "FRED histórico no point-in-time (puede contener revisiones).[/dim]"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backtesting mejorado de NEXUS")
     parser.add_argument("--period", default="5y", help="Periodo yfinance, ej. 2y, 5y, 10y.")
     parser.add_argument("--rebalance-days", type=int, default=5, help="Frecuencia de rebalanceo en días de mercado.")
+    parser.add_argument("--transaction-cost-bps", type=float, default=5.0, help="Coste por rotación en puntos básicos.")
     args = parser.parse_args()
 
-    result = run_backtest(period=args.period, rebalance_days=args.rebalance_days)
+    result = run_backtest(
+        period=args.period,
+        rebalance_days=args.rebalance_days,
+        transaction_cost_bps=args.transaction_cost_bps,
+    )
     render_report(result)
 
 

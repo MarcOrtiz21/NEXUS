@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Arranca `uvicorn web_dashboard` desde el .venv del repo.
@@ -10,8 +9,9 @@ final class EngineProcess {
         self.repoRoot = repoRoot
     }
 
+    var isRunning: Bool { process?.isRunning == true }
+
     func start() throws {
-        Self.terminateListener(port: 8765)
         if process?.isRunning == true {
             process?.terminate()
             process = nil
@@ -47,35 +47,6 @@ final class EngineProcess {
     func terminate() {
         process?.terminate()
         process = nil
-        Self.terminateListener(port: 8765)
-    }
-
-    static func terminateListener(port: Int) {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        task.arguments = ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            return
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let pids = String(data: data, encoding: .utf8)?
-            .split(whereSeparator: { $0.isNewline || $0.isWhitespace })
-            .compactMap { Int32($0) } ?? []
-        guard !pids.isEmpty else { return }
-        for pid in Set(pids) {
-            kill(pid, SIGTERM)
-        }
-        usleep(400_000)
-        for pid in Set(pids) {
-            kill(pid, SIGKILL)
-        }
-        usleep(200_000)
     }
 
     deinit {

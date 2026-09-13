@@ -3,6 +3,7 @@ import AppKit
 
 struct NewsView: View {
     @EnvironmentObject private var store: NexusStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @SceneStorage("nexus.newsReaderWidth") private var readerWidthStored = Double(NexusLayout.newsReaderIdealWidth)
     @State private var toneFilter = "ALL"
     @State private var sourceFilter = "ALL"
@@ -79,7 +80,7 @@ struct NewsView: View {
                         wideNewsStage(width: proxy.size.width)
                     }
                 }
-                .animation(NexusMotion.panel, value: store.selectedNewsID)
+                .animation(reduceMotion ? nil : NexusMotion.panel, value: store.selectedNewsID)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -215,7 +216,7 @@ struct NewsView: View {
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
-        .animation(NexusMotion.page, value: store.selectedNewsID)
+        .animation(reduceMotion ? nil : NexusMotion.page, value: store.selectedNewsID)
     }
 
     @ViewBuilder

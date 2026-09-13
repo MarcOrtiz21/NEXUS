@@ -63,6 +63,7 @@ class NativeApiContractTests(unittest.TestCase):
 
         self.assertEqual(set(payload["history_periods"]), {"7d", "30d", "90d"})
         self.assertEqual(payload["asset_ranking"][0]["ticker"], "SPY")
+        self.assertEqual(payload["decision"]["confidence_basis"], "data_quality")
         self.assertEqual(payload["change_attribution"]["score"]["delta"], 1)
         self.assertFalse(payload["news"]["linkage"]["causal"])
         self.assertEqual(payload["news"]["items"][0]["linked_assets"], ["GLD"])

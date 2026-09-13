@@ -16,6 +16,7 @@ private enum TerminalPanelSlot: Equatable {
 struct ChartsView: View {
     @EnvironmentObject private var store: NexusStore
     @Environment(\.nexusContentWidth) private var contentWidth
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage("nexus.terminal.interval") private var intervalRaw = NexusChartInterval.oneDay.rawValue
     @AppStorage("nexus.terminal.range") private var rangeRaw = NexusChartRange.threeMonths.rawValue
@@ -28,6 +29,7 @@ struct ChartsView: View {
     @AppStorage("nexus.terminal.custom.side.lower") private var customLowerSideTicker = "VIX"
     @AppStorage("nexus.terminal.custom.interval") private var customIntervalRaw = NexusChartInterval.oneDay.rawValue
     @AppStorage("nexus.terminal.custom.range") private var customRangeRaw = NexusChartRange.threeMonths.rawValue
+    @AppStorage("nexus.terminal.side.width") private var sideWidthValue = 360.0
 
     @State private var tickerInput = ""
     @State private var inputError: String?
@@ -67,6 +69,13 @@ struct ChartsView: View {
 
     private var wide: Bool { contentWidth >= 980 }
     private var snapshot: NativeSnapshot? { store.snapshot }
+
+    private var sideWidth: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(sideWidthValue) },
+            set: { sideWidthValue = Double($0) }
+        )
+    }
 
     private var satelliteTickers: [String] {
         [upperSideTicker, lowerSideTicker]
@@ -361,7 +370,7 @@ struct ChartsView: View {
                     .fontWeight(.bold)
                     .foregroundStyle(slot == .focus ? NexusTheme.accent : NexusTheme.text)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(NexusTheme.muted)
             }
             .font(.caption2)
@@ -552,15 +561,23 @@ struct ChartsView: View {
     private var marketBoard: some View {
         Group {
             if wide {
+                let sideMaximum = min(620, max(300, contentWidth * 0.48))
+                let shownSideWidth = min(max(280, CGFloat(sideWidthValue)), sideMaximum)
                 HStack(alignment: .top, spacing: NexusLayout.spacing) {
                     chartPanel(heroTicker, title: panelTitle(heroTicker), minHeight: 292, focused: true)
                         .frame(maxWidth: .infinity)
+                    NexusResizeHandle(
+                        width: sideWidth,
+                        minWidth: 280,
+                        maxWidth: sideMaximum,
+                        label: "Ancho de gráficos secundarios"
+                    )
                     VStack(spacing: NexusLayout.spacing) {
                         ForEach(satelliteTickers, id: \.self) { ticker in
                             chartPanel(ticker, title: panelTitle(ticker), minHeight: 136)
                         }
                     }
-                    .frame(width: max(260, contentWidth * 0.33))
+                    .frame(width: shownSideWidth)
                 }
             } else {
                 VStack(spacing: NexusLayout.spacing) {
@@ -661,7 +678,7 @@ struct ChartsView: View {
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: flowEntries.map(\.ticker).joined(separator: ","))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: flowEntries.map(\.ticker).joined(separator: ","))
     }
 
     private var flowEntries: [FlowEntry] {

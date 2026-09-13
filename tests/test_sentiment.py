@@ -26,6 +26,17 @@ class SentimentRegressionTests(unittest.TestCase):
         light_result = analyze_news_items(light)
         self.assertGreater(heavy_result["panic_hits"], light_result["panic_hits"])
 
+    def test_duplicate_headlines_do_not_multiply_sentiment(self):
+        items = [
+            {"title": "Markets crash amid recession fears", "weight": 1.0},
+            {"title": "Markets crash amid recession fears!", "weight": 2.0},
+        ]
+        result = analyze_news_items(items)
+
+        self.assertEqual(result["headline_count"], 1)
+        self.assertEqual(result["raw_headline_count"], 2)
+        self.assertEqual(result["duplicate_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

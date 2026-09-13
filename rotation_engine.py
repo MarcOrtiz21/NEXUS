@@ -279,6 +279,17 @@ class RotationEngine:
             if not company_ticker:
                 continue
             company = self.company_metrics.get(company_ticker, {})
+            company_mom_1m = company.get("momentum_1m")
+            relative_to_spy = (
+                company_mom_1m - spy_1m
+                if company_mom_1m is not None and spy_1m is not None
+                else None
+            )
+            relative_to_theme = (
+                company_mom_1m - mom_1m
+                if company_mom_1m is not None and mom_1m is not None
+                else None
+            )
             companies.append({
                 "name": name,
                 "ticker": company_ticker,
@@ -287,8 +298,10 @@ class RotationEngine:
                 "momentum_3m": company.get("momentum_3m"),
                 "trend": trend_label(company),
                 "volatility_20d": company.get("volatility_20d"),
-                "score": self._company_score(company),
-                "action": self._company_action(company),
+                "relative_1m_vs_spy": relative_to_spy,
+                "relative_1m_vs_theme": relative_to_theme,
+                "score": self._company_score(company, relative_to_spy, relative_to_theme),
+                "action": self._company_action(company, relative_to_spy, relative_to_theme),
             })
 
         return RotationTheme(
@@ -313,7 +326,11 @@ class RotationEngine:
         )
 
     @staticmethod
-    def _company_score(metrics: Dict[str, Any]) -> int | None:
+    def _company_score(
+        metrics: Dict[str, Any],
+        relative_to_spy: float | None = None,
+        relative_to_theme: float | None = None,
+    ) -> int | None:
         if metrics.get("price") is None:
             return None
         score = 50
@@ -329,11 +346,22 @@ class RotationEngine:
             value = metrics.get(key)
             if value is not None:
                 score += weighted_signed(value, weight, scale)
+        # La fuerza absoluta no basta: una empresa debe distinguirse también
+        # del mercado y del cesto al que pertenece.
+        if relative_to_spy is not None:
+            score += weighted_signed(relative_to_spy, 8, MOMENTUM_1M_SCALE)
+        if relative_to_theme is not None:
+            score += weighted_signed(relative_to_theme, 7, MOMENTUM_1M_SCALE)
         return max(0, min(100, score))
 
     @classmethod
-    def _company_action(cls, metrics: Dict[str, Any]) -> str:
-        score = cls._company_score(metrics)
+    def _company_action(
+        cls,
+        metrics: Dict[str, Any],
+        relative_to_spy: float | None = None,
+        relative_to_theme: float | None = None,
+    ) -> str:
+        score = cls._company_score(metrics, relative_to_spy, relative_to_theme)
         if score is None:
             return "SIN DATOS"
         if score >= 70:

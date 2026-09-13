@@ -203,6 +203,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     fx_plan = build_fx_gold_plan(decision, calendar, fx_sig, gold_sig)
     if not decision.get("confidence_note"):
         apply_stance_confidence(decision, data, calendar)
+    decision["confidence_basis"] = "data_quality"
     session_plan = build_session_plan(decision, calendar, fx_sig, gold_sig)
     headlines = fx_gold_headlines(news_items)
     period_rows = load_history_period("90d")

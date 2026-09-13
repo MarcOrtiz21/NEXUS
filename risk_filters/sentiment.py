@@ -192,6 +192,20 @@ def _headline_text(item: Dict[str, Any] | str) -> str:
     return item if isinstance(item, str) else str(item.get("title", ""))
 
 
+def _deduplicate_news_items(news_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Evita que el mismo teletipo replicado por varias fuentes domine el sesgo."""
+    unique: Dict[str, Dict[str, Any]] = {}
+    for item in news_items:
+        title = _headline_text(item).strip()
+        key = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+        if not key:
+            continue
+        current = unique.get(key)
+        if current is None or _headline_weight(item) > _headline_weight(current):
+            unique[key] = item
+    return list(unique.values())
+
+
 def classify_headline_tone(title: str) -> Dict[str, Any]:
     """Clasifica un titular: GOOD / BAD / MIXED / NEUTRAL (para UI)."""
     text = (title or "").strip()
@@ -238,6 +252,7 @@ def enrich_news_items_with_tone(news_items: List[Dict[str, Any]]) -> List[Dict[s
 
 def aggregate_news_narratives(news_items: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Group linked headlines into descriptive narratives, never causal claims."""
+    news_items = _deduplicate_news_items(news_items)
     groups: Dict[str, List[Dict[str, Any]]] = {}
     for item in news_items:
         topics = item.get("linked_topics") or []
@@ -270,8 +285,12 @@ def aggregate_news_narratives(news_items: List[Dict[str, Any]]) -> Dict[str, Any
 
 
 def analyze_news_items(news_items: List[Dict[str, Any]]) -> Dict:
+    raw_count = len(news_items)
+    news_items = _deduplicate_news_items(news_items)
     headlines = [_headline_text(item) for item in news_items if _headline_text(item)]
     result = analyze_headlines(headlines)
+    result["raw_headline_count"] = raw_count
+    result["duplicate_count"] = max(0, raw_count - len(news_items))
     if not news_items:
         return result
 
@@ -299,19 +318,19 @@ def analyze_news_items(news_items: List[Dict[str, Any]]) -> Dict:
             result["dominant_sentiment"] = "PANIC"
             result["details"] = (
                 f"Noticias ponderadas por fuente/recencia: miedo dominante "
-                f"({weighted_panic:.1f} vs {weighted_bull:.1f}, {len(news_items)} titulares)."
+                f"({weighted_panic:.1f} vs {weighted_bull:.1f}, {len(news_items)} titulares únicos)."
             )
         elif panic_ratio < 0.4:
             result["dominant_sentiment"] = "BULLISH"
             result["details"] = (
                 f"Noticias ponderadas por fuente/recencia: optimismo dominante "
-                f"({weighted_bull:.1f} vs {weighted_panic:.1f}, {len(news_items)} titulares)."
+                f"({weighted_bull:.1f} vs {weighted_panic:.1f}, {len(news_items)} titulares únicos)."
             )
         else:
             result["dominant_sentiment"] = "MIXED"
             result["details"] = (
                 f"Sentimiento mixto ponderado ({weighted_panic:.1f} pánico, "
-                f"{weighted_bull:.1f} alcista, {len(news_items)} titulares)."
+                f"{weighted_bull:.1f} alcista, {len(news_items)} titulares únicos)."
             )
     return _finbert_refine(headlines, result)
 

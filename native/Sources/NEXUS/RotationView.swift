@@ -302,7 +302,7 @@ struct RotationView: View {
     private func tileMetric(_ label: String, _ value: Double?) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(LocalizedStringKey(label))
-                .font(.system(size: 8, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(NexusTheme.muted)
             Text(formatPct(value))
                 .font(.caption2.monospacedDigit().weight(.bold))

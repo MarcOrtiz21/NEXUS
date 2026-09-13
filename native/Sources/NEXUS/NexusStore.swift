@@ -48,10 +48,13 @@ final class NexusStore: ObservableObject {
     }
 
     func ensureEngine() async {
+        if await client.health() {
+            engineStatus = "Motor OK · :8765"
+            return
+        }
         engineStatus = "Arrancando motor Python…"
         engine?.terminate()
         engine = nil
-        EngineProcess.terminateListener(port: 8765)
         let process = EngineProcess(repoRoot: repoRoot)
         do {
             try process.start()
@@ -62,9 +65,12 @@ final class NexusStore: ObservableObject {
                     engineStatus = "Motor OK · :8765"
                     return
                 }
+                if !process.isRunning {
+                    break
+                }
             }
             engineStatus = "Motor no responde en :8765"
-            errorMessage = "No se pudo contactar con web_dashboard. Prueba run_dashboard.command."
+            errorMessage = "No se pudo iniciar el motor local. Comprueba que el puerto 8765 esté libre o ejecuta run_dashboard.command."
         } catch {
             engineStatus = "Error al arrancar motor"
             errorMessage = error.localizedDescription

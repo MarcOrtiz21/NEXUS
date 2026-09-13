@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any
@@ -349,6 +350,21 @@ def _rotation_cache_complete(cache: Dict[str, Any] | None) -> bool:
     if not _cache_schema_ok(cache):
         return False
     companies = (cache or {}).get("RotationCompanies", {})
+    expected_tickers = set(ROTATION_COMPANY_TICKERS.values())
+    expected = len(expected_tickers)
+    available = sum(
+        1 for ticker in expected_tickers
+        if (companies.get(ticker) or {}).get("price") is not None
+    )
+    # Una caché con una única empresa no debe bloquear la recuperación del resto.
+    return expected > 0 and available / expected >= 0.90
+
+
+def _rotation_cache_present(cache: Dict[str, Any] | None) -> bool:
+    """Una caché parcial aún sirve para pintar lo disponible mientras se repara."""
+    if not _cache_schema_ok(cache):
+        return False
+    companies = (cache or {}).get("RotationCompanies", {})
     return any(metrics.get("price") is not None for metrics in companies.values())
 
 
@@ -364,7 +380,7 @@ def _fast_cache_usable(cache: Dict[str, Any] | None) -> bool:
 
 def _rotation_cache_usable(cache: Dict[str, Any] | None) -> bool:
     """Indica si el detalle de empresas puede servirse sin otra descarga."""
-    return _cache_is_fresh(cache, ROTATION_MARKET_CACHE_TTL_SECONDS) and _rotation_cache_complete(cache)
+    return _cache_is_fresh(cache, ROTATION_MARKET_CACHE_TTL_SECONDS) and _rotation_cache_present(cache)
 
 
 def _slow_cache_usable(cache: Dict[str, Any] | None) -> bool:
@@ -473,6 +489,33 @@ def _yf_download(
             Path(output_path).unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def _yf_download_batches(
+    tickers: list[str],
+    *,
+    period: str = "2y",
+    batch_size: int = 60,
+    timeout: int = 25,
+    max_workers: int = 3,
+):
+    """Descarga universos grandes sin perderlo todo si un lote se atasca."""
+    chunks = [tickers[index:index + batch_size] for index in range(0, len(tickers), batch_size)]
+    if not chunks:
+        return None
+
+    def fetch(chunk: list[str]):
+        return _yf_download(chunk, period=period, timeout=timeout)
+
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(chunks))) as executor:
+        candidates = list(executor.map(fetch, chunks))
+    frames = [frame for frame in candidates if isinstance(frame, pd.DataFrame) and not frame.empty]
+    if not frames:
+        return None
+    merged = pd.concat(frames, axis=1).sort_index()
+    if merged.columns.duplicated().any():
+        merged = merged.loc[:, ~merged.columns.duplicated()]
+    return merged
 
 
 def _sparkline_points(series: pd.Series, spy: pd.Series | None = None, points: int = SPARKLINE_POINTS) -> list[dict]:
@@ -1046,7 +1089,8 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
 
     global_tickers = list(GLOBAL_MARKET_TICKERS.values())
     have_fast = _fast_cache_complete(fast_cache)
-    have_rotation = _rotation_cache_complete(rotation_cache)
+    have_rotation = _rotation_cache_present(rotation_cache)
+    rotation_complete = _rotation_cache_complete(rotation_cache)
     have_slow = _slow_cache_complete(slow_cache)
     market_live = False
 
@@ -1160,24 +1204,37 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         )
         _apply_tier_cache(data, rotation_cache, ROTATION_CACHE_KEYS, stale=not use_rotation_cache)
 
-    if refresh and company_tickers and not have_rotation:
-        logging.info("Descargando detalle de empresas de rotación (yfinance, 2 años)...")
-        company_df = _yf_download(company_tickers)
+    missing_company_tickers = [
+        ticker for ticker in company_tickers
+        if (data["RotationCompanies"].get(ticker) or {}).get("price") is None
+    ]
+    company_download_tickers = (
+        company_tickers if not rotation_complete else missing_company_tickers
+    )
+    if refresh and company_download_tickers:
+        logging.info(
+            "Descargando detalle de %s empresas de rotación (yfinance, 2 años)...",
+            len(company_download_tickers),
+        )
+        company_df = _yf_download_batches(company_download_tickers)
         if company_df is not None and not company_df.empty and "Close" in company_df.columns:
             company_close = company_df["Close"]
-            data["RotationCompanies"] = {
+            fresh_company_metrics = {
                 ticker: _calculate_asset_metrics(company_close, ticker)
-                for ticker in company_tickers
+                for ticker in company_download_tickers
             }
-            for ticker, metrics in data["RotationCompanies"].items():
+            data["RotationCompanies"].update(fresh_company_metrics)
+            for ticker, metrics in fresh_company_metrics.items():
                 status = "OK" if metrics.get("price") is not None else "MISSING"
                 _mark_quality(data, f"RotationCompanies.{ticker}", f"yfinance:{ticker}", status)
             rotation_cache_updated = any(
                 metrics.get("price") is not None
-                for metrics in data["RotationCompanies"].values()
+                for metrics in fresh_company_metrics.values()
             )
-            company_sparks = _build_sparklines(company_close, tickers=company_tickers)
-            company_ohlc = _build_ohlc_sparklines(company_df, company_close, tickers=company_tickers)
+            company_sparks = _build_sparklines(company_close, tickers=company_download_tickers)
+            company_ohlc = _build_ohlc_sparklines(
+                company_df, company_close, tickers=company_download_tickers
+            )
             merged = {**(company_sparks or {}), **(company_ohlc or {})}
             if merged:
                 data["PriceSparklines"] = {**(data.get("PriceSparklines") or {}), **merged}
@@ -1338,6 +1395,27 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
     obs_as_of = data.get("CPI_AsOf") or data.get("M2_AsOf")
     if obs_as_of:
         macro_freshness["as_of"] = obs_as_of
+    company_metrics = data.get("RotationCompanies") or {}
+    company_total = len(company_tickers)
+    company_available = sum(
+        1 for ticker in company_tickers
+        if (company_metrics.get(ticker) or {}).get("price") is not None
+    )
+    company_freshness = _layer_freshness(
+        "Empresas",
+        rotation_cache,
+        live=rotation_cache_updated,
+        present=company_available > 0,
+        ttl=ROTATION_MARKET_CACHE_TTL_SECONDS,
+    )
+    company_freshness.update({
+        "available": company_available,
+        "total": company_total,
+        "coverage_pct": round(company_available / company_total * 100, 1) if company_total else None,
+    })
+    if 0 < company_available < company_total and company_freshness["status"] == "OK":
+        company_freshness["status"] = "PARTIAL"
+
     data["Freshness"] = {
         "market": _layer_freshness(
             "Mercado",
@@ -1347,13 +1425,7 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
             ttl=FAST_MARKET_CACHE_TTL_SECONDS,
         ),
         "macro": macro_freshness,
-        "companies": _layer_freshness(
-            "Empresas",
-            rotation_cache,
-            live=rotation_cache_updated,
-            present=have_rotation or rotation_cache_updated,
-            ttl=ROTATION_MARKET_CACHE_TTL_SECONDS,
-        ),
+        "companies": company_freshness,
     }
 
     core_sane = "VIX" not in sanity_rejected and "SPY" not in sanity_rejected

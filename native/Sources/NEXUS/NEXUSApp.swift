@@ -42,7 +42,7 @@ struct NEXUSApp: App {
                     store.autoRefresh.toggle()
                 }
                 Divider()
-                ForEach([NavItem.overview, .news, .forexGold, .rotation, .global, .charts, .watchlist, .history], id: \.self) { item in
+                ForEach([NavItem.overview, .report, .news, .forexGold, .rotation, .global, .charts, .watchlist, .history], id: \.self) { item in
                     Button {
                         store.selected = item
                     } label: {

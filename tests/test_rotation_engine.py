@@ -93,6 +93,8 @@ class RotationEngineTests(unittest.TestCase):
         self.assertEqual(apple["name"], "Apple")
         self.assertEqual(apple["price"], 210.0)
         self.assertEqual(apple["momentum_1m"], 4.0)
+        self.assertEqual(apple["relative_1m_vs_spy"], 3.0)
+        self.assertEqual(apple["relative_1m_vs_theme"], 2.0)
         self.assertEqual(xlk.price, 100.0)
 
     def test_each_theme_exposes_fifteen_companies_with_action_indicator(self):
@@ -104,6 +106,10 @@ class RotationEngineTests(unittest.TestCase):
         result = RotationEngine(data).evaluate()
 
         self.assertTrue(all(len(theme.companies) == 15 for theme in result.themes))
+        self.assertTrue(all(
+            len({company["ticker"] for company in theme.companies}) == 15
+            for theme in result.themes
+        ))
         self.assertTrue(all(company["action"] == "SIN DATOS" for company in result.themes[0].companies))
         self.assertTrue(any(theme.ticker == "EWP" and theme.theme == "España / IBEX" for theme in result.themes))
 
@@ -148,6 +154,13 @@ class RotationEngineTests(unittest.TestCase):
         self.assertIsNotNone(weak)
         self.assertIsNotNone(strong)
         self.assertGreater(strong - weak, 10)
+
+    def test_company_score_rewards_strength_against_market_and_theme(self):
+        metrics = _asset(mom1=3.0, mom3=8.0)
+        laggard = RotationEngine._company_score(metrics, -2.0, -1.0)
+        leader = RotationEngine._company_score(metrics, 2.0, 1.0)
+
+        self.assertGreater(leader, laggard)
 
 
 if __name__ == "__main__":

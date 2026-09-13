@@ -163,13 +163,17 @@ struct FreshnessLayer: Codable, Identifiable {
     let ageLabel: String?
     let status: String?
     let asOf: String?
+    let available: Int?
+    let total: Int?
+    let coveragePct: Double?
 
     enum CodingKeys: String, CodingKey {
-        case label, status
+        case label, status, available, total
         case key = "id"
         case ageSeconds = "age_seconds"
         case ageLabel = "age_label"
         case asOf = "as_of"
+        case coveragePct = "coverage_pct"
     }
 }
 
@@ -186,6 +190,7 @@ struct TrackThesis: Codable {
     let detail: String?
     let sampleSize: Int?
     let buyCount: Int?
+    let requiredSampleSize: Int?
     let hitRatePct: Double?
     let avgReturnPct: Double?
     let forwardDays: Int?
@@ -197,6 +202,7 @@ struct TrackThesis: Codable {
         case ready, tone, headline, detail
         case sampleSize = "sample_size"
         case buyCount = "buy_count"
+        case requiredSampleSize = "required_sample_size"
         case hitRatePct = "hit_rate_pct"
         case avgReturnPct = "avg_return_pct"
         case forwardDays = "forward_days"
@@ -246,6 +252,7 @@ struct SessionPlan: Codable {
     let legs: [SessionPlanLeg]?
     let score: Int?
     let confidence: String?
+    let confidenceBasis: String?
     let confidenceNote: String?
     let scoreDrivers: [ScoreDriver]?
 
@@ -255,6 +262,7 @@ struct SessionPlan: Codable {
         case allowsEntry = "allows_entry"
         case weightCaption = "weight_caption"
         case confidenceNote = "confidence_note"
+        case confidenceBasis = "confidence_basis"
         case scoreDrivers = "score_drivers"
     }
 }
@@ -405,6 +413,7 @@ struct Decision: Codable {
     let action: String?
     let score: Int?
     let confidence: String?
+    let confidenceBasis: String?
     let confidenceNote: String?
     let favoredAssets: [String]?
     let allocation: [String: Int]?
@@ -418,6 +427,7 @@ struct Decision: Codable {
 
     enum CodingKeys: String, CodingKey {
         case action, score, confidence, allocation, rationale
+        case confidenceBasis = "confidence_basis"
         case confidenceNote = "confidence_note"
         case macroAllocation = "macro_allocation"
         case favoredAssets = "favored_assets"
@@ -558,6 +568,8 @@ struct RotationCompany: Codable, Identifiable {
     let price: Double?
     let momentum1m: Double?
     let momentum3m: Double?
+    let relative1mVsSpy: Double?
+    let relative1mVsTheme: Double?
     let trend: String?
     let volatility20d: Double?
     let score: Int?
@@ -567,6 +579,8 @@ struct RotationCompany: Codable, Identifiable {
         case name, ticker, price, trend
         case momentum1m = "momentum_1m"
         case momentum3m = "momentum_3m"
+        case relative1mVsSpy = "relative_1m_vs_spy"
+        case relative1mVsTheme = "relative_1m_vs_theme"
         case volatility20d = "volatility_20d"
         case score, action
     }

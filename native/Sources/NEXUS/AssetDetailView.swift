@@ -420,6 +420,10 @@ struct AssetDetailView: View {
                     label: "Mom 3M",
                     value: formatPct(score?.momentum3m ?? company?.momentum3m ?? rotationTheme?.momentum3m ?? metrics?.momentum3m)
                 )
+                if let company {
+                    NexusKVRow(label: "vs SPY · 1M", value: formatPct(company.relative1mVsSpy))
+                    NexusKVRow(label: "vs tema · 1M", value: formatPct(company.relative1mVsTheme))
+                }
                 NexusKVRow(
                     label: "Vol 20d",
                     value: formatPct(score?.volatility20d ?? company?.volatility20d ?? metrics?.volatility20d),
@@ -514,12 +518,22 @@ struct AssetDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(companyAccessibilityLabel(company))
+                .accessibilityHint("Abrir el detalle de la empresa")
                 if company.id != companies.last?.id {
                     Divider().opacity(0.10)
                 }
             }
         }
         .nexusCard()
+    }
+
+    private func companyAccessibilityLabel(_ company: RotationCompany) -> String {
+        let name = company.name ?? company.ticker ?? "Empresa"
+        let ticker = company.ticker ?? "sin ticker"
+        let score = company.score.map { "score \($0) de 100" } ?? "sin score"
+        let signal = companyTechnicalLabel(company.action, allowsEntry: store.snapshot?.sessionPlan?.allowsEntry == true)
+        return "\(name), \(ticker), \(signal), \(score)"
     }
 
     private func basketStat(_ title: String, _ value: String, _ tone: Color) -> some View {

@@ -97,7 +97,8 @@ struct OverviewView: View {
                 .foregroundStyle(NexusTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             if let count = thesis?.buyCount, let sample = thesis?.sampleSize {
-                Text("Muestra: \(count) COMPRAR · \(sample) lecturas")
+                let required = thesis?.requiredSampleSize ?? 30
+                Text("Muestra independiente: \(count)/\(required) · \(sample) lecturas de auditoría")
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
             }
@@ -229,7 +230,7 @@ struct OverviewView: View {
                 Spacer()
                 Text(">30")
             }
-            .font(.system(size: 8, weight: .semibold))
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(NexusTheme.muted)
         }
     }
@@ -325,7 +326,7 @@ struct OverviewView: View {
                                 .font(.caption.monospacedDigit().weight(.bold))
                                 .foregroundStyle(NexusTheme.toneColor(asset.action))
                             Text(rankingMovement(ticker))
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.caption2.weight(.semibold))
                                 .foregroundStyle(rankingMovementColor(ticker))
                             Text(rankingInstruction(ticker, asset.action))
                                 .font(.caption2.weight(.semibold))
@@ -467,8 +468,7 @@ struct OverviewView: View {
             }
         }
         .nexusCard()
-        .contentShape(Rectangle())
-        .onTapGesture { store.selected = .news }
+        .nexusInteractive(label: "Abrir noticias") { store.selected = .news }
         .help("Abrir noticias")
     }
 
@@ -484,7 +484,7 @@ struct OverviewView: View {
 
     private func vixBand(_ label: String, _ color: Color) -> some View {
         Text(LocalizedStringKey(label))
-            .font(.system(size: 8, weight: .semibold))
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
@@ -599,6 +599,7 @@ struct OverviewView: View {
 }
 
 struct BlockBannerView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: NexusStore
     let banner: BlockBanner
     let compact: Bool
@@ -657,7 +658,7 @@ struct BlockBannerView: View {
                     .font(.caption.monospacedDigit().weight(.bold))
             }
             NexusActionButton(title: "Detalle", role: .onAccent) {
-                withAnimation(.easeInOut(duration: 0.18)) { expanded = true }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { expanded = true }
             }
         }
     }
@@ -675,7 +676,7 @@ struct BlockBannerView: View {
                 }
                 if compact {
                     NexusActionButton(title: "Ocultar", systemImage: "chevron.up", role: .onAccent, helpText: "Contraer aviso") {
-                        withAnimation(.easeInOut(duration: 0.18)) { expanded = false }
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { expanded = false }
                     }
                 }
             }
