@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any
 from itertools import combinations
@@ -41,6 +41,12 @@ from config import (
     SANITY_SPY_IVV_PCT,
     SANITY_VIX_MAX,
     SANITY_VIX_MIN,
+)
+from cftc_positioning import (
+    CFTC_SOURCE,
+    fetch_gold_cot_history,
+    positioning_data_fields,
+    summarize_gold_positioning,
 )
 from rotation_catalog import ROTATION_COMPANY_TICKERS
 
@@ -79,24 +85,76 @@ ROTATION_CACHE_KEYS = ("RotationCompanies",)
 
 # Cambia cuando se modifica el contrato de los bloques cacheados. Así no se
 # reutiliza un cache antiguo que, por ejemplo, no contiene nuevos proxies.
-CACHE_SCHEMA_VERSION = 9
+CACHE_SCHEMA_VERSION = 12
 MIN_USABLE_CACHE_SCHEMA = 6
 CACHE_METRIC_GROUPS = {"Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets"}
 
 SLOW_VALUE_KEYS = (
     "US2Y", "Yield_Curve_Spread", "M2_Latest", "M2_Previous", "M2_Change_Pct",
-    "CPI_Latest", "CPI_YoY_Pct", "China_M2_YoY_Pct",
+    "CPI_Latest", "CPI_MoM_Pct", "CPI_3M_Annualized_Pct", "CPI_YoY_Pct",
+    "Core_CPI_Latest", "Core_CPI_MoM_Pct", "Core_CPI_3M_Annualized_Pct", "Core_CPI_YoY_Pct",
+    "PCE_Latest", "PCE_MoM_Pct", "PCE_3M_Annualized_Pct", "PCE_YoY_Pct",
+    "Core_PCE_Latest", "Core_PCE_MoM_Pct", "Core_PCE_3M_Annualized_Pct", "Core_PCE_YoY_Pct",
+    "Energy_CPI_Latest", "Energy_CPI_MoM_Pct", "Energy_CPI_YoY_Pct",
+    "Real_Yield_10Y_Pct", "Real_Yield_10Y_1M_Change_Pp",
+    "Breakeven_10Y_Pct", "Breakeven_10Y_1M_Change_Pp",
+    "WTI_Price", "WTI_1M_Change_Pct",
+    "Unemployment_Rate_Pct", "Unemployment_1M_Change_Pp",
+    "Payrolls_Level_Thousands", "Payrolls_1M_Change_Thousands",
+    "Industrial_Production_MoM_Pct",
+    "GoldCFTC",
+    "CFTC_MM_Net_Contracts", "CFTC_MM_Net_Pct_OI",
+    "CFTC_MM_Weekly_Change_Contracts", "CFTC_MM_4W_Change_Contracts",
+    "CFTC_MM_4W_Change_Pct_OI", "CFTC_MM_Percentile_3Y", "CFTC_MM_ZScore_3Y",
+    "CFTC_Price_Positioning_Divergence",
+    "CFTC_Concentration_4_Long_Pct", "CFTC_Concentration_4_Short_Pct",
+    "CFTC_Concentration_8_Long_Pct", "CFTC_Concentration_8_Short_Pct",
+    "China_M2_YoY_Pct",
     "PE_Trailing", "PE_Forward", "PE_Forward_Date", "PE_Forward_Source", "PE_Forward_Percentile",
 )
-SLOW_ASOF_KEYS = ("M2_AsOf", "CPI_AsOf", "China_M2_AsOf", "US2Y_AsOf")
+SLOW_ASOF_KEYS = (
+    "M2_AsOf", "CPI_AsOf", "Core_CPI_AsOf", "PCE_AsOf", "Core_PCE_AsOf",
+    "Energy_CPI_AsOf", "Real_Yield_10Y_AsOf", "Breakeven_10Y_AsOf", "WTI_AsOf",
+    "Unemployment_AsOf", "Payrolls_AsOf", "Industrial_Production_AsOf",
+    "China_M2_AsOf", "US2Y_AsOf", "CFTC_AsOf", "CFTC_ReleaseAt",
+)
 SLOW_CACHE_KEYS = SLOW_VALUE_KEYS + SLOW_ASOF_KEYS
 _ASOF_FOR_KEY = {
     "CPI_YoY_Pct": "CPI_AsOf",
+    "CPI_MoM_Pct": "CPI_AsOf",
+    "CPI_3M_Annualized_Pct": "CPI_AsOf",
     "CPI_Latest": "CPI_AsOf",
+    "Core_CPI_YoY_Pct": "Core_CPI_AsOf",
+    "Core_CPI_MoM_Pct": "Core_CPI_AsOf",
+    "Core_CPI_3M_Annualized_Pct": "Core_CPI_AsOf",
+    "PCE_YoY_Pct": "PCE_AsOf",
+    "PCE_MoM_Pct": "PCE_AsOf",
+    "PCE_3M_Annualized_Pct": "PCE_AsOf",
+    "Core_PCE_YoY_Pct": "Core_PCE_AsOf",
+    "Core_PCE_MoM_Pct": "Core_PCE_AsOf",
+    "Core_PCE_3M_Annualized_Pct": "Core_PCE_AsOf",
+    "Energy_CPI_YoY_Pct": "Energy_CPI_AsOf",
+    "Energy_CPI_MoM_Pct": "Energy_CPI_AsOf",
+    "Real_Yield_10Y_Pct": "Real_Yield_10Y_AsOf",
+    "Real_Yield_10Y_1M_Change_Pp": "Real_Yield_10Y_AsOf",
+    "WTI_Price": "WTI_AsOf",
+    "WTI_1M_Change_Pct": "WTI_AsOf",
     "M2_Change_Pct": "M2_AsOf",
     "M2_Latest": "M2_AsOf",
     "China_M2_YoY_Pct": "China_M2_AsOf",
     "US2Y": "US2Y_AsOf",
+    "CFTC_MM_Net_Contracts": "CFTC_AsOf",
+    "CFTC_MM_Net_Pct_OI": "CFTC_AsOf",
+    "CFTC_MM_Weekly_Change_Contracts": "CFTC_AsOf",
+    "CFTC_MM_4W_Change_Contracts": "CFTC_AsOf",
+    "CFTC_MM_4W_Change_Pct_OI": "CFTC_AsOf",
+    "CFTC_MM_Percentile_3Y": "CFTC_AsOf",
+    "CFTC_MM_ZScore_3Y": "CFTC_AsOf",
+    "CFTC_Price_Positioning_Divergence": "CFTC_AsOf",
+    "CFTC_Concentration_4_Long_Pct": "CFTC_AsOf",
+    "CFTC_Concentration_4_Short_Pct": "CFTC_AsOf",
+    "CFTC_Concentration_8_Long_Pct": "CFTC_AsOf",
+    "CFTC_Concentration_8_Short_Pct": "CFTC_AsOf",
 }
 
 
@@ -384,7 +442,15 @@ def _rotation_cache_usable(cache: Dict[str, Any] | None) -> bool:
 
 
 def _slow_cache_usable(cache: Dict[str, Any] | None) -> bool:
-    return _cache_is_fresh(cache, SLOW_MACRO_CACHE_TTL_SECONDS) and _slow_cache_complete(cache)
+    # La capa macro cambia de contrato con más frecuencia que mercado/rotación.
+    # Una caché antigua puede contener IPC interanual y, aun así, carecer de
+    # IPC mensual, inflación subyacente, energía o tipos reales. No debe
+    # considerarse vigente para el motor de oro aunque todavía sirva de fallback.
+    return (
+        (cache or {}).get("schema_version") == CACHE_SCHEMA_VERSION
+        and _cache_is_fresh(cache, SLOW_MACRO_CACHE_TTL_SECONDS)
+        and _slow_cache_complete(cache)
+    )
 
 
 def _layer_freshness(
@@ -635,7 +701,7 @@ def _ohlc_sparkline_points(
 
 
 def _sparkline_alias(ticker: str) -> str:
-    aliases = {"EURUSD=X": "EURUSD", "^VIX": "VIX"}
+    aliases = {"EURUSD=X": "EURUSD", "^VIX": "VIX", "GC=F": "XAUUSD"}
     for pair, yf_ticker in FOREX_TICKERS.items():
         aliases[str(yf_ticker)] = pair
     return aliases.get(ticker, ticker)
@@ -651,7 +717,7 @@ def _sparkline_universe() -> set[str]:
         + ROTATION_ASSETS
         + list(FOREX_TICKERS.values())
         + list(GLOBAL_MARKET_TICKERS.values())
-        + ["^VIX", "SPY"]
+        + ["^VIX", "SPY", "GC=F"]
     )
 
 
@@ -814,18 +880,51 @@ def _restamp_observation_quality(data: Dict[str, Any]) -> None:
     """as_of = fecha de la observación FRED, no la hora de captura NEXUS."""
     mapping = (
         ("CPI_YoY_Pct", "CPI_AsOf", "FRED:CPIAUCSL"),
+        ("CPI_MoM_Pct", "CPI_AsOf", "FRED:CPIAUCSL"),
+        ("CPI_3M_Annualized_Pct", "CPI_AsOf", "FRED:CPIAUCSL"),
         ("CPI_Latest", "CPI_AsOf", "FRED:CPIAUCSL"),
+        ("Core_CPI_MoM_Pct", "Core_CPI_AsOf", "FRED:CPILFESL"),
+        ("Core_CPI_3M_Annualized_Pct", "Core_CPI_AsOf", "FRED:CPILFESL"),
+        ("Core_CPI_YoY_Pct", "Core_CPI_AsOf", "FRED:CPILFESL"),
+        ("PCE_MoM_Pct", "PCE_AsOf", "FRED:PCEPI"),
+        ("PCE_3M_Annualized_Pct", "PCE_AsOf", "FRED:PCEPI"),
+        ("PCE_YoY_Pct", "PCE_AsOf", "FRED:PCEPI"),
+        ("Core_PCE_MoM_Pct", "Core_PCE_AsOf", "FRED:PCEPILFE"),
+        ("Core_PCE_3M_Annualized_Pct", "Core_PCE_AsOf", "FRED:PCEPILFE"),
+        ("Core_PCE_YoY_Pct", "Core_PCE_AsOf", "FRED:PCEPILFE"),
+        ("Energy_CPI_MoM_Pct", "Energy_CPI_AsOf", "FRED:CPIENGSL"),
+        ("Energy_CPI_YoY_Pct", "Energy_CPI_AsOf", "FRED:CPIENGSL"),
+        ("Real_Yield_10Y_Pct", "Real_Yield_10Y_AsOf", "FRED:DFII10"),
+        ("Real_Yield_10Y_1M_Change_Pp", "Real_Yield_10Y_AsOf", "FRED:DFII10"),
+        ("Breakeven_10Y_Pct", "Breakeven_10Y_AsOf", "FRED:T10YIE"),
+        ("WTI_1M_Change_Pct", "WTI_AsOf", "FRED:DCOILWTICO"),
+        ("Unemployment_1M_Change_Pp", "Unemployment_AsOf", "FRED:UNRATE"),
+        ("Payrolls_1M_Change_Thousands", "Payrolls_AsOf", "FRED:PAYEMS"),
+        ("Industrial_Production_MoM_Pct", "Industrial_Production_AsOf", "FRED:INDPRO"),
         ("M2_Change_Pct", "M2_AsOf", "FRED:WM2NS"),
         ("M2_Latest", "M2_AsOf", "FRED:WM2NS"),
         ("China_M2_YoY_Pct", "China_M2_AsOf", "FRED:MYAGM2CNM189N"),
         ("US2Y", "US2Y_AsOf", "FRED:DGS2"),
+        ("CFTC_MM_Net_Contracts", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_Net_Pct_OI", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_Weekly_Change_Contracts", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_4W_Change_Contracts", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_4W_Change_Pct_OI", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_Percentile_3Y", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_MM_ZScore_3Y", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_Price_Positioning_Divergence", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_Concentration_4_Long_Pct", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_Concentration_4_Short_Pct", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_Concentration_8_Long_Pct", "CFTC_AsOf", CFTC_SOURCE),
+        ("CFTC_Concentration_8_Short_Pct", "CFTC_AsOf", CFTC_SOURCE),
     )
     quality = data.setdefault("DataQuality", {})
-    for key, as_of_key, _source in mapping:
+    for key, as_of_key, source in mapping:
         as_of = data.get(as_of_key)
         item = quality.get(key)
         if not as_of or not isinstance(item, dict):
             continue
+        item["source"] = source
         item["as_of"] = as_of
         detail = str(item.get("detail") or "")
         note = f"observación {as_of}"
@@ -968,6 +1067,62 @@ def _fetch_latest_fred_value(series_id: str) -> float | None:
     return observations[0]["value"]
 
 
+def _monthly_level_changes(observations: list | None) -> Dict[str, Any]:
+    """Nivel y variaciones MoM/YoY de una serie mensual descendente."""
+    if not observations:
+        return {"latest": None, "mom_pct": None, "three_month_annualized_pct": None, "yoy_pct": None, "as_of": None}
+    latest = observations[0]
+    latest_value = latest.get("value")
+    if not isinstance(latest_value, (int, float)):
+        return {"latest": None, "mom_pct": None, "three_month_annualized_pct": None, "yoy_pct": None, "as_of": latest.get("date")}
+    previous = observations[1].get("value") if len(observations) >= 2 else None
+    mom = None
+    if isinstance(previous, (int, float)) and previous != 0:
+        mom = round((latest_value / previous - 1) * 100, 3)
+    three_month_annualized = None
+    three_months_ago = observations[3].get("value") if len(observations) >= 4 else None
+    if isinstance(three_months_ago, (int, float)) and three_months_ago > 0 and latest_value > 0:
+        three_month_annualized = round(((latest_value / three_months_ago) ** 4 - 1) * 100, 3)
+    yoy = None
+    try:
+        latest_dt = datetime.strptime(str(latest.get("date")), "%Y-%m-%d")
+        target = latest_dt.replace(year=latest_dt.year - 1)
+        year_ago = _find_obs_near_date(observations, target.strftime("%Y-%m-%d"))
+        if isinstance(year_ago, (int, float)) and year_ago != 0:
+            yoy = round((latest_value / year_ago - 1) * 100, 3)
+    except (TypeError, ValueError):
+        pass
+    return {
+        "latest": float(latest_value),
+        "mom_pct": mom,
+        "three_month_annualized_pct": three_month_annualized,
+        "yoy_pct": yoy,
+        "as_of": latest.get("date"),
+    }
+
+
+def _latest_period_change(observations: list | None, *, days: int = 30) -> Dict[str, Any]:
+    """Último nivel y cambio frente a la observación disponible previa al corte."""
+    if not observations:
+        return {"latest": None, "change": None, "as_of": None}
+    latest = observations[0]
+    value = latest.get("value")
+    if not isinstance(value, (int, float)):
+        return {"latest": None, "change": None, "as_of": latest.get("date")}
+    prior = None
+    try:
+        latest_dt = datetime.strptime(str(latest.get("date")), "%Y-%m-%d")
+        target = latest_dt - timedelta(days=days)
+        prior = _find_obs_near_date(observations, target.strftime("%Y-%m-%d"))
+    except (TypeError, ValueError):
+        pass
+    return {
+        "latest": float(value),
+        "change": round(float(value) - float(prior), 3) if isinstance(prior, (int, float)) else None,
+        "as_of": latest.get("date"),
+    }
+
+
 # ─────────────────────────────────────────────────────────────
 # Función principal
 # ─────────────────────────────────────────────────────────────
@@ -1017,11 +1172,64 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         "M2_Previous": None,
         "M2_Change_Pct": None,
         "CPI_Latest": None,
+        "CPI_MoM_Pct": None,
+        "CPI_3M_Annualized_Pct": None,
         "CPI_YoY_Pct": None,
+        "Core_CPI_Latest": None,
+        "Core_CPI_MoM_Pct": None,
+        "Core_CPI_3M_Annualized_Pct": None,
+        "Core_CPI_YoY_Pct": None,
+        "PCE_Latest": None,
+        "PCE_MoM_Pct": None,
+        "PCE_3M_Annualized_Pct": None,
+        "PCE_YoY_Pct": None,
+        "Core_PCE_Latest": None,
+        "Core_PCE_MoM_Pct": None,
+        "Core_PCE_3M_Annualized_Pct": None,
+        "Core_PCE_YoY_Pct": None,
+        "Energy_CPI_Latest": None,
+        "Energy_CPI_MoM_Pct": None,
+        "Energy_CPI_YoY_Pct": None,
+        "Real_Yield_10Y_Pct": None,
+        "Real_Yield_10Y_1M_Change_Pp": None,
+        "Breakeven_10Y_Pct": None,
+        "Breakeven_10Y_1M_Change_Pp": None,
+        "WTI_Price": None,
+        "WTI_1M_Change_Pct": None,
+        "Unemployment_Rate_Pct": None,
+        "Unemployment_1M_Change_Pp": None,
+        "Payrolls_Level_Thousands": None,
+        "Payrolls_1M_Change_Thousands": None,
+        "Industrial_Production_MoM_Pct": None,
         "M2_AsOf": None,
         "CPI_AsOf": None,
+        "Core_CPI_AsOf": None,
+        "PCE_AsOf": None,
+        "Core_PCE_AsOf": None,
+        "Energy_CPI_AsOf": None,
+        "Real_Yield_10Y_AsOf": None,
+        "Breakeven_10Y_AsOf": None,
+        "WTI_AsOf": None,
+        "Unemployment_AsOf": None,
+        "Payrolls_AsOf": None,
+        "Industrial_Production_AsOf": None,
         "China_M2_AsOf": None,
         "US2Y_AsOf": None,
+        "GoldCFTC": {},
+        "CFTC_AsOf": None,
+        "CFTC_ReleaseAt": None,
+        "CFTC_MM_Net_Contracts": None,
+        "CFTC_MM_Net_Pct_OI": None,
+        "CFTC_MM_Weekly_Change_Contracts": None,
+        "CFTC_MM_4W_Change_Contracts": None,
+        "CFTC_MM_4W_Change_Pct_OI": None,
+        "CFTC_MM_Percentile_3Y": None,
+        "CFTC_MM_ZScore_3Y": None,
+        "CFTC_Price_Positioning_Divergence": None,
+        "CFTC_Concentration_4_Long_Pct": None,
+        "CFTC_Concentration_4_Short_Pct": None,
+        "CFTC_Concentration_8_Long_Pct": None,
+        "CFTC_Concentration_8_Short_Pct": None,
         "CrossPrices": {},
         "DataQuality": {},
         "Assets": {
@@ -1105,7 +1313,7 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
     should_download_market = refresh or not have_fast
     if should_download_market:
         tickers = sorted(set(
-            ["^VIX", "^TNX", "IVV", "USDEUR=X"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS
+            ["^VIX", "^TNX", "IVV", "USDEUR=X", "GC=F"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS
             + list(FOREX_TICKERS.values()) + global_tickers
         ))
         logging.info("Descargando datos de mercado (yfinance, 2 años)...")
@@ -1251,7 +1459,14 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
 
     # PER/FRED no cambian en cada auto-refresh. Si la caché macro sigue vigente,
     # no se vuelve a consultar: yfinance.info se queda colgado minutos.
-    macro_live = not use_slow_cache and (refresh or not have_slow)
+    slow_schema_outdated = (
+        have_slow
+        and (slow_cache or {}).get("schema_version") != CACHE_SCHEMA_VERSION
+    )
+    # Tras una ampliación del contrato macro se hace una migración pública
+    # automática una sola vez. La caché antigua continúa disponible como
+    # fallback si FRED o una fuente secundaria no responden.
+    macro_live = not use_slow_cache and (refresh or not have_slow or slow_schema_outdated)
     if macro_live:
         try:
             logging.info("Obteniendo PER del S&P 500 (SPY)...")
@@ -1328,27 +1543,177 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
             logging.info("Descargando IPC (inflación) desde FRED...")
             cpi_obs = _fetch_fred_series("CPIAUCSL", limit=24)
             if cpi_obs and len(cpi_obs) >= 2:
-                data["CPI_Latest"] = cpi_obs[0]["value"]
-                data["CPI_AsOf"] = cpi_obs[0]["date"]
+                cpi_changes = _monthly_level_changes(cpi_obs)
+                data["CPI_Latest"] = cpi_changes["latest"]
+                data["CPI_MoM_Pct"] = cpi_changes["mom_pct"]
+                data["CPI_3M_Annualized_Pct"] = cpi_changes["three_month_annualized_pct"]
+                data["CPI_AsOf"] = cpi_changes["as_of"]
                 _mark_quality(data, "CPI_Latest", "FRED:CPIAUCSL", as_of=data["CPI_AsOf"])
-                if len(cpi_obs) >= 13:
-                    # Buscar por fecha: ~12 meses atrás en lugar de índice fijo
-                    try:
-                        latest_dt = datetime.strptime(cpi_obs[0]["date"], "%Y-%m-%d")
-                        target_dt = latest_dt.replace(year=latest_dt.year - 1)
-                        cpi_12m_ago = _find_obs_near_date(cpi_obs, target_dt.strftime("%Y-%m-%d"))
-                    except (ValueError, KeyError):
-                        cpi_12m_ago = cpi_obs[12]["value"]
-                    if cpi_12m_ago is not None and cpi_12m_ago > 0:
-                        data["CPI_YoY_Pct"] = round(
-                            ((data["CPI_Latest"] - cpi_12m_ago) / cpi_12m_ago) * 100, 2
-                        )
-                        _mark_quality(data, "CPI_YoY_Pct", "FRED:CPIAUCSL", as_of=data.get("CPI_AsOf"))
+                data["CPI_YoY_Pct"] = cpi_changes["yoy_pct"]
+                for key in ("CPI_MoM_Pct", "CPI_3M_Annualized_Pct", "CPI_YoY_Pct"):
+                    _mark_quality(
+                        data, key, "FRED:CPIAUCSL",
+                        "OK" if data.get(key) is not None else "MISSING",
+                        as_of=data.get("CPI_AsOf"),
+                    )
             else:
+                _mark_quality(data, "CPI_MoM_Pct", "FRED:CPIAUCSL", "MISSING")
+                _mark_quality(data, "CPI_3M_Annualized_Pct", "FRED:CPIAUCSL", "MISSING")
                 _mark_quality(data, "CPI_YoY_Pct", "FRED:CPIAUCSL", "MISSING")
         else:
             logging.info("FRED_API_KEY no configurada. IPC desactivado.")
+            _mark_quality(data, "CPI_MoM_Pct", "FRED:CPIAUCSL", "MISSING", "FRED_API_KEY no configurada")
+            _mark_quality(data, "CPI_3M_Annualized_Pct", "FRED:CPIAUCSL", "MISSING", "FRED_API_KEY no configurada")
             _mark_quality(data, "CPI_YoY_Pct", "FRED:CPIAUCSL", "MISSING", "FRED_API_KEY no configurada")
+
+        # ─── 4b. Factores públicos para la perspectiva mensual del oro ───
+        if FRED_API_KEY:
+            series_limits = {
+                "CPILFESL": 24,
+                "PCEPI": 24,
+                "PCEPILFE": 24,
+                "CPIENGSL": 24,
+                "UNRATE": 24,
+                "PAYEMS": 24,
+                "INDPRO": 24,
+                "DFII10": 48,
+                "T10YIE": 48,
+                "DCOILWTICO": 48,
+            }
+            logging.info("Descargando factores públicos de oro desde FRED...")
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {
+                    series_id: executor.submit(_fetch_fred_series, series_id, limit)
+                    for series_id, limit in series_limits.items()
+                }
+                gold_series = {series_id: future.result() for series_id, future in futures.items()}
+
+            monthly_specs = (
+                ("CPILFESL", "Core_CPI", "Core_CPI_AsOf"),
+                ("PCEPI", "PCE", "PCE_AsOf"),
+                ("PCEPILFE", "Core_PCE", "Core_PCE_AsOf"),
+                ("CPIENGSL", "Energy_CPI", "Energy_CPI_AsOf"),
+            )
+            for series_id, prefix, as_of_key in monthly_specs:
+                values = _monthly_level_changes(gold_series.get(series_id))
+                data[f"{prefix}_Latest"] = values["latest"]
+                data[f"{prefix}_MoM_Pct"] = values["mom_pct"]
+                if prefix != "Energy_CPI":
+                    data[f"{prefix}_3M_Annualized_Pct"] = values["three_month_annualized_pct"]
+                data[f"{prefix}_YoY_Pct"] = values["yoy_pct"]
+                data[as_of_key] = values["as_of"]
+                suffixes = ("Latest", "MoM_Pct", "YoY_Pct") if prefix == "Energy_CPI" else ("Latest", "MoM_Pct", "3M_Annualized_Pct", "YoY_Pct")
+                for suffix in suffixes:
+                    key = f"{prefix}_{suffix}"
+                    _mark_quality(
+                        data, key, f"FRED:{series_id}",
+                        "OK" if data.get(key) is not None else "MISSING",
+                        as_of=values["as_of"],
+                    )
+
+            unemployment = _monthly_level_changes(gold_series.get("UNRATE"))
+            data["Unemployment_Rate_Pct"] = unemployment["latest"]
+            data["Unemployment_1M_Change_Pp"] = unemployment["mom_pct"]
+            if len(gold_series.get("UNRATE") or []) >= 2:
+                observations = gold_series["UNRATE"]
+                data["Unemployment_1M_Change_Pp"] = round(
+                    observations[0]["value"] - observations[1]["value"], 3
+                )
+            data["Unemployment_AsOf"] = unemployment["as_of"]
+
+            payrolls = _monthly_level_changes(gold_series.get("PAYEMS"))
+            data["Payrolls_Level_Thousands"] = payrolls["latest"]
+            if len(gold_series.get("PAYEMS") or []) >= 2:
+                observations = gold_series["PAYEMS"]
+                data["Payrolls_1M_Change_Thousands"] = round(
+                    observations[0]["value"] - observations[1]["value"], 1
+                )
+            data["Payrolls_AsOf"] = payrolls["as_of"]
+
+            industrial = _monthly_level_changes(gold_series.get("INDPRO"))
+            data["Industrial_Production_MoM_Pct"] = industrial["mom_pct"]
+            data["Industrial_Production_AsOf"] = industrial["as_of"]
+
+            real_yield = _latest_period_change(gold_series.get("DFII10"))
+            data["Real_Yield_10Y_Pct"] = real_yield["latest"]
+            data["Real_Yield_10Y_1M_Change_Pp"] = real_yield["change"]
+            data["Real_Yield_10Y_AsOf"] = real_yield["as_of"]
+
+            breakeven = _latest_period_change(gold_series.get("T10YIE"))
+            data["Breakeven_10Y_Pct"] = breakeven["latest"]
+            data["Breakeven_10Y_1M_Change_Pp"] = breakeven["change"]
+            data["Breakeven_10Y_AsOf"] = breakeven["as_of"]
+
+            wti = _latest_period_change(gold_series.get("DCOILWTICO"))
+            data["WTI_Price"] = wti["latest"]
+            if wti["latest"] is not None and wti["change"] is not None:
+                prior_wti = wti["latest"] - wti["change"]
+                if prior_wti:
+                    data["WTI_1M_Change_Pct"] = round(wti["change"] / prior_wti * 100, 2)
+            data["WTI_AsOf"] = wti["as_of"]
+
+            quality_specs = (
+                ("Unemployment_Rate_Pct", "UNRATE", "Unemployment_AsOf"),
+                ("Unemployment_1M_Change_Pp", "UNRATE", "Unemployment_AsOf"),
+                ("Payrolls_Level_Thousands", "PAYEMS", "Payrolls_AsOf"),
+                ("Payrolls_1M_Change_Thousands", "PAYEMS", "Payrolls_AsOf"),
+                ("Industrial_Production_MoM_Pct", "INDPRO", "Industrial_Production_AsOf"),
+                ("Real_Yield_10Y_Pct", "DFII10", "Real_Yield_10Y_AsOf"),
+                ("Real_Yield_10Y_1M_Change_Pp", "DFII10", "Real_Yield_10Y_AsOf"),
+                ("Breakeven_10Y_Pct", "T10YIE", "Breakeven_10Y_AsOf"),
+                ("Breakeven_10Y_1M_Change_Pp", "T10YIE", "Breakeven_10Y_AsOf"),
+                ("WTI_Price", "DCOILWTICO", "WTI_AsOf"),
+                ("WTI_1M_Change_Pct", "DCOILWTICO", "WTI_AsOf"),
+            )
+            for key, series_id, as_of_key in quality_specs:
+                _mark_quality(
+                    data, key, f"FRED:{series_id}",
+                    "OK" if data.get(key) is not None else "MISSING",
+                    as_of=data.get(as_of_key),
+                )
+        else:
+            for key in (
+                "Core_CPI_MoM_Pct", "Core_CPI_3M_Annualized_Pct",
+                "PCE_MoM_Pct", "PCE_3M_Annualized_Pct",
+                "Core_PCE_MoM_Pct", "Core_PCE_3M_Annualized_Pct",
+                "Energy_CPI_MoM_Pct", "Real_Yield_10Y_Pct", "WTI_1M_Change_Pct",
+                "Unemployment_1M_Change_Pp", "Payrolls_1M_Change_Thousands",
+                "Industrial_Production_MoM_Pct",
+            ):
+                _mark_quality(data, key, "FRED", "MISSING", "FRED_API_KEY no configurada")
+
+        # ─── 4c. Posicionamiento semanal CFTC/COMEX del oro ───
+        # Esta fuente es pública y no depende de FRED. La fecha del informe no
+        # basta: summarize_gold_positioning filtra por release_at para impedir
+        # anticipación temporal.
+        logging.info("Descargando posicionamiento CFTC/COMEX del oro...")
+        cftc_rows = fetch_gold_cot_history(refresh=refresh)
+        cftc_summary = summarize_gold_positioning(
+            cftc_rows,
+            as_of=captured_at,
+            gold_momentum_1m=(data.get("Assets", {}).get("GLD", {}) or {}).get("momentum_1m"),
+            price_points=(data.get("PriceSparklines") or {}).get("XAUUSD") or [],
+        )
+        data.update(positioning_data_fields(cftc_summary))
+        cftc_status = str(cftc_summary.get("status") or "MISSING")
+        cftc_detail = (
+            f"informe {cftc_summary.get('as_of')}; publicado {cftc_summary.get('release_at')}"
+            if cftc_summary.get("as_of") else "sin informe público disponible"
+        )
+        for key in (
+            "CFTC_MM_Net_Contracts", "CFTC_MM_Net_Pct_OI",
+            "CFTC_MM_Weekly_Change_Contracts", "CFTC_MM_4W_Change_Contracts",
+            "CFTC_MM_4W_Change_Pct_OI", "CFTC_MM_Percentile_3Y", "CFTC_MM_ZScore_3Y",
+            "CFTC_Price_Positioning_Divergence", "CFTC_Concentration_4_Long_Pct",
+            "CFTC_Concentration_4_Short_Pct", "CFTC_Concentration_8_Long_Pct",
+            "CFTC_Concentration_8_Short_Pct",
+        ):
+            _mark_quality(
+                data, key, CFTC_SOURCE,
+                "OK" if data.get(key) is not None and cftc_status == "OK" else cftc_status,
+                cftc_detail,
+                as_of=cftc_summary.get("as_of"),
+            )
 
         # ─── 5. FRED: Liquidez China (M2 YoY) ───
         if FRED_API_KEY:
@@ -1378,7 +1743,17 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
     for key in [
         "VIX", "US10Y", "US2Y", "Yield_Curve_Spread", "Correlation_Proxy",
         "PE_Trailing", "PE_Forward", "PE_Forward_Percentile",
-        "M2_Change_Pct", "CPI_YoY_Pct", "China_M2_YoY_Pct",
+        "M2_Change_Pct", "CPI_MoM_Pct", "CPI_3M_Annualized_Pct", "CPI_YoY_Pct",
+        "Core_CPI_MoM_Pct", "Core_CPI_3M_Annualized_Pct", "Core_CPI_YoY_Pct",
+        "PCE_MoM_Pct", "PCE_3M_Annualized_Pct", "PCE_YoY_Pct",
+        "Core_PCE_MoM_Pct", "Core_PCE_3M_Annualized_Pct", "Core_PCE_YoY_Pct",
+        "Energy_CPI_MoM_Pct", "Real_Yield_10Y_Pct", "Real_Yield_10Y_1M_Change_Pp",
+        "WTI_1M_Change_Pct", "Unemployment_1M_Change_Pp",
+        "Payrolls_1M_Change_Thousands", "Industrial_Production_MoM_Pct",
+        "China_M2_YoY_Pct",
+        "CFTC_MM_Net_Contracts", "CFTC_MM_Net_Pct_OI",
+        "CFTC_MM_Weekly_Change_Contracts", "CFTC_MM_4W_Change_Contracts",
+        "CFTC_MM_Percentile_3Y", "CFTC_MM_ZScore_3Y",
     ]:
         if key not in data["DataQuality"]:
             _mark_quality(data, key, "unknown", "MISSING")
@@ -1392,7 +1767,13 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         present=have_slow or macro_live,
         ttl=SLOW_MACRO_CACHE_TTL_SECONDS,
     )
-    obs_as_of = data.get("CPI_AsOf") or data.get("M2_AsOf")
+    obs_as_of = max(
+        (
+            value for key, value in data.items()
+            if key.endswith("_AsOf") and isinstance(value, str) and value
+        ),
+        default=None,
+    )
     if obs_as_of:
         macro_freshness["as_of"] = obs_as_of
     company_metrics = data.get("RotationCompanies") or {}

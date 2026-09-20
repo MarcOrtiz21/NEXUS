@@ -184,6 +184,17 @@
 "Macro y divisas" = "Macro & FX";
 "Macro y defensivos" = "Macro & Defensive";
 "Divisas" = "Currencies";
+
+/* Gold outlook */
+"PERSPECTIVA DEL ORO" = "GOLD OUTLOOK";
+"Dirección agrupada, no permiso de entrada" = "Grouped direction, not permission to trade";
+"CORTO PLAZO" = "SHORT TERM";
+"MEDIO PLAZO" = "MEDIUM TERM";
+"CONTRIBUCIÓN POR FAMILIA" = "CONTRIBUTION BY GROUP";
+"INFLACIÓN" = "INFLATION";
+"TIPOS, ENERGÍA Y ACTIVIDAD" = "RATES, ENERGY & ACTIVITY";
+"QUÉ CAMBIARÍA LA SEÑAL" = "WHAT WOULD CHANGE THE SIGNAL";
+"METODOLOGÍA Y COBERTURA" = "METHODOLOGY & COVERAGE";
 "Euro" = "Euro";
 "Libra y Oceanía" = "Sterling & Oceania";
 "Sustituir foco (SPY, NVDA…)" = "Replace focus (SPY, NVDA…)";

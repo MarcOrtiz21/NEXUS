@@ -320,7 +320,7 @@ struct AssetDetailView: View {
             doing: plan?.doing ?? "Confirmar tendencia y permiso operativo.",
             avoiding: plan?.avoiding ?? "No operar este par por un score aislado.",
             changes: plan?.changes,
-            help: "Mismo veredicto que en Forex y oro. 50/100 es neutro, no falta de datos."
+            help: "Mismo veredicto técnico que en Divisas. 50/100 es neutro, no falta de datos."
         )
         .environment(\.nexusBreakpoint, .narrow)
     }

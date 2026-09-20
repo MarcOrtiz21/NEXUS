@@ -6,6 +6,7 @@ Reutiliza el motor Python y expone un contrato estable vía FastAPI.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -33,6 +34,10 @@ from forex_engine import (
     forex_signal,
     gold_signal,
 )
+from gold_outlook import build_gold_outlook
+from gold_backtest import load_gold_backtest_report
+from gold_history import gold_change_summary, gold_history_summary, record_gold_snapshot
+from gold_validation import settle_predictions_from_prices, validation_summary
 from history_view import (
     compare_to_prior,
     filter_history_period,
@@ -172,7 +177,44 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
         vix=data.get("VIX"),
         us10y=data.get("US10Y"),
         cpi_yoy=data.get("CPI_YoY_Pct"),
+        real_yield_10y=data.get("Real_Yield_10Y_Pct"),
     )
+    gold_backtest = load_gold_backtest_report()
+    positioning_gate = (gold_backtest.get("feature_gates") or {}).get("positioning")
+    data["CFTC_Positioning_Model_Eligible"] = positioning_gate == "ENABLED"
+    gold_outlook = build_gold_outlook(data, gld, uup)
+    history_write = None
+    if export:
+        try:
+            history_write = record_gold_snapshot(
+                data,
+                gold_outlook,
+                captured_at=raw.get("captured_at_utc"),
+            )
+            gold_points = (data.get("PriceSparklines") or {}).get("GLD") or []
+            price_rows = [
+                (point.get("date"), point.get("close", point.get("value")))
+                for point in gold_points
+                if isinstance(point, dict) and point.get("date")
+                and point.get("close", point.get("value")) is not None
+            ]
+            history_write["outcomes_settled"] = settle_predictions_from_prices(price_rows)
+        except Exception as exc:
+            # La persistencia del modelo nunca debe impedir abrir o actualizar
+            # la estación de trabajo.
+            logging.exception("No se pudo persistir la perspectiva del oro: %s", exc)
+            history_write = {"error": str(exc)}
+    gold_history = gold_history_summary()
+    gold_change = gold_change_summary(
+        gold_outlook,
+        captured_at=raw.get("captured_at_utc"),
+    )
+    gold_history["validation"] = {
+        "short": validation_summary(horizon_days=21),
+        "medium": validation_summary(horizon_days=63),
+    }
+    if history_write is not None:
+        gold_history["last_write"] = history_write
 
     history_rows = load_history_jsonl(limit=120)
     history = summarize_history(limit=120)
@@ -265,6 +307,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "estimated_window": calendar.get("time_quality") == "aproximada",
             "upcoming": upcoming,
             "fx_upcoming": fx_upcoming,
+            "gold_upcoming": calendar.get("gold_events_30d") or fx_upcoming,
             "context": build_calendar_context(calendar),
         },
         "watchlist": normalize_watchlist(get_setting("watchlist")),
@@ -278,6 +321,28 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "US2Y": data.get("US2Y"),
             "Yield_Curve_Spread": data.get("Yield_Curve_Spread"),
             "CPI_YoY_Pct": data.get("CPI_YoY_Pct"),
+            "CPI_MoM_Pct": data.get("CPI_MoM_Pct"),
+            "CPI_3M_Annualized_Pct": data.get("CPI_3M_Annualized_Pct"),
+            "Core_CPI_MoM_Pct": data.get("Core_CPI_MoM_Pct"),
+            "Core_CPI_3M_Annualized_Pct": data.get("Core_CPI_3M_Annualized_Pct"),
+            "Core_CPI_YoY_Pct": data.get("Core_CPI_YoY_Pct"),
+            "PCE_MoM_Pct": data.get("PCE_MoM_Pct"),
+            "PCE_3M_Annualized_Pct": data.get("PCE_3M_Annualized_Pct"),
+            "PCE_YoY_Pct": data.get("PCE_YoY_Pct"),
+            "Core_PCE_MoM_Pct": data.get("Core_PCE_MoM_Pct"),
+            "Core_PCE_3M_Annualized_Pct": data.get("Core_PCE_3M_Annualized_Pct"),
+            "Core_PCE_YoY_Pct": data.get("Core_PCE_YoY_Pct"),
+            "Energy_CPI_MoM_Pct": data.get("Energy_CPI_MoM_Pct"),
+            "Energy_CPI_YoY_Pct": data.get("Energy_CPI_YoY_Pct"),
+            "Real_Yield_10Y_Pct": data.get("Real_Yield_10Y_Pct"),
+            "Real_Yield_10Y_1M_Change_Pp": data.get("Real_Yield_10Y_1M_Change_Pp"),
+            "Breakeven_10Y_Pct": data.get("Breakeven_10Y_Pct"),
+            "WTI_Price": data.get("WTI_Price"),
+            "WTI_1M_Change_Pct": data.get("WTI_1M_Change_Pct"),
+            "Unemployment_Rate_Pct": data.get("Unemployment_Rate_Pct"),
+            "Unemployment_1M_Change_Pp": data.get("Unemployment_1M_Change_Pp"),
+            "Payrolls_1M_Change_Thousands": data.get("Payrolls_1M_Change_Thousands"),
+            "Industrial_Production_MoM_Pct": data.get("Industrial_Production_MoM_Pct"),
             "Correlation_Proxy": data.get("Correlation_Proxy"),
             "M2_Change_Pct": data.get("M2_Change_Pct"),
             "China_M2_YoY_Pct": data.get("China_M2_YoY_Pct"),
@@ -300,6 +365,11 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "GLD": gld,
             "label": "Oro (GLD)",
             "signal": gold_sig,
+            "outlook": gold_outlook,
+            "positioning": data.get("GoldCFTC") or {},
+            "history": gold_history,
+            "change": gold_change,
+            "backtest": gold_backtest,
         },
         "news": {
             "items": news_items[:40],

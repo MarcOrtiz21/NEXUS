@@ -13,6 +13,8 @@ from data_ingestion import (
     _apply_cache_fallback,
     _extract_tier_payload,
     _find_obs_near_date,
+    _latest_period_change,
+    _monthly_level_changes,
     _fast_cache_usable,
     _yf_download_batches,
     _rotation_cache_usable,
@@ -21,6 +23,31 @@ from data_ingestion import (
 
 
 class TieredCacheTests(unittest.TestCase):
+    def test_monthly_level_changes_returns_mom_and_yoy(self):
+        observations = [
+            {"date": "2026-02-01", "value": 103.0},
+            {"date": "2026-01-01", "value": 102.0},
+            {"date": "2025-12-01", "value": 101.0},
+            {"date": "2025-11-01", "value": 100.0},
+            {"date": "2025-02-01", "value": 100.0},
+        ]
+        result = _monthly_level_changes(observations)
+        self.assertEqual(result["latest"], 103.0)
+        self.assertAlmostEqual(result["mom_pct"], 0.98, places=2)
+        self.assertAlmostEqual(result["three_month_annualized_pct"], 12.55, places=2)
+        self.assertEqual(result["yoy_pct"], 3.0)
+
+    def test_period_change_uses_observation_before_cutoff(self):
+        observations = [
+            {"date": "2026-02-20", "value": 1.8},
+            {"date": "2026-02-01", "value": 1.6},
+            {"date": "2026-01-20", "value": 1.5},
+            {"date": "2026-01-15", "value": 1.4},
+        ]
+        result = _latest_period_change(observations, days=30)
+        self.assertEqual(result["latest"], 1.8)
+        self.assertEqual(result["change"], 0.3)
+
     def test_large_company_download_keeps_successful_batches(self):
         frames = [
             pd.DataFrame({"A": [1.0]}),
@@ -104,6 +131,14 @@ class TieredCacheTests(unittest.TestCase):
         self.assertTrue(_slow_cache_usable(fresh))
         self.assertFalse(_slow_cache_usable({"_cache_age_seconds": 100, "schema_version": CACHE_SCHEMA_VERSION}))
         self.assertFalse(_slow_cache_usable({"_cache_age_seconds": 100, "M2_Change_Pct": 1.2}))
+
+    def test_slow_cache_requires_current_schema_to_populate_new_factors(self):
+        previous = {
+            "_cache_age_seconds": 100,
+            "schema_version": CACHE_SCHEMA_VERSION - 1,
+            "CPI_YoY_Pct": 2.4,
+        }
+        self.assertFalse(_slow_cache_usable(previous))
 
     def test_stale_cache_is_complete_enough_to_open_the_app(self):
         stale = {

@@ -1,4 +1,4 @@
-# NEXUS Native 3.5 (SwiftUI)
+# NEXUS Native 3.9 (SwiftUI)
 
 App macOS nativa que habla con el motor Python vía FastAPI (`http://127.0.0.1:8765`).
 
@@ -9,7 +9,11 @@ App macOS nativa que habla con el motor Python vía FastAPI (`http://127.0.0.1:8
 - Preset propio persistente para tickers, intervalo y rango.
 - Velas, volumen, medias, RSI con divergencias y MACD.
 - Cursor compartido en precio e indicadores mientras se mantiene pulsado y se arrastra.
-- Forex y oro, rotación sectorial, compañías, noticias e inspector técnico.
+- Pestañas independientes de divisas y oro, con perspectiva agrupada a 21/63 sesiones.
+- Inflación general/subyacente mensual, anualizada a 3 meses e interanual, tipos reales, energía y actividad.
+- Posicionamiento CFTC/COMEX del oro, comparación histórica normalizada y estado de validación del factor.
+- Inicio directo desde Finder con resolución explícita del entorno Python local.
+- Rotación sectorial, compañías, noticias e inspector técnico.
 - Interfaz localizable en español e inglés.
 
 ## Arranque rápido
@@ -17,6 +21,10 @@ App macOS nativa que habla con el motor Python vía FastAPI (`http://127.0.0.1:8
 ```bash
 ./scripts/run_native.command
 ```
+
+Este lanzador abre la copia empaquetada de Aplicaciones y deja que NEXUS
+gestione el motor local. Para reconstruir e instalar una versión nueva se usa
+`./install_mac_app.command`.
 
 O en dos terminales:
 

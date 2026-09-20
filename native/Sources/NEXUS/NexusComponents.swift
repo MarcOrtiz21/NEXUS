@@ -50,7 +50,9 @@ struct NexusResizeHandle: View {
                 .fill(hovering ? NexusTheme.accent : NexusTheme.muted.opacity(0.55))
                 .frame(width: 3, height: 34)
         }
-        .frame(width: 8)
+        // Zona de interacción más ancha que la línea visible: evita que el
+        // redimensionado sea difícil con ratón, trackpad o baja precisión.
+        .frame(width: 14)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .help("Arrastra para cambiar el ancho")
@@ -454,7 +456,7 @@ struct NexusStanceCard: View {
                 .lineLimit(3)
         }
         .padding(8)
-        .frame(minWidth: 110, maxWidth: .infinity, minHeight: 62, maxHeight: 62, alignment: .topLeading)
+        .frame(minWidth: 110, maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
         .background(NexusTheme.bg.opacity(0.34))
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
@@ -955,7 +957,7 @@ struct NexusChoicePills<Value: Hashable & Identifiable>: View {
                 } label: {
                     Text(title(value))
                         .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(selected ? Color.white : NexusTheme.muted)
+                        .foregroundStyle(selected ? NexusTheme.bg : NexusTheme.muted)
                         .padding(.horizontal, 8)
                         .frame(minHeight: NexusLayout.toolbarButtonSize - 2)
                         .background(

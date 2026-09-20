@@ -28,6 +28,18 @@ final class NexusStore: ObservableObject {
         if let configuredRoot = ProcessInfo.processInfo.environment["NEXUS_ROOT"],
            FileManager.default.fileExists(atPath: configuredRoot) {
             self.repoRoot = URL(fileURLWithPath: configuredRoot, isDirectory: true)
+        } else if let bundledRootFile = Bundle.main.url(
+            forResource: "nexus_root",
+            withExtension: "txt"
+        ),
+        let bundledRoot = try? String(contentsOf: bundledRootFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        !bundledRoot.isEmpty,
+        FileManager.default.fileExists(atPath: bundledRoot) {
+            // La app empaquetada declara el binario SwiftUI como ejecutable real.
+            // El repositorio se resuelve desde Resources, sin un shell intermedio;
+            // así LaunchServices y Accesibilidad comparten la misma identidad.
+            self.repoRoot = URL(fileURLWithPath: bundledRoot, isDirectory: true)
         } else {
             // Desarrollo SwiftPM: native/Sources/NEXUS → repo root = ../../../../
             let thisFile = URL(fileURLWithPath: #filePath)

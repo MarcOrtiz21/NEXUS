@@ -7,6 +7,7 @@ from risk_filters.calendar import (
     _is_us_event,
     check_macro_events,
     fx_gold_upcoming_events,
+    gold_monthly_events,
     is_fx_gold_calendar_event,
 )
 
@@ -101,6 +102,27 @@ class CalendarRegressionTests(unittest.TestCase):
             titles,
             ["ECB Interest Rate Decision", "FOMC Statement", "US CPI m/m", "US Nonfarm Payrolls"],
         )
+
+    def test_gold_monthly_calendar_prefers_official_and_keeps_manual_fallback(self):
+        as_of = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+        official = {
+            "title": "US CPI (Consumer Price Index)",
+            "when_utc": "2026-09-15T12:30+00:00",
+            "hours_until": 336.5,
+            "impact": "ALTO",
+            "source": "fred_release",
+            "verified": True,
+            "us_event": True,
+            "blocks_signals": True,
+        }
+        with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[official]):
+            events = gold_monthly_events(as_of=as_of)
+
+        cpi_events = [event for event in events if "cpi" in event["title"].lower() or "ipc" in event["title"].lower()]
+        self.assertEqual(len(cpi_events), 1)
+        self.assertEqual(cpi_events[0]["source"], "fred_release")
+        self.assertFalse(cpi_events[0]["estimated"])
+        self.assertTrue(any("fomc" in event["title"].lower() for event in events))
 
     def test_rss_block_stays_estimated_even_if_fred_exists_later(self):
         as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)

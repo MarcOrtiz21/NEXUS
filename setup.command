@@ -17,7 +17,7 @@ echo
 echo "Comprobando tkinter (requerido para la app de escritorio) ..."
 if ! nexus_check_imports "$python_cmd" tkinter >/dev/null 2>&1; then
     echo "[WARN] tkinter no esta disponible."
-    echo "En macOS con Homebrew suele resolverse con: brew install python-tk@3.14"
+    echo "En macOS con Homebrew suele resolverse con: brew install python-tk@3.12"
     echo "La CLI seguira funcionando; el modo desktop puede fallar hasta instalar tkinter."
 else
     echo "tkinter OK."

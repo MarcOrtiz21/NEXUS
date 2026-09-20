@@ -4,6 +4,16 @@
 : "${NEXUS_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 nexus_find_python() {
+    # Python 3.14 puede bloquearse al arrancar sin terminal en macOS 27.
+    # Priorizamos intérpretes estables para la aplicación nativa.
+    if command -v python3.12 >/dev/null 2>&1; then
+        echo "python3.12"
+        return 0
+    fi
+    if command -v python3.13 >/dev/null 2>&1; then
+        echo "python3.13"
+        return 0
+    fi
     if command -v python3 >/dev/null 2>&1; then
         echo "python3"
         return 0

@@ -10,6 +10,7 @@ apikeys/
 dist/
 scripts/dist/
 *.app/
+.build/
 native/.build/
 native/.swiftpm/
 .DS_Store
@@ -19,6 +20,8 @@ data/cache/**/*.json
 data/history/*.csv
 data/history/*.json
 data/history/*.jsonl
+data/history/*.sqlite3*
+data/reports/*.json
 data/user_settings.json
 
 gemini context.html

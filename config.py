@@ -171,12 +171,19 @@ NATIVE_SNAPSHOT_TTL_SECONDS = 60  # Evita recalcular el snapshot por cada consum
 YFINANCE_TIMEOUT_SECONDS = 20  # Si Yahoo no responde, se sirve la última caché local
 FRED_CALENDAR_CACHE_FILE = CACHE_DIR / "fred_release_calendar.json"
 FRED_CALENDAR_CACHE_TTL_SECONDS = 60 * 60 * 6
-FRED_CALENDAR_LOOKAHEAD_DAYS = 14
+# El panel de oro muestra un mes completo de publicaciones oficiales. La
+# caché cubre algo más para absorber diferencias de zona horaria y fin de mes.
+FRED_CALENDAR_LOOKAHEAD_DAYS = 35
 DECISIONS_HISTORY_JSONL = HISTORY_DIR / "decisions.jsonl"
 DECISIONS_HISTORY_CSV = HISTORY_DIR / "decisions.csv"
+GOLD_HISTORY_DB = HISTORY_DIR / "gold_outlook.sqlite3"
+FRED_VINTAGE_CACHE_DIR = CACHE_DIR / "fred_vintages"
 PAPER_TRADES_JSONL = HISTORY_DIR / "paper_trades.jsonl"
 PAPER_PORTFOLIO_JSON = HISTORY_DIR / "paper_portfolio.json"
 REPORTS_DIR = DATA_DIR / "reports"
+GOLD_BACKTEST_REPORT = REPORTS_DIR / "gold_backtest_latest.json"
+CFTC_GOLD_CACHE_FILE = CACHE_DIR / "cftc_gold_positioning.json"
+CFTC_GOLD_CACHE_TTL_SECONDS = 60 * 60 * 12
 
 # ─── Calendario y dashboard ───
 CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"

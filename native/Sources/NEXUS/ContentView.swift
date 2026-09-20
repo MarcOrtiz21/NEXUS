@@ -6,10 +6,19 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("nexus.assetInspectorWidth") private var inspectorWidthValue = Double(NexusLayout.inspectorWatchlistWidth)
 
-    private var inspectorWidth: Binding<CGFloat> {
+    private func inspectorWidth(maxWidth: CGFloat) -> Binding<CGFloat> {
         Binding(
-            get: { CGFloat(inspectorWidthValue) },
-            set: { inspectorWidthValue = Double($0) }
+            get: {
+                min(
+                    max(NexusLayout.inspectorMinWidth, CGFloat(inspectorWidthValue)),
+                    maxWidth
+                )
+            },
+            set: {
+                inspectorWidthValue = Double(
+                    min(max(NexusLayout.inspectorMinWidth, $0), maxWidth)
+                )
+            }
         )
     }
 
@@ -26,13 +35,14 @@ struct ContentView: View {
                     max(NexusLayout.inspectorMinWidth, CGFloat(inspectorWidthValue)),
                     maxInspector
                 )
+                let constrainedInspectorWidth = inspectorWidth(maxWidth: maxInspector)
                 HStack(spacing: 0) {
                     mainDetailColumn
                         .frame(minWidth: 0)
                         .frame(maxWidth: .infinity)
                     if let ticker = store.selectedAssetKey {
                         NexusResizeHandle(
-                            width: inspectorWidth,
+                            width: constrainedInspectorWidth,
                             minWidth: NexusLayout.inspectorMinWidth,
                             maxWidth: maxInspector,
                             label: "Ancho del inspector de activo"
@@ -144,7 +154,8 @@ struct ContentView: View {
         case .news: NewsView()
         case .watchlist: WatchlistView()
         case .history: HistoryView()
-        case .forexGold: ForexGoldView()
+        case .forex: ForexGoldView(mode: .forex)
+        case .gold: ForexGoldView(mode: .gold)
         case .rotation: RotationView()
         case .paper:
             VStack(alignment: .leading, spacing: 8) {
@@ -196,7 +207,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             toolbarGroup([.overview])
             Divider().frame(height: 18)
-            toolbarGroup([.report, .news, .forexGold, .rotation, .global, .charts])
+            toolbarGroup([.report, .news, .forex, .gold, .rotation, .global, .charts])
             Divider().frame(height: 18)
             toolbarGroup([.watchlist, .history])
         }
@@ -206,9 +217,9 @@ struct ContentView: View {
 
     private var toolbarNavigationCompact: some View {
         HStack(spacing: 4) {
-            toolbarGroup([.overview, .charts, .rotation])
+            toolbarGroup([.overview, .forex, .gold, .rotation])
             Menu {
-                ForEach([NavItem.report, .news, .forexGold, .global, .watchlist, .history]) { item in
+                ForEach([NavItem.report, .news, .global, .charts, .watchlist, .history]) { item in
                     Button {
                         store.selected = item
                     } label: {
@@ -218,7 +229,7 @@ struct ContentView: View {
             } label: {
                 Label("Más", systemImage: "ellipsis.circle")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle([NavItem.report, .news, .forexGold, .global, .watchlist, .history].contains(store.selected) ? NexusTheme.accent : NexusTheme.muted)
+                    .foregroundStyle([NavItem.report, .news, .global, .charts, .watchlist, .history].contains(store.selected) ? NexusTheme.accent : NexusTheme.muted)
                     .padding(.horizontal, 8)
                     .frame(minHeight: NexusLayout.toolbarButtonSize)
             }
@@ -320,7 +331,8 @@ struct ContentView: View {
         case .news: return "Fuentes múltiples · clic para abrir · tono"
         case .watchlist: return "Hasta 8 nombres vigilados"
         case .history: return "Eventos, score, oro y forex"
-        case .forexGold: return "USD/EUR, EUR/USD y oro spot"
+        case .forex: return "USD/EUR, EUR/USD y contexto del dólar"
+        case .gold: return "Perspectiva, factores e inflación del oro"
         case .rotation: return "Qué sale del liderazgo y qué recibe el flujo"
         case .paper: return "Cartera virtual vs SPY"
         case .global: return "Mapa de mercado y factores de riesgo"

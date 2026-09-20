@@ -288,6 +288,7 @@ def gold_signal(
     vix: float | None = None,
     us10y: float | None = None,
     cpi_yoy: float | None = None,
+    real_yield_10y: float | None = None,
 ) -> Dict[str, Any]:
     """Sesgo de oro: refugio, presión o mixto según dólar, tipos reales y VIX."""
     gld_1m = _to_float((gld_metrics or {}).get("momentum_1m"))
@@ -297,14 +298,17 @@ def gold_signal(
     vix_value = _to_float(vix)
     us10y_value = _to_float(us10y)
     cpi_value = _to_float(cpi_yoy)
+    direct_real_yield = _to_float(real_yield_10y)
 
     vs_dollar = None
     if gld_1m is not None and usd_1m is not None:
         vs_dollar = round(gld_1m - usd_1m, 2)
 
-    real_rate = None
-    if us10y_value is not None and cpi_value is not None:
+    real_rate = direct_real_yield
+    real_rate_source = "TIPS 10Y" if direct_real_yield is not None else None
+    if real_rate is None and us10y_value is not None and cpi_value is not None:
         real_rate = round(us10y_value - cpi_value, 2)
+        real_rate_source = "aproximación 10Y−CPI"
 
     score = 0
     inputs = 0
@@ -395,6 +399,7 @@ def gold_signal(
         "confidence": confidence,
         "score": score,
         "real_rate": real_rate,
+        "real_rate_source": real_rate_source,
         "vs_dollar_1m": vs_dollar,
         "vs_dollar_note": vs_dollar_note,
         "vix": vix_value,

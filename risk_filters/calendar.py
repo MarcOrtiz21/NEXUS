@@ -233,6 +233,44 @@ def fx_gold_upcoming_events(
     return selected[:limit]
 
 
+def gold_monthly_events(
+    *,
+    as_of: datetime | None = None,
+    lookahead_days: int = 31,
+    limit: int = 12,
+) -> List[Dict]:
+    """Calendario mensual del oro con fuente oficial y respaldo manual.
+
+    Se mantiene separado del filtro operativo de 72 horas: un evento lejano
+    aporta contexto, pero nunca bloquea señales antes de entrar en la ventana
+    configurada. FRED tiene prioridad sobre el respaldo manual para evitar
+    duplicados del mismo evento y fecha.
+    """
+    now = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
+    lookahead_hours = max(1, lookahead_days) * 24
+    official = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
+    fallback = _manual_fallback_events(
+        lookahead_days=max(1, lookahead_days),
+        today=now.date(),
+        now=now,
+    )
+    seen: set[tuple[str, str]] = set()
+    merged: List[Dict] = []
+    for raw_event in official + fallback:
+        if not is_fx_gold_calendar_event(str(raw_event.get("title") or "")):
+            continue
+        identity = _event_identity(raw_event)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        event = dict(raw_event)
+        event["time_quality"] = _calendar_time_quality(event.get("source"))
+        event["estimated"] = event["time_quality"] == "aproximada"
+        merged.append(event)
+    merged.sort(key=lambda item: float(item.get("hours_until") or 0))
+    return merged[:limit]
+
+
 def build_calendar_context(calendar: Dict) -> Dict[str, object]:
     event = calendar.get("next_event") or {}
     title = str(event.get("title") or "").lower()
@@ -300,6 +338,7 @@ def check_macro_events(
     fred_events = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
     rss_events = _fetch_rss_events(lookahead_hours=lookahead_hours, now=now)
     manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
+    gold_events_30d = gold_monthly_events(as_of=now)
 
     seen_events = set()
     merged: List[Dict] = []
@@ -349,6 +388,7 @@ def check_macro_events(
         "should_block_signals": get_setting("calendar_blocks_signals") and CALENDAR_BLOCKS_SIGNALS and len(blocking_events) > 0,
         "events": display_events,
         "events_detail": merged,
+        "gold_events_30d": gold_events_30d,
         "blocking_events": blocking_events,
         "warning_events": warning_events,
         "block_hours": block_window,

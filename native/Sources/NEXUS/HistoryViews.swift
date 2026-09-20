@@ -313,50 +313,111 @@ struct HistoryView: View {
 }
 
 struct ForexGoldView: View {
+    enum Mode: Equatable {
+        case forex
+        case gold
+    }
+
     @EnvironmentObject private var store: NexusStore
+    @Environment(\.nexusBreakpoint) private var breakpoint
     @State private var selectedHeadline: NewsItem?
+    @State private var showAllGoldFactors = false
     @AppStorage("nexus.forexGold.primaryPair") private var primaryPair = "USDEUR"
+    let mode: Mode
 
     var body: some View {
+        Group {
+            switch mode {
+            case .forex:
+                forexPage
+            case .gold:
+                goldPage
+            }
+        }
+        .sheet(item: $selectedHeadline) { item in
+            headlineReader(item)
+        }
+    }
+
+    private var forexPage: some View {
         NexusPage {
             let fx = store.snapshot?.forex
-            let gold = store.snapshot?.gold
-            let gld = gold?.GLD
             exchangeRateStrip
             if store.snapshot?.fxAlignment?.conflict == true {
                 fxAlignmentNotice
             }
             fxPlanCard
             NexusKPIStrip(items: [
-                NexusKPI(title: "GLD", value: number(gld?.price, digits: 2), hint: gold?.signal?.bias ?? "1M \(formatPct(gld?.momentum1m))", tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias)),
                 NexusKPI(title: "ACCIÓN FX", value: fx?.signal?.action ?? "—", hint: "calidad señal \(fx?.signal?.confidence ?? "—")", tone: NexusTheme.toneColor(fx?.signal?.action)),
-                NexusKPI(
-                    title: "SESGO ORO",
-                    value: gold?.signal?.bias ?? "—",
-                    hint: "calidad señal \(gold?.signal?.confidence ?? "—")",
-                    tone: NexusTheme.toneColor(gold?.signal?.tone ?? gold?.signal?.bias),
-                    help: "Combina la fortaleza del oro frente al dólar, tipos reales (10Y menos IPC) y VIX. No es una orden."
-                ),
+                NexusKPI(title: "EUR/USD", value: number(fx?.rates?.eurUsd, digits: 5), hint: fx?.signal?.eurTrend ?? "tendencia —", tone: NexusTheme.toneColor(fx?.signal?.action)),
+                NexusKPI(title: "USD/EUR", value: number(fx?.rates?.usdEur, digits: 5), hint: fx?.signal?.usdTrend ?? "tendencia —", tone: NexusTheme.toneColor(fx?.signal?.action)),
             ])
             pairSelector
-            sparklineStrip
+            forexSparkline
             NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
                 currencyOverviewCard
-                goldCard
-            }
-            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                goldVsDollarCard
-                fxHeadlinesCard
+                relativeCard
             }
             NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
                 forexNewsCard
                 forexRangeCard
             }
+            fxHeadlinesCard
             fxDigestCard
             fxCalendarCard
         }
-        .sheet(item: $selectedHeadline) { item in
-            headlineReader(item)
+    }
+
+    private var goldPage: some View {
+        NexusPage {
+            goldOutlookHeader
+            goldDriverStrip
+            if store.snapshot?.gold?.change != nil {
+                goldChangeCard
+            }
+            goldSparkline
+            goldFactorSummary
+            goldPositioningCard
+            goldBacktestCard
+            if hasGoldAblation {
+                goldAblationCard
+            }
+            goldProbabilityHistoryCard
+            goldDetailsLayout
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                fxHeadlinesCard
+                fxCalendarCard
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var goldDetailsLayout: some View {
+        if breakpoint == .narrow {
+            LazyVStack(spacing: NexusLayout.spacing) {
+                inflationCard
+                ratesEnergyCard
+                goldCard
+                goldVsDollarCard
+                goldChangesCard
+                goldMethodologyCard
+            }
+        } else {
+            HStack(alignment: .top, spacing: NexusLayout.spacing) {
+                LazyVStack(spacing: NexusLayout.spacing) {
+                    inflationCard
+                    goldCard
+                    goldChangesCard
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+
+                LazyVStack(spacing: NexusLayout.spacing) {
+                    ratesEnergyCard
+                    goldVsDollarCard
+                    goldMethodologyCard
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
         }
     }
 
@@ -411,7 +472,7 @@ struct ForexGoldView: View {
         VStack(alignment: .leading, spacing: 10) {
             NexusSectionHeader(
                 title: "Qué ha cambiado",
-                help: "Compara EUR/USD, GLD y el sesgo con la última evaluación persistida. No es una orden."
+                help: "Compara EUR/USD y el sesgo de divisas con la última evaluación persistida. No es una orden."
             )
             Text(digest?.headline ?? "Sin comparación todavía")
                 .font(.title3.weight(.bold))
@@ -422,9 +483,7 @@ struct ForexGoldView: View {
 
             HStack(spacing: 16) {
                 digestMetric("EUR/USD", digest?.eurusd?.label ?? fxPipLabel, digestTone(digest?.eurusd?.pips))
-                digestMetric("GLD", digest?.gld?.label ?? formatDelta(digest?.gld?.delta), digestTone(digest?.gld?.delta))
                 digestMetric("SEÑAL FX", digest?.forexAction?.label ?? digestChangeLabel(digest?.forexAction), digest?.forexAction?.changed == true ? NexusTheme.warn : NexusTheme.muted)
-                digestMetric("ORO", digest?.goldBias?.label ?? digestChangeLabel(digest?.goldBias), digest?.goldBias?.changed == true ? NexusTheme.warn : NexusTheme.muted)
             }
             if digest?.hasPrior == true {
                 Text("Ref. \(relativeAge(from: digest?.baselineCapturedAt))")
@@ -457,45 +516,47 @@ struct ForexGoldView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var sparklineStrip: some View {
-        VStack(spacing: NexusLayout.spacing) {
-            NexusSparklineCard(
-                title: primaryPair == "USDEUR" ? "USD/EUR" : "EUR/USD",
-                help: "Par seleccionado con intervalo y rango independientes, zoom/pan e indicadores técnicos.",
-                points: store.snapshot?.sparklines?[primaryPair] ?? [],
-                showRelative: false,
-                minHeight: 220,
-                valueDigits: 5,
-                ticker: primaryPair,
-                news: newsLinked(to: "EURUSD", items: store.snapshot?.news?.items ?? []),
-                onTap: { store.showAsset(primaryPair) },
-                onOpenNews: { item in
-                    store.selectedNewsID = item.id
-                    store.selected = .news
-                }
-            )
-            .id(primaryPair)
-            NexusSparklineCard(
-                title: "Oro · XAUUSD",
-                help: "Oro spot frente al dólar, no el ETF GLD. Intervalo y rango independientes; ficha abre el inspector.",
-                points: store.snapshot?.sparklines?["XAUUSD"] ?? [],
-                showRelative: false,
-                minHeight: 220,
-                valueDigits: 2,
-                ticker: "XAUUSD",
-                news: newsLinked(
-                    to: "XAUUSD",
-                    items: store.snapshot?.news?.items ?? [],
-                    extra: newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? [])
-                ),
-                spyPoints: store.snapshot?.sparklines?["SPY"] ?? [],
-                onTap: { store.showAsset("XAUUSD") },
-                onOpenNews: { item in
-                    store.selectedNewsID = item.id
-                    store.selected = .news
-                }
-            )
-        }
+    private var forexSparkline: some View {
+        NexusSparklineCard(
+            title: primaryPair == "USDEUR" ? "USD/EUR" : "EUR/USD",
+            help: "Par seleccionado con intervalo y rango independientes, zoom/pan e indicadores técnicos.",
+            points: store.snapshot?.sparklines?[primaryPair] ?? [],
+            showRelative: false,
+            minHeight: 260,
+            valueDigits: 5,
+            ticker: primaryPair,
+            news: newsLinked(to: "EURUSD", items: store.snapshot?.news?.items ?? []),
+            onTap: { store.showAsset(primaryPair) },
+            onOpenNews: { item in
+                store.selectedNewsID = item.id
+                store.selected = .news
+            }
+        )
+        .id(primaryPair)
+    }
+
+    private var goldSparkline: some View {
+        NexusSparklineCard(
+            title: "Oro spot · XAU/USD",
+            help: "Precio spot del oro frente al dólar. GLD se muestra más abajo como proxy negociable y no debe confundirse con esta cotización.",
+            points: store.snapshot?.sparklines?["XAUUSD"] ?? [],
+            showRelative: false,
+            minHeight: 260,
+            valueDigits: 2,
+            ticker: "XAUUSD",
+            news: newsLinked(
+                to: "XAUUSD",
+                items: store.snapshot?.news?.items ?? [],
+                extra: newsLinked(to: "GLD", items: store.snapshot?.news?.items ?? [])
+            ),
+            calendarEvents: store.snapshot?.calendar?.goldUpcoming ?? [],
+            spyPoints: store.snapshot?.sparklines?["SPY"] ?? [],
+            onTap: { store.showAsset("XAUUSD") },
+            onOpenNews: { item in
+                store.selectedNewsID = item.id
+                store.selected = .news
+            }
+        )
     }
 
     private var currencyOverviewCard: some View {
@@ -606,23 +667,807 @@ struct ForexGoldView: View {
         .help("Abrir detalle de USD/EUR")
     }
 
+    private var goldOutlookHeader: some View {
+        let outlook = store.snapshot?.gold?.outlook
+        return VStack(alignment: .leading, spacing: NexusLayout.spacing) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("PERSPECTIVA DEL ORO")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NexusTheme.accent)
+                    Text("Dirección agrupada, no permiso de entrada")
+                        .font(.title2.weight(.bold))
+                    Text(outlook?.asOf.map { "Datos hasta \($0)" } ?? "Esperando la primera captura macro completa")
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.muted)
+                }
+                Spacer()
+                Text(goldStatusLabel(outlook?.status))
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(NexusTheme.warn)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(NexusTheme.warn.opacity(0.14), in: Capsule())
+                    .accessibilityLabel("Modelo preliminar")
+            }
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 2) {
+                goldHorizonCard(title: "CORTO PLAZO", horizon: outlook?.shortTerm)
+                goldHorizonCard(title: "MEDIO PLAZO", horizon: outlook?.mediumTerm)
+            }
+        }
+    }
+
+    private func goldHorizonCard(title: String, horizon: GoldHorizon?) -> some View {
+        let tone = NexusTheme.toneColor(horizon?.tone ?? horizon?.label)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Spacer()
+                Text("\(horizon?.horizonDays ?? 0) sesiones")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(horizon?.label ?? "SIN DATOS")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(tone)
+                Spacer()
+                Text(horizon?.probabilityUp.map { String(format: "%.0f%%", $0) } ?? "—")
+                    .font(.system(size: 30, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(tone)
+            }
+            ProgressView(value: horizon?.probabilityUp ?? 0, total: 100)
+                .tint(tone)
+                .accessibilityLabel("Probabilidad alcista")
+                .accessibilityValue(horizon?.probabilityUp.map { String(format: "%.0f por ciento", $0) } ?? "sin datos")
+            HStack {
+                Text("Confianza \(horizon?.confidence ?? "—")")
+                Spacer()
+                Text("Cobertura \(horizon?.coveragePct.map { String(format: "%.0f%%", $0) } ?? "—")")
+            }
+            .font(.caption)
+            .foregroundStyle(NexusTheme.muted)
+        }
+        .nexusCard()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var goldFactorSummary: some View {
+        let groups = store.snapshot?.gold?.outlook?.groups ?? []
+        let ranked = groups.sorted {
+            max(abs($0.shortContribution ?? 0), abs($0.mediumContribution ?? 0))
+                > max(abs($1.shortContribution ?? 0), abs($1.mediumContribution ?? 0))
+        }
+        let primary = Array(ranked.prefix(3))
+        let secondary = Array(ranked.dropFirst(3))
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "CONTRIBUCIÓN POR FAMILIA",
+                detail: "prioridad por impacto · límites anti-doble-conteo",
+                help: "Cada familia aporta como máximo su peso, aunque contenga varios indicadores relacionados."
+            )
+            if groups.isEmpty {
+                NexusEmptyState(
+                    title: "Sin factores calculados",
+                    detail: "Actualiza NEXUS para generar la primera perspectiva agrupada.",
+                    symbol: "chart.bar.xaxis"
+                )
+            } else {
+                ForEach(primary) { group in
+                    goldContributionRow(group)
+                    if group.id != primary.last?.id { Divider().opacity(0.10) }
+                }
+                if !secondary.isEmpty {
+                    Divider().opacity(0.12)
+                    DisclosureGroup(isExpanded: $showAllGoldFactors) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(secondary) { group in
+                                goldContributionRow(group)
+                                if group.id != secondary.last?.id { Divider().opacity(0.10) }
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Text(showAllGoldFactors ? "Ocultar factores secundarios" : "Mostrar \(secondary.count) factores secundarios")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(NexusTheme.accent)
+                    }
+                }
+            }
+        }
+        .nexusCard()
+    }
+
+    private var goldDriverStrip: some View {
+        let groups = (store.snapshot?.gold?.outlook?.groups ?? []).filter { $0.available == true }
+        let support = groups.filter { ($0.shortContribution ?? 0) > 0.05 }
+            .max { ($0.shortContribution ?? 0) < ($1.shortContribution ?? 0) }
+        let pressure = groups.filter { ($0.shortContribution ?? 0) < -0.05 }
+            .min { ($0.shortContribution ?? 0) < ($1.shortContribution ?? 0) }
+        let medium = groups.max {
+            abs($0.mediumContribution ?? 0) < abs($1.mediumContribution ?? 0)
+        }
+        return NexusResponsiveGrid(wideColumns: 3, mediumColumns: 3, spacing: 10) {
+            goldDriverCard(title: "PRINCIPAL APOYO · 1M", group: support, value: support?.shortContribution)
+            goldDriverCard(title: "PRINCIPAL PRESIÓN · 1M", group: pressure, value: pressure?.shortContribution)
+            goldDriverCard(title: "MAYOR IMPACTO · 3M", group: medium, value: medium?.mediumContribution)
+        }
+    }
+
+    private func goldDriverCard(title: String, group: GoldFactorGroup?, value: Double?) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(group?.label ?? "Sin señal")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(signed(value))
+                    .font(.subheadline.monospacedDigit().weight(.bold))
+                    .foregroundStyle(contributionTone(value))
+            }
+        }
+        .nexusCard()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var goldChangeCard: some View {
+        let change = store.snapshot?.gold?.change
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "DESDE LA EVALUACIÓN ANTERIOR",
+                detail: shortGoldDate(change?.previousCapturedAt),
+                help: "Compara probabilidades y contribuciones con la última captura de un día anterior."
+            )
+            Text(change?.headline ?? "Sin comparación anterior")
+                .font(.headline)
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 3, spacing: 10) {
+                goldHorizonChangeCard("21 SESIONES", change?.short)
+                goldHorizonChangeCard("63 SESIONES", change?.medium)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("FACTORES QUE MÁS CAMBIAN")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(NexusTheme.accent)
+                    ForEach(change?.drivers ?? []) { driver in
+                        HStack {
+                            Text(driver.label ?? "Factor")
+                                .lineLimit(1)
+                            Spacer()
+                            Text("1M \(signed(driver.shortDelta)) · 3M \(signed(driver.mediumDelta))")
+                                .monospacedDigit()
+                                .foregroundStyle(contributionTone(driver.shortDelta ?? driver.mediumDelta))
+                        }
+                        .font(.caption)
+                    }
+                    if change?.drivers?.isEmpty != false {
+                        Text("Sin variaciones comparables")
+                            .font(.caption)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+        .nexusCard()
+    }
+
+    private func goldHorizonChangeCard(_ title: String, _ change: GoldHorizonChange?) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            HStack(alignment: .firstTextBaseline) {
+                Text(change?.currentLabel ?? "—")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(change?.deltaProbability.map { String(format: "%+.1f pp", $0) } ?? "—")
+                    .font(.subheadline.monospacedDigit().weight(.bold))
+                    .foregroundStyle(contributionTone(change?.deltaProbability))
+            }
+            Text("\(change?.previousProbability.map { String(format: "%.0f%%", $0) } ?? "—") → \(change?.currentProbability.map { String(format: "%.0f%%", $0) } ?? "—")")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(NexusTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func goldContributionRow(_ group: GoldFactorGroup) -> some View {
+        let short = group.shortContribution
+        let medium = group.mediumContribution
+        let available = group.available == true
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(group.label ?? "Factor", systemImage: available ? "checkmark.circle.fill" : "clock.badge.questionmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(available ? NexusTheme.text : NexusTheme.muted)
+                Spacer()
+                if available && group.scoreEnabled != false {
+                    Text("1M \(signed(short)) · 3M \(signed(medium))")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(contributionTone(short))
+                } else if available {
+                    Text("SOLO CONTEXTO")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(NexusTheme.warn)
+                } else {
+                    Text("PENDIENTE")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(NexusTheme.muted)
+                }
+            }
+            HStack(spacing: 8) {
+                GoldContributionBar(value: short, label: "1M")
+                GoldContributionBar(value: medium, label: "3M")
+            }
+            Text(group.note ?? "")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(group.label ?? "Factor"), corto plazo \(signed(short)), medio plazo \(signed(medium))")
+    }
+
+    private var inflationCard: some View {
+        let details = goldGroup("inflation")?.details ?? []
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "INFLACIÓN",
+                detail: "mensual e interanual",
+                help: "CPI y PCE se agrupan para que general, subyacente, mensual e interanual no sean votos independientes."
+            )
+            LazyVGrid(
+                columns: [GridItem(.flexible()), GridItem(.flexible())],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(details) { detail in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(detail.label ?? "Dato")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                        Text(detail.display ?? "—")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                        if let provenance = goldDetailProvenance(detail) {
+                            Text(provenance)
+                                .font(.caption2)
+                                .foregroundStyle(detail.quality == "OK" ? NexusTheme.muted : NexusTheme.warn)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if details.isEmpty {
+                Text("Los datos aparecerán tras actualizar la caché macro.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var goldPositioningCard: some View {
+        let positioning = store.snapshot?.gold?.positioning
+        let points = positioning?.history ?? []
+        let gate = store.snapshot?.gold?.backtest?.featureGates?["positioning"]
+        return VStack(alignment: .leading, spacing: 12) {
+            NexusSectionHeader(
+                title: "POSICIONAMIENTO CFTC / COMEX",
+                detail: positioning?.asOf.map { "informe \(String($0.prefix(10)))" },
+                help: "Posiciones semanales de Managed Money en futuros COMEX Gold. El informe del martes solo entra desde su publicación oficial; contratos y porcentajes de interés abierto no se suman como votos separados."
+            )
+
+            if positioning?.status == "MISSING" || positioning == nil {
+                NexusEmptyState(
+                    title: "Sin informe CFTC disponible",
+                    detail: "NEXUS mantendrá este factor fuera del score hasta recuperar una publicación verificable.",
+                    symbol: "chart.line.downtrend.xyaxis"
+                )
+            } else {
+                NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2, spacing: 10) {
+                    positioningMetric("NETO MANAGED MONEY", contracts(positioning?.netContracts), "\(formatPct(positioning?.netPctOI)) del OI")
+                    positioningMetric("CAMBIO SEMANAL", signedContracts(positioning?.weeklyChangeContracts), "4 sem \(signedContracts(positioning?.fourWeekChangeContracts))")
+                    positioningMetric("PERCENTIL 3 AÑOS", positioning?.percentile3Y.map { String(format: "%.0f", $0) } ?? "—", "z-score \(number(positioning?.zscore3Y, digits: 2))")
+                    positioningMetric("ESTADO EN EL MODELO", gate == "ENABLED" ? "ACTIVO" : "CONTEXTO", gate == "ENABLED" ? "peso limitado" : "pendiente de ablación")
+                }
+
+                if points.count >= 2 {
+                    Chart(points) { point in
+                        if let date = sparklineDate(point.reportDate) {
+                            if let value = point.positioningIndex {
+                                LineMark(
+                                    x: .value("Fecha", date),
+                                    y: .value("Índice", value),
+                                    series: .value("Serie", "Posicionamiento")
+                                )
+                                .foregroundStyle(by: .value("Serie", "Posicionamiento"))
+                                .interpolationMethod(.catmullRom)
+                            }
+                            if let value = point.goldPriceIndex {
+                                LineMark(
+                                    x: .value("Fecha", date),
+                                    y: .value("Índice", value),
+                                    series: .value("Serie", "Oro spot")
+                                )
+                                .foregroundStyle(by: .value("Serie", "Oro spot"))
+                                .interpolationMethod(.catmullRom)
+                            }
+                        }
+                    }
+                    .chartForegroundStyleScale([
+                        "Posicionamiento": NexusTheme.accent,
+                        "Oro spot": NexusTheme.warn,
+                    ])
+                    .chartLegend(position: .top, alignment: .leading)
+                    .chartYAxis { AxisMarks(position: .leading) }
+                    .frame(height: 210)
+                    .accessibilityLabel("Evolución normalizada del posicionamiento CFTC y del oro spot")
+                    Text("Comparación normalizada: oro spot base 100; posicionamiento = 100 + 20 × z-score de tres años.")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                }
+
+                NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1, spacing: 10) {
+                    positioningMetric("CONCENTRACIÓN 4 MAYORES", "L \(formatPct(positioning?.concentration4LongPct))", "C \(formatPct(positioning?.concentration4ShortPct))")
+                    positioningMetric("CONCENTRACIÓN 8 MAYORES", "L \(formatPct(positioning?.concentration8LongPct))", "C \(formatPct(positioning?.concentration8ShortPct))")
+                    positioningMetric("PRECIO VS POSICIÓN", positioning?.pricePositioningDivergence ?? "—", "publicado \(shortGoldDate(positioning?.releaseAt) ?? "—")")
+                }
+                Text("Fuente: \(positioning?.source ?? "CFTC") · Contrato \(positioning?.contractCode ?? "088691") · \(positioning?.contractUnits ?? "100 onzas troy por contrato")")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func positioningMetric(_ title: String, _ value: String, _ hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            Text(value)
+                .font(.title3.monospacedDigit().weight(.bold))
+                .minimumScaleFactor(0.75)
+                .lineLimit(1)
+            Text(hint)
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .lineLimit(2)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
+        .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func contracts(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return value.formatted(.number.precision(.fractionLength(0)))
+    }
+
+    private func signedContracts(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%+.0f", value)
+    }
+
+    private var ratesEnergyCard: some View {
+        let ids = ["real_rates", "dollar", "energy", "activity", "liquidity"]
+        let groups = ids.compactMap(goldGroup)
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "TIPOS, ENERGÍA Y ACTIVIDAD",
+                help: "Factores indirectos agrupados. Un dato ausente reduce cobertura; no se transforma en cero."
+            )
+            ForEach(groups) { group in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(group.label ?? "Factor")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NexusTheme.accent)
+                    ForEach((group.details ?? []).filter { $0.available == true }) { detail in
+                        VStack(alignment: .leading, spacing: 2) {
+                            NexusKVRow(label: detail.label ?? "Dato", value: detail.display ?? "—")
+                            if let provenance = goldDetailProvenance(detail) {
+                                Text(provenance)
+                                    .font(.caption2)
+                                    .foregroundStyle(detail.quality == "OK" ? NexusTheme.muted : NexusTheme.warn)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    if group.available != true {
+                        Text("Sin dato público disponible")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                }
+                if group.id != groups.last?.id { Divider().opacity(0.10) }
+            }
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var goldChangesCard: some View {
+        let changes = store.snapshot?.gold?.outlook?.whatChangesSignal ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "QUÉ CAMBIARÍA LA SEÑAL")
+            ForEach(changes, id: \.self) { change in
+                Label(change, systemImage: "arrow.triangle.branch")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var goldMethodologyCard: some View {
+        let outlook = store.snapshot?.gold?.outlook
+        let history = store.snapshot?.gold?.history
+        return VStack(alignment: .leading, spacing: 8) {
+            NexusSectionHeader(title: "METODOLOGÍA Y COBERTURA")
+            Text(outlook?.methodology ?? "Perspectiva todavía no disponible.")
+                .font(.caption.weight(.semibold))
+            ForEach(outlook?.dataNotes ?? [], id: \.self) { note in
+                Label(note, systemImage: "info.circle")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Text("Fuentes privadas")
+                    .foregroundStyle(NexusTheme.muted)
+                Spacer()
+                Text(outlook?.privateSourcesStatus ?? "STANDBY")
+                    .fontWeight(.bold)
+                    .foregroundStyle(NexusTheme.warn)
+            }
+            .font(.caption)
+            Divider().opacity(0.12)
+            NexusKVRow(
+                label: "Predicciones en vivo guardadas",
+                value: history?.predictions.map { String($0) } ?? "0"
+            )
+            NexusKVRow(
+                label: "Observaciones versionadas",
+                value: history?.observations.map { String($0) } ?? "0"
+            )
+            NexusKVRow(
+                label: "Resultados vencidos en vivo · 21 / 63",
+                value: "\(history?.validation?["short"]?.sampleSize ?? 0) / \(history?.validation?["medium"]?.sampleSize ?? 0)"
+            )
+            Text("El backtest histórico aparece en su panel propio. Este recuento corresponde solo al seguimiento en vivo y necesita 30 resultados vencidos por horizonte.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var goldBacktestCard: some View {
+        let report = store.snapshot?.gold?.backtest
+        let ready = report?.status == "READY"
+        let promoted = report?.passesBaselines == true
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                NexusSectionHeader(
+                    title: "VALIDACIÓN HISTÓRICA POINT-IN-TIME",
+                    detail: backtestPeriod(report),
+                    help: "Cada corte solo usa datos que ya se habían publicado. Brier menor es mejor; precisión equilibrada mayor es mejor."
+                )
+                Spacer(minLength: 8)
+                Text(promoted ? "CANDIDATO" : ready ? "PRELIMINAR" : "PENDIENTE")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(promoted ? NexusTheme.good : NexusTheme.warn)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background((promoted ? NexusTheme.good : NexusTheme.warn).opacity(0.14), in: Capsule())
+            }
+
+            if ready {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        goldBacktestHorizon("21", report: report)
+                        goldBacktestHorizon("63", report: report)
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        goldBacktestHorizon("21", report: report)
+                        goldBacktestHorizon("63", report: report)
+                    }
+                }
+                Text(promoted
+                     ? "El modelo supera las referencias definidas en ambos horizontes."
+                     : "Aún no supera de forma consistente a momentum y dólar + tipos reales; la confianza permanece limitada.")
+                    .font(.caption)
+                    .foregroundStyle(promoted ? NexusTheme.good : NexusTheme.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                NexusEmptyState(
+                    title: "Validación todavía no ejecutada",
+                    detail: "Genera el informe histórico para comparar el modelo con referencias simples.",
+                    symbol: "clock.arrow.circlepath"
+                )
+            }
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var goldProbabilityHistoryCard: some View {
+        let points = store.snapshot?.gold?.history?.recentPredictions ?? []
+        return VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(
+                title: "HISTÓRICO DE PROBABILIDAD",
+                detail: "últimas \(points.count) evaluaciones",
+                help: "Evolución de la probabilidad alcista emitida en vivo. La línea central representa una lectura neutral del 50%."
+            )
+            if points.count >= 2 {
+                Chart(points) { point in
+                    if let date = goldPredictionDate(point.capturedAt) {
+                        if let probability = point.shortProbability {
+                            LineMark(
+                                x: .value("Fecha", date),
+                                y: .value("Probabilidad", probability),
+                                series: .value("Horizonte", "21 sesiones")
+                            )
+                            .foregroundStyle(by: .value("Horizonte", "21 sesiones"))
+                            .interpolationMethod(.catmullRom)
+                        }
+                        if let probability = point.mediumProbability {
+                            LineMark(
+                                x: .value("Fecha", date),
+                                y: .value("Probabilidad", probability),
+                                series: .value("Horizonte", "63 sesiones")
+                            )
+                            .foregroundStyle(by: .value("Horizonte", "63 sesiones"))
+                            .interpolationMethod(.catmullRom)
+                        }
+                    }
+                }
+                .chartForegroundStyleScale([
+                    "21 sesiones": NexusTheme.accent,
+                    "63 sesiones": NexusTheme.warn,
+                ])
+                .chartYScale(domain: 15...85)
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: [20, 35, 50, 65, 80]) { value in
+                        AxisGridLine()
+                        AxisValueLabel { if let number = value.as(Int.self) { Text("\(number)%") } }
+                    }
+                }
+                .chartLegend(position: .top, alignment: .leading)
+                .frame(height: 190)
+            } else {
+                NexusEmptyState(
+                    title: "Aún falta otra evaluación",
+                    detail: "La serie aparecerá al disponer de dos capturas guardadas en días distintos.",
+                    symbol: "chart.xyaxis.line"
+                )
+            }
+            Text("Resultados vencidos: \(store.snapshot?.gold?.history?.settledOutcomes ?? 0). Las probabilidades no equivalen a una orden de entrada.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+        }
+        .nexusCard()
+    }
+
+    private var hasGoldAblation: Bool {
+        let horizons = store.snapshot?.gold?.backtest?.horizons
+        return !(horizons?["21"]?.ablation?.isEmpty ?? true) || !(horizons?["63"]?.ablation?.isEmpty ?? true)
+    }
+
+    private var goldAblationCard: some View {
+        let report = store.snapshot?.gold?.backtest
+        return VStack(alignment: .leading, spacing: 12) {
+            NexusSectionHeader(
+                title: "APORTE REAL POR FAMILIA",
+                detail: "prueba de ablación",
+                help: "Recalcula el histórico retirando una familia cada vez. Un Brier positivo significa que retirarla empeora el modelo; uno negativo señala posible redundancia."
+            )
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    goldAblationHorizon("21", report: report)
+                    goldAblationHorizon("63", report: report)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    goldAblationHorizon("21", report: report)
+                    goldAblationHorizon("63", report: report)
+                }
+            }
+            Text("Se muestran primero las familias que conviene revisar. Esta prueba detecta redundancia; no autoriza por sí sola a cambiar pesos.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func goldAblationHorizon(_ key: String, report: GoldBacktestReport?) -> some View {
+        let entries = (report?.horizons?[key]?.ablation ?? [:])
+            .sorted { ($0.value.deltaBrierVsFull ?? 0) < ($1.value.deltaBrierVsFull ?? 0) }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("\(key) SESIONES")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(NexusTheme.accent)
+            ForEach(Array(entries.prefix(5)), id: \.key) { entry in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(ablationTone(entry.value.interpretation))
+                        .frame(width: 7, height: 7)
+                    Text(goldFactorLabel(entry.key))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text("Δ Brier \(signedDecimal(entry.value.deltaBrierVsFull))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(ablationTone(entry.value.interpretation))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(goldFactorLabel(entry.key)), cambio Brier \(signedDecimal(entry.value.deltaBrierVsFull)), \(entry.value.interpretation ?? "sin clasificación")")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(NexusTheme.border, lineWidth: 1))
+    }
+
+    private func goldFactorLabel(_ key: String) -> String {
+        [
+            "inflation": "Inflación", "real_rates": "Tipos reales", "dollar": "Dólar",
+            "energy": "Energía", "activity": "Actividad", "liquidity": "Liquidez",
+            "risk": "Riesgo", "technical": "Técnica", "official_demand": "Demanda oficial",
+            "positioning": "Posicionamiento CFTC",
+        ][key] ?? key
+    }
+
+    private func ablationTone(_ interpretation: String?) -> Color {
+        switch interpretation {
+        case "APORTA": return NexusTheme.good
+        case "REVISAR": return NexusTheme.bad
+        default: return NexusTheme.muted
+        }
+    }
+
+    private func signedDecimal(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%+.4f", value)
+    }
+
+    private func goldBacktestHorizon(_ key: String, report: GoldBacktestReport?) -> some View {
+        let result = report?.horizons?[key]
+        let model = result?.model
+        let momentum = result?.baselineMomentum
+        let macro = result?.baselineDollarRealYield
+        let passed = result?.passesBaselines == true
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("\(key) SESIONES")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Spacer()
+                Text("\(model?.sampleSize ?? 0) cortes")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            NexusKVRow(label: "Brier NEXUS", value: decimal(model?.brierScore, digits: 3))
+            NexusKVRow(
+                label: "Referencias",
+                value: "Mom. \(decimal(momentum?.brierScore, digits: 3)) · Macro \(decimal(macro?.brierScore, digits: 3))"
+            )
+            NexusKVRow(
+                label: "Precisión equilibrada",
+                value: percentRatio(model?.balancedAccuracy),
+                tone: passed ? NexusTheme.good : NexusTheme.warn
+            )
+            NexusKVRow(label: "Retorno medio observado", value: formatPct(model?.meanReturnPct))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(NexusTheme.border, lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(key) sesiones, \(model?.sampleSize ?? 0) cortes, Brier \(decimal(model?.brierScore, digits: 3)), precisión equilibrada \(percentRatio(model?.balancedAccuracy))"
+        )
+    }
+
+    private func backtestPeriod(_ report: GoldBacktestReport?) -> String? {
+        guard let start = report?.period?.start, let end = report?.period?.end else { return nil }
+        return "\(start.prefix(4))–\(end.prefix(4))"
+    }
+
+    private func decimal(_ value: Double?, digits: Int) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.*f", digits, value)
+    }
+
+    private func percentRatio(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.1f%%", value * 100)
+    }
+
+    private func goldGroup(_ id: String) -> GoldFactorGroup? {
+        store.snapshot?.gold?.outlook?.groups?.first(where: { $0.id == id })
+    }
+
+    private func signed(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%+.1f", value)
+    }
+
+    private func contributionTone(_ value: Double?) -> Color {
+        guard let value else { return NexusTheme.muted }
+        if abs(value) < 0.05 { return NexusTheme.muted }
+        return value > 0 ? NexusTheme.good : NexusTheme.bad
+    }
+
+    private func goldStatusLabel(_ status: String?) -> String {
+        switch status?.uppercased() {
+        case "PRELIMINARY": return "PRELIMINAR"
+        case "READY": return "LISTO"
+        case .some(let value): return value
+        case .none: return "PRELIMINAR"
+        }
+    }
+
+    private func goldDetailProvenance(_ detail: GoldFactorDetail) -> String? {
+        let source = detail.source?.replacingOccurrences(of: "FRED:", with: "FRED · ")
+        let date = detail.asOf.map { String($0.prefix(10)) }
+        let parts = [source, date].compactMap { value in
+            guard let value, !value.isEmpty else { return nil as String? }
+            return value
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func shortGoldDate(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        return String(raw.prefix(10))
+    }
+
+    private func goldPredictionDate(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        return ISO8601DateFormatter.nexus.date(from: raw)
+            ?? ISO8601DateFormatter.nexusFractional.date(from: raw)
+    }
+
     private var goldCard: some View {
         let gold = store.snapshot?.gold
         let gld = gold?.GLD
         let signal = gold?.signal
         return VStack(alignment: .leading, spacing: 8) {
-            Text(gold?.label ?? "ORO (GLD)")
+            Text("ETF PROXY · GLD")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(NexusTheme.accent)
             Text(signal?.bias ?? "—")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(NexusTheme.toneColor(signal?.tone ?? signal?.bias))
-            metric("Spot", number(gld?.price, digits: 2))
+            metric("Precio ETF", number(gld?.price, digits: 2))
             metric("MA20 / MA50", "\(number(gld?.ma20, digits: 2)) / \(number(gld?.ma50, digits: 2))")
             MetricBar(label: "Mom 1M", value: gld?.momentum1m, range: -8...8)
             metric("Tipo real", signal?.realRate.map { String(format: "%.2f%%", $0) } ?? "—")
+            metric("Fuente tipo real", signal?.realRateSource ?? "—")
             metric("VIX", number(signal?.vix, digits: 1))
             Text(signal?.summary ?? "Sin lectura de oro todavía.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("GLD se usa como proxy técnico y para la validación histórica; el gráfico principal muestra XAU/USD spot.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -653,20 +1498,20 @@ struct ForexGoldView: View {
 
     private var goldVsDollarCard: some View {
         let gld = store.snapshot?.gold?.GLD
-        let usdEurMomentum = inverseReturn(store.snapshot?.forex?.EURUSD?.momentum1m)
+        let dollarMomentum = store.snapshot?.assets?["UUP"]?.momentum1m
         let relative = {
-            guard let gold = gld?.momentum1m, let dollar = usdEurMomentum else { return nil as Double? }
+            guard let gold = gld?.momentum1m, let dollar = dollarMomentum else { return nil as Double? }
             return gold - dollar
         }()
         return VStack(alignment: .leading, spacing: 8) {
             NexusSectionHeader(
-                title: "GLD vs USD/EUR · 1M",
-                help: "Momentum a un mes del oro y de USD/EUR. El oro fuerte con dólar fuerte no se interpreta igual que con dólar débil."
+                title: "GLD vs índice dólar (UUP) · 1M",
+                help: "Compara el proxy del oro con un proxy amplio del dólar. Así la lectura coincide con la variable dólar empleada por el modelo."
             )
             MetricBar(label: "GLD 1M", value: gld?.momentum1m, range: -8...8)
-            MetricBar(label: "USD/EUR 1M", value: usdEurMomentum, range: -8...8)
-            MetricBar(label: "Relativo GLD−USD/EUR", value: relative, range: -8...8)
-            Text(relative.map { $0 >= 0 ? "El oro gana fuerza relativa frente al dólar bilateral." : "USD/EUR gana fuerza relativa frente al oro." } ?? "Sin comparación con el dólar todavía.")
+            MetricBar(label: "UUP 1M", value: dollarMomentum, range: -8...8)
+            MetricBar(label: "Relativo GLD−UUP", value: relative, range: -8...8)
+            Text(relative.map { $0 >= 0 ? "GLD gana fuerza relativa frente al índice dólar." : "El índice dólar gana fuerza relativa frente a GLD." } ?? "Sin comparación con el índice dólar todavía.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -677,12 +1522,18 @@ struct ForexGoldView: View {
     }
 
     private var fxHeadlinesCard: some View {
-        let items = store.snapshot?.forex?.headlines ?? []
+        let allItems = store.snapshot?.forex?.headlines ?? []
+        let items = allItems.filter { item in
+            let assets = Set(item.linkedAssets ?? [])
+            return mode == .gold
+                ? !assets.isDisjoint(with: ["GLD", "XAUUSD"])
+                : !assets.isDisjoint(with: ["EURUSD", "UUP"])
+        }
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 NexusSectionHeader(
-                    title: "Titulares EUR / USD / oro",
-                    help: "Coincidencia contextual con euro, dólar u oro. No implica causalidad."
+                    title: mode == .gold ? "Titulares del oro" : "Titulares de divisas",
+                    help: "Coincidencia contextual por activo. No implica causalidad."
                 )
                 Spacer()
                 NexusActionButton(title: "Noticias", systemImage: "newspaper", helpText: "Abrir la pestaña de noticias") {
@@ -775,14 +1626,20 @@ struct ForexGoldView: View {
     }
 
     private var fxCalendarCard: some View {
-        let events = store.snapshot?.calendar?.fxUpcoming ?? []
+        let events = mode == .gold
+            ? (store.snapshot?.calendar?.goldUpcoming ?? [])
+            : (store.snapshot?.calendar?.fxUpcoming ?? [])
         return VStack(alignment: .leading, spacing: 8) {
             NexusSectionHeader(
-                title: "Calendario FX y oro · 72h",
-                help: "FOMC, CPI, NFP y BCE en las próximas 72 horas. Un bloqueo activo sigue mandando sobre la operativa."
+                title: mode == .gold ? "Calendario del oro · 30 días" : "Calendario FX · 72h",
+                help: mode == .gold
+                    ? "Publicaciones oficiales de FOMC, CPI/PCE y NFP del próximo mes; el respaldo manual se etiqueta como estimado. Solo la ventana operativa configurada puede bloquear señales."
+                    : "FOMC, CPI, NFP y BCE en las próximas 72 horas. Un bloqueo activo sigue mandando sobre la operativa."
             )
             if events.isEmpty {
-                Text("No hay FOMC, CPI, NFP o BCE en las próximas 72 horas.")
+                Text(mode == .gold
+                    ? "No hay publicaciones de FOMC, CPI/PCE o NFP fechadas para los próximos 30 días."
+                    : "No hay FOMC, CPI, NFP o BCE en las próximas 72 horas.")
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
             } else {
@@ -916,6 +1773,44 @@ struct ForexGoldView: View {
         let factor = 1 + percent / 100
         guard factor > 0 else { return nil }
         return (1 / factor - 1) * 100
+    }
+}
+
+struct GoldContributionBar: View {
+    let value: Double?
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(label)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(NexusTheme.muted)
+            Image(systemName: symbol)
+                .font(.caption2)
+                .foregroundStyle(tone)
+            ProgressView(value: min(abs(value ?? 0), 22), total: 22)
+                .tint(tone)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), contribución \(spokenValue)")
+    }
+
+    private var symbol: String {
+        guard let value else { return "minus" }
+        if value > 0.05 { return "arrow.up.right" }
+        if value < -0.05 { return "arrow.down.right" }
+        return "minus"
+    }
+
+    private var tone: Color {
+        guard let value else { return NexusTheme.muted }
+        if abs(value) <= 0.05 { return NexusTheme.muted }
+        return value > 0 ? NexusTheme.good : NexusTheme.bad
+    }
+
+    private var spokenValue: String {
+        guard let value else { return "no disponible" }
+        return String(format: "%+.1f puntos", value)
     }
 }
 

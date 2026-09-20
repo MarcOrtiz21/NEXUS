@@ -6,7 +6,8 @@ enum NavItem: String, CaseIterable, Identifiable {
     case news = "Noticias"
     case watchlist = "Seguimiento"
     case history = "Historial"
-    case forexGold = "Forex y oro"
+    case forex = "Divisas"
+    case gold = "Oro"
     case rotation = "Rotación sectorial"
     case paper = "Cartera virtual"
     case global = "Global"
@@ -18,30 +19,32 @@ enum NavItem: String, CaseIterable, Identifiable {
     var shortcut: KeyEquivalent {
         switch self {
         case .overview: return "1"
-        case .news: return "2"
-        case .forexGold: return "3"
-        case .rotation: return "4"
-        case .global: return "5"
-        case .charts: return "6"
-        case .watchlist: return "7"
-        case .history: return "8"
-        case .report: return "9"
-        case .paper: return "0"
+        case .report: return "2"
+        case .news: return "3"
+        case .forex: return "4"
+        case .gold: return "5"
+        case .rotation: return "6"
+        case .global: return "7"
+        case .charts: return "8"
+        case .watchlist: return "9"
+        case .history: return "0"
+        case .paper: return "p"
         }
     }
 
     var shortcutHint: String {
         switch self {
         case .overview: return "⌘1"
-        case .news: return "⌘2"
-        case .forexGold: return "⌘3"
-        case .rotation: return "⌘4"
-        case .global: return "⌘5"
-        case .charts: return "⌘6"
-        case .watchlist: return "⌘7"
-        case .history: return "⌘8"
-        case .report: return "⌘9"
-        case .paper: return "⌘0"
+        case .report: return "⌘2"
+        case .news: return "⌘3"
+        case .forex: return "⌘4"
+        case .gold: return "⌘5"
+        case .rotation: return "⌘6"
+        case .global: return "⌘7"
+        case .charts: return "⌘8"
+        case .watchlist: return "⌘9"
+        case .history: return "⌘0"
+        case .paper: return "⌘P"
         }
     }
 
@@ -51,7 +54,8 @@ enum NavItem: String, CaseIterable, Identifiable {
         case .news: return "newspaper"
         case .watchlist: return "star"
         case .history: return "chart.xyaxis.line"
-        case .forexGold: return "coloncurrencysign.circle"
+        case .forex: return "coloncurrencysign.circle"
+        case .gold: return "circle.hexagongrid.fill"
         case .rotation: return "arrow.triangle.2.circlepath"
         case .paper: return "briefcase"
         case .global: return "globe.europe.africa"
@@ -712,6 +716,7 @@ struct CalendarInfo: Codable {
     let nextEvent: FlexibleEvent?
     let upcoming: [CalendarEventItem]?
     let fxUpcoming: [CalendarEventItem]?
+    let goldUpcoming: [CalendarEventItem]?
     let confidence: String?
     let source: String?
     let timeQuality: String?
@@ -723,6 +728,7 @@ struct CalendarInfo: Codable {
         case nextEvent = "next_event"
         case upcoming
         case fxUpcoming = "fx_upcoming"
+        case goldUpcoming = "gold_upcoming"
         case confidence, source
         case timeQuality = "time_quality"
         case estimatedWindow = "estimated_window"
@@ -948,6 +954,368 @@ struct GoldBlock: Codable {
     let GLD: AssetMetrics?
     let label: String?
     let signal: GoldSignal?
+    let outlook: GoldOutlook?
+    let positioning: GoldPositioning?
+    let history: GoldHistorySummary?
+    let change: GoldChangeSummary?
+    let backtest: GoldBacktestReport?
+}
+
+struct GoldChangeSummary: Codable {
+    let previousCapturedAt: String?
+    let headline: String?
+    let short: GoldHorizonChange?
+    let medium: GoldHorizonChange?
+    let drivers: [GoldDriverChange]?
+
+    enum CodingKeys: String, CodingKey {
+        case headline, short, medium, drivers
+        case previousCapturedAt = "previous_captured_at"
+    }
+}
+
+struct GoldHorizonChange: Codable {
+    let currentProbability: Double?
+    let previousProbability: Double?
+    let deltaProbability: Double?
+    let currentLabel: String?
+    let previousLabel: String?
+    let labelChanged: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case currentProbability = "current_probability"
+        case previousProbability = "previous_probability"
+        case deltaProbability = "delta_probability"
+        case currentLabel = "current_label"
+        case previousLabel = "previous_label"
+        case labelChanged = "label_changed"
+    }
+}
+
+struct GoldDriverChange: Codable, Identifiable {
+    var id: String { key ?? label ?? UUID().uuidString }
+    let key: String?
+    let label: String?
+    let shortDelta: Double?
+    let mediumDelta: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case label
+        case key = "id"
+        case shortDelta = "short_delta"
+        case mediumDelta = "medium_delta"
+    }
+}
+
+struct GoldBacktestReport: Codable {
+    let status: String?
+    let modelVersion: String?
+    let generatedAt: String?
+    let period: GoldBacktestPeriod?
+    let promotionStatus: String?
+    let passesBaselines: Bool?
+    let featureGates: [String: String]?
+    let horizons: [String: GoldBacktestHorizon]?
+    let limitations: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case status, period, horizons, limitations
+        case modelVersion = "model_version"
+        case generatedAt = "generated_at"
+        case promotionStatus = "promotion_status"
+        case passesBaselines = "passes_baselines"
+        case featureGates = "feature_gates"
+    }
+}
+
+struct GoldBacktestPeriod: Codable {
+    let start: String?
+    let end: String?
+}
+
+struct GoldBacktestHorizon: Codable {
+    let model: GoldBacktestMetrics?
+    let baselineMomentum: GoldBacktestMetrics?
+    let baselineDollarRealYield: GoldBacktestMetrics?
+    let passesBaselines: Bool?
+    let ablation: [String: GoldAblationMetrics]?
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case baselineMomentum = "baseline_momentum"
+        case baselineDollarRealYield = "baseline_dollar_real_yield"
+        case passesBaselines = "passes_baselines"
+        case ablation
+    }
+}
+
+struct GoldAblationMetrics: Codable {
+    let sampleSize: Int?
+    let brierScore: Double?
+    let balancedAccuracy: Double?
+    let deltaBrierVsFull: Double?
+    let deltaBalancedAccuracyVsFull: Double?
+    let interpretation: String?
+
+    enum CodingKeys: String, CodingKey {
+        case interpretation
+        case sampleSize = "sample_size"
+        case brierScore = "brier_score"
+        case balancedAccuracy = "balanced_accuracy"
+        case deltaBrierVsFull = "delta_brier_vs_full"
+        case deltaBalancedAccuracyVsFull = "delta_balanced_accuracy_vs_full"
+    }
+}
+
+struct GoldBacktestMetrics: Codable {
+    let sampleSize: Int?
+    let brierScore: Double?
+    let balancedAccuracy: Double?
+    let meanReturnPct: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case sampleSize = "sample_size"
+        case brierScore = "brier_score"
+        case balancedAccuracy = "balanced_accuracy"
+        case meanReturnPct = "mean_return_pct"
+    }
+}
+
+struct GoldHistorySummary: Codable {
+    let observations: Int?
+    let pointInTimeObservations: Int?
+    let predictions: Int?
+    let settledOutcomes: Int?
+    let latestPredictionAt: String?
+    let validation: [String: GoldValidationSummary]?
+    let recentPredictions: [GoldPredictionPoint]?
+
+    enum CodingKeys: String, CodingKey {
+        case observations, predictions, validation
+        case pointInTimeObservations = "point_in_time_observations"
+        case settledOutcomes = "settled_outcomes"
+        case latestPredictionAt = "latest_prediction_at"
+        case recentPredictions = "recent_predictions"
+    }
+}
+
+struct GoldPredictionPoint: Codable, Identifiable {
+    var id: String { capturedAt ?? UUID().uuidString }
+    let capturedAt: String?
+    let shortProbability: Double?
+    let mediumProbability: Double?
+    let shortLabel: String?
+    let mediumLabel: String?
+    let shortReturnPct: Double?
+    let mediumReturnPct: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case capturedAt = "captured_at"
+        case shortProbability = "short_probability"
+        case mediumProbability = "medium_probability"
+        case shortLabel = "short_label"
+        case mediumLabel = "medium_label"
+        case shortReturnPct = "short_return_pct"
+        case mediumReturnPct = "medium_return_pct"
+    }
+}
+
+struct GoldValidationSummary: Codable {
+    let horizonDays: Int?
+    let sampleSize: Int?
+    let status: String?
+    let brierScore: Double?
+    let balancedAccuracy: Double?
+    let meanReturnPct: Double?
+    let walkForwardFolds: Int?
+    let pointInTimeWarning: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case horizonDays = "horizon_days"
+        case sampleSize = "sample_size"
+        case brierScore = "brier_score"
+        case balancedAccuracy = "balanced_accuracy"
+        case meanReturnPct = "mean_return_pct"
+        case walkForwardFolds = "walk_forward_folds"
+        case pointInTimeWarning = "point_in_time_warning"
+    }
+}
+
+struct GoldOutlook: Codable {
+    let version: String?
+    let status: String?
+    let asOf: String?
+    let privateSourcesStatus: String?
+    let methodology: String?
+    let shortTerm: GoldHorizon?
+    let mediumTerm: GoldHorizon?
+    let groups: [GoldFactorGroup]?
+    let dataNotes: [String]?
+    let whatChangesSignal: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case version, status, methodology, groups
+        case asOf = "as_of"
+        case privateSourcesStatus = "private_sources_status"
+        case shortTerm = "short_term"
+        case mediumTerm = "medium_term"
+        case dataNotes = "data_notes"
+        case whatChangesSignal = "what_changes_signal"
+    }
+}
+
+struct GoldHorizon: Codable {
+    let horizonDays: Int?
+    let label: String?
+    let tone: String?
+    let probabilityUp: Double?
+    let score: Double?
+    let confidence: String?
+    let coveragePct: Double?
+    let drivers: [GoldFactorDriver]?
+
+    enum CodingKeys: String, CodingKey {
+        case label, tone, score, confidence, drivers
+        case horizonDays = "horizon_days"
+        case probabilityUp = "probability_up"
+        case coveragePct = "coverage_pct"
+    }
+}
+
+struct GoldFactorDriver: Codable, Identifiable {
+    var id: String { key ?? label ?? UUID().uuidString }
+    let key: String?
+    let label: String?
+    let contribution: Double?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case label, contribution, note
+        case key = "id"
+    }
+}
+
+struct GoldFactorGroup: Codable, Identifiable {
+    var id: String { key ?? label ?? UUID().uuidString }
+    let key: String?
+    let label: String?
+    let available: Bool?
+    let scoreEnabled: Bool?
+    let coveragePct: Double?
+    let shortSignal: Double?
+    let mediumSignal: Double?
+    let shortWeight: Double?
+    let mediumWeight: Double?
+    let shortContribution: Double?
+    let mediumContribution: Double?
+    let details: [GoldFactorDetail]?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case label, available, details, note
+        case key = "id"
+        case coveragePct = "coverage_pct"
+        case shortSignal = "short_signal"
+        case mediumSignal = "medium_signal"
+        case shortWeight = "short_weight"
+        case mediumWeight = "medium_weight"
+        case shortContribution = "short_contribution"
+        case mediumContribution = "medium_contribution"
+        case scoreEnabled = "score_enabled"
+    }
+}
+
+struct GoldPositioning: Codable {
+    let status: String?
+    let source: String?
+    let contractCode: String?
+    let contractUnits: String?
+    let asOf: String?
+    let releaseAt: String?
+    let ageDays: Int?
+    let openInterestContracts: Double?
+    let longContracts: Double?
+    let shortContracts: Double?
+    let netContracts: Double?
+    let netPctOI: Double?
+    let weeklyChangeContracts: Double?
+    let fourWeekChangeContracts: Double?
+    let fourWeekChangePctOI: Double?
+    let percentile3Y: Double?
+    let zscore3Y: Double?
+    let concentration4LongPct: Double?
+    let concentration4ShortPct: Double?
+    let concentration8LongPct: Double?
+    let concentration8ShortPct: Double?
+    let pricePositioningDivergence: String?
+    let divergenceScore: Double?
+    let history: [GoldPositioningPoint]?
+
+    enum CodingKeys: String, CodingKey {
+        case status, source, history
+        case contractCode = "contract_code"
+        case contractUnits = "contract_units"
+        case asOf = "as_of"
+        case releaseAt = "release_at"
+        case ageDays = "age_days"
+        case openInterestContracts = "open_interest_contracts"
+        case longContracts = "long_contracts"
+        case shortContracts = "short_contracts"
+        case netContracts = "net_contracts"
+        case netPctOI = "net_pct_oi"
+        case weeklyChangeContracts = "weekly_change_contracts"
+        case fourWeekChangeContracts = "four_week_change_contracts"
+        case fourWeekChangePctOI = "four_week_change_pct_oi"
+        case percentile3Y = "percentile_3y"
+        case zscore3Y = "zscore_3y"
+        case concentration4LongPct = "concentration_4_long_pct"
+        case concentration4ShortPct = "concentration_4_short_pct"
+        case concentration8LongPct = "concentration_8_long_pct"
+        case concentration8ShortPct = "concentration_8_short_pct"
+        case pricePositioningDivergence = "price_positioning_divergence"
+        case divergenceScore = "divergence_score"
+    }
+}
+
+struct GoldPositioningPoint: Codable, Identifiable {
+    var id: String { reportDate ?? UUID().uuidString }
+    let reportDate: String?
+    let releaseAt: String?
+    let netContracts: Double?
+    let netPctOI: Double?
+    let percentile3Y: Double?
+    let positioningIndex: Double?
+    let goldPrice: Double?
+    let goldPriceIndex: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case reportDate = "report_date"
+        case releaseAt = "release_at"
+        case netContracts = "net_contracts"
+        case netPctOI = "net_pct_oi"
+        case percentile3Y = "percentile_3y"
+        case positioningIndex = "positioning_index"
+        case goldPrice = "gold_price"
+        case goldPriceIndex = "gold_price_index"
+    }
+}
+
+struct GoldFactorDetail: Codable, Identifiable {
+    var id: String { label ?? UUID().uuidString }
+    let label: String?
+    let value: Double?
+    let unit: String?
+    let display: String?
+    let available: Bool?
+    let source: String?
+    let asOf: String?
+    let quality: String?
+
+    enum CodingKeys: String, CodingKey {
+        case label, value, unit, display, available, source, quality
+        case asOf = "as_of"
+    }
 }
 
 struct GoldSignal: Codable {
@@ -957,6 +1325,7 @@ struct GoldSignal: Codable {
     let confidence: String?
     let score: Double?
     let realRate: Double?
+    let realRateSource: String?
     let vsDollar1m: Double?
     let vsDollarNote: String?
     let vix: Double?
@@ -967,6 +1336,7 @@ struct GoldSignal: Codable {
     enum CodingKeys: String, CodingKey {
         case bias, tone, summary, confidence, score, drivers, vix
         case realRate = "real_rate"
+        case realRateSource = "real_rate_source"
         case vsDollar1m = "vs_dollar_1m"
         case vsDollarNote = "vs_dollar_note"
         case gldTrend = "gld_trend"
@@ -990,6 +1360,7 @@ struct GoldSignal: Codable {
             score = nil
         }
         realRate = Self.num(c, .realRate)
+        realRateSource = try c.decodeIfPresent(String.self, forKey: .realRateSource)
         vsDollar1m = Self.num(c, .vsDollar1m)
         vsDollarNote = try c.decodeIfPresent(String.self, forKey: .vsDollarNote)
         vix = Self.num(c, .vix)

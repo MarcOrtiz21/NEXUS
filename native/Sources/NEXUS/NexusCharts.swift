@@ -11,6 +11,7 @@ struct NexusSparklineCard: View {
     var emptyText: String = "La serie se rellenará en la próxima descarga completa de mercado."
     var ticker: String? = nil
     var news: [NewsItem] = []
+    var calendarEvents: [CalendarEventItem] = []
     var spyPoints: [SparklinePoint] = []
     var onTap: (() -> Void)? = nil
     var onOpenNews: ((NewsItem) -> Void)? = nil
@@ -166,11 +167,109 @@ struct NexusSparklineCard: View {
         VStack(alignment: .leading, spacing: compactMode ? 6 : 8) {
             header
             errorBanner
+            if !compactMode, !upcomingCalendarEvents.isEmpty {
+                calendarEventRail
+            }
             if !compactMode || focused {
                 selectionHUD
             }
             chartContent
         }
+    }
+
+    private var upcomingCalendarEvents: [CalendarEventItem] {
+        calendarEvents
+            .filter { event in
+                guard let hours = event.hoursUntil else { return false }
+                return hours >= 0 && hours <= 31 * 24
+            }
+            .sorted { ($0.hoursUntil ?? 0) < ($1.hoursUntil ?? 0) }
+    }
+
+    private var calendarEventRail: some View {
+        let events = Array(upcomingCalendarEvents.prefix(8))
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("EVENTOS MACRO · 30 DÍAS", systemImage: "calendar.badge.clock")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Spacer(minLength: 8)
+                Text("contexto, no señal")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+
+            GeometryReader { proxy in
+                let usableWidth = max(1, proxy.size.width - 24)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(NexusTheme.border.opacity(0.85))
+                        .frame(height: 2)
+                        .offset(x: 12)
+                    ForEach(events) { event in
+                        let fraction = min(1, max(0, (event.hoursUntil ?? 0) / (31 * 24)))
+                        VStack(spacing: 1) {
+                            Circle()
+                                .fill(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                                .frame(width: 8, height: 8)
+                            Text(calendarEventCode(event))
+                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                                .foregroundStyle(NexusTheme.text)
+                        }
+                        .position(
+                            x: 12 + usableWidth * CGFloat(fraction),
+                            y: 13
+                        )
+                        .help("\(event.title ?? "Evento macro") · \(calendarEventWhen(event))")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(event.title ?? "Evento macro"), \(calendarEventWhen(event))")
+                    }
+                }
+            }
+            .frame(height: 27)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 190), spacing: 6, alignment: .leading)],
+                alignment: .leading,
+                spacing: 5
+            ) {
+                ForEach(events.prefix(4)) { event in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Circle()
+                            .fill(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
+                            .frame(width: 6, height: 6)
+                        Text(event.title ?? "Evento macro")
+                            .font(.caption2.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 3)
+                        Text(calendarEventWhen(event))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(NexusTheme.muted)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(NexusTheme.cardInner.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func calendarEventCode(_ event: CalendarEventItem) -> String {
+        let title = (event.title ?? "").lowercased()
+        if title.contains("fomc") || title.contains("federal reserve") { return "FED" }
+        if title.contains("pce") || title.contains("personal income") { return "PCE" }
+        if title.contains("cpi") || title.contains("consumer price") || title.contains("ipc") { return "CPI" }
+        if title.contains("nfp") || title.contains("employment") || title.contains("payroll") { return "NFP" }
+        if title.contains("ecb") || title.contains("european central") { return "BCE" }
+        return "MACRO"
+    }
+
+    private func calendarEventWhen(_ event: CalendarEventItem) -> String {
+        guard let hours = event.hoursUntil else { return event.whenUtc ?? "fecha pendiente" }
+        if hours < 1 { return "en \(max(0, Int(hours * 60))) min" }
+        if hours < 24 { return "en \(Int(hours.rounded())) h" }
+        return "en \(Int((hours / 24).rounded())) d"
     }
 
     private var decoratedCard: some View {
@@ -929,6 +1028,9 @@ struct NexusSparklineCard: View {
         }
         if showNews, !cachedNewsFlags.isEmpty {
             items.append(("Puntos sobre velas: titulares, no señales", NexusTheme.muted))
+        }
+        if !upcomingCalendarEvents.isEmpty {
+            items.append(("Carril superior: próximos eventos macro, no señales", NexusTheme.muted))
         }
         return items
     }

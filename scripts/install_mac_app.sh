@@ -37,6 +37,10 @@ if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$DEST_APP" 2>/dev/null || true
 fi
 
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$DEST_APP"
+fi
+
 echo
 echo "✅ Instalada en Applications."
 echo "   Abre con Spotlight o:"

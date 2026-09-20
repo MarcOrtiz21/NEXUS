@@ -12,7 +12,7 @@ CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 ICON_SRC="$NEXUS_ROOT/assets/AppIcon.png"
-VERSION="3.5.0"
+VERSION="3.9.0"
 
 echo "Construyendo ${APP_NAME} v${VERSION}"
 echo "  Fuente: $NEXUS_ROOT"
@@ -30,6 +30,14 @@ if ! command -v swift >/dev/null 2>&1; then
   exit 1
 fi
 
+# Algunas versiones recientes de Command Line Tools incluyen un SDK preliminar
+# sin el plugin SwiftUIMacros. Cuando está disponible, 26.5 es la base estable
+# compatible con el despliegue mínimo de NEXUS. Se puede anular con SDKROOT.
+if [[ -z "${SDKROOT:-}" && -d "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk" ]]; then
+  export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+  echo "  SDK estable: $SDKROOT"
+fi
+
 echo "  Compilando interfaz SwiftUI (release)…"
 (
   cd "$NEXUS_ROOT/native"
@@ -39,48 +47,6 @@ echo "  Compilando interfaz SwiftUI (release)…"
   cp "$NATIVE_BIN" "$MACOS/NEXUS"
 )
 chmod +x "$MACOS/NEXUS"
-
-cat > "$MACOS/launch_nexus" <<'LAUNCHER'
-#!/bin/bash
-set -euo pipefail
-
-# PATH mínimo de Finder no incluye Homebrew.
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-
-APP_CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
-RESOURCES="$APP_CONTENTS/Resources"
-ROOT_FILE="$RESOURCES/nexus_root.txt"
-LOG_DIR="${HOME}/Library/Logs/NEXUS"
-LOG_FILE="${LOG_DIR}/launch.log"
-mkdir -p "$LOG_DIR"
-
-exec >>"$LOG_FILE" 2>&1
-echo "----- $(date '+%Y-%m-%d %H:%M:%S') launch -----"
-
-die() {
-  local msg="$1"
-  echo "ERROR: $msg"
-  if command -v osascript >/dev/null 2>&1; then
-    osascript -e "display dialog \"${msg}\" with title \"NEXUS Workstation\" buttons {\"OK\"} default button 1 with icon stop" >/dev/null 2>&1 || true
-  fi
-  exit 1
-}
-
-[[ -f "$ROOT_FILE" ]] || die "No se encontró nexus_root.txt. Vuelve a ejecutar scripts/build_mac_app.sh"
-NEXUS_ROOT="$(tr -d '\r\n' < "$ROOT_FILE")"
-[[ -d "$NEXUS_ROOT" ]] || die "La carpeta del proyecto no existe: ${NEXUS_ROOT}. Reconstruye la app."
-
-export NEXUS_ROOT
-export NEXUS_NO_PAUSE=1
-
-NATIVE_BIN="$APP_CONTENTS/MacOS/NEXUS"
-[[ -x "$NATIVE_BIN" ]] || die "No se encuentra el binario nativo. Vuelve a ejecutar scripts/build_mac_app.sh"
-[[ -x "${NEXUS_ROOT}/.venv/bin/python" ]] || die "No hay entorno .venv. Ejecuta setup.command en el repo."
-
-echo "Starting native SwiftUI: $NATIVE_BIN"
-exec "$NATIVE_BIN"
-LAUNCHER
-chmod +x "$MACOS/launch_nexus"
 
 ICON_PLIST_KEY=""
 if [[ -f "$ICON_SRC" ]]; then
@@ -119,7 +85,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleExecutable</key><string>launch_nexus</string>${ICON_PLIST_KEY}
+  <key>CFBundleExecutable</key><string>NEXUS</string>${ICON_PLIST_KEY}
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSUserNotificationsUsageDescription</key>
   <string>NEXUS avisa cuando cambia la acción operativa o se activa un bloqueo de calendario.</string>
@@ -131,6 +97,14 @@ PLIST
 
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_DIR" 2>/dev/null || true
+fi
+
+# Firma local ad hoc: evita que macOS trate el bundle como un ejecutable sin
+# identidad. No sustituye una firma Developer ID para distribuirlo fuera del
+# equipo, pero estabiliza LaunchServices y las APIs de accesibilidad locales.
+if [[ "$(uname -s)" == "Darwin" ]] && command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$APP_DIR"
+  echo "  Firma local: ad hoc"
 fi
 
 echo

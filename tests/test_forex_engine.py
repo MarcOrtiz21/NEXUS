@@ -79,6 +79,13 @@ class GoldSignalTests(unittest.TestCase):
         self.assertIsNone(result["real_rate"])
         self.assertIn("Falta", result["vs_dollar_note"])
 
+    def test_direct_tips_real_yield_takes_priority_over_approximation(self):
+        result = gold_signal(
+            {}, {}, vix=None, us10y=5.0, cpi_yoy=2.0, real_yield_10y=0.4,
+        )
+        self.assertEqual(result["real_rate"], 0.4)
+        self.assertEqual(result["real_rate_source"], "TIPS 10Y")
+
 
 if __name__ == "__main__":
     unittest.main()

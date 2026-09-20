@@ -12,10 +12,12 @@ enum NexusTheme {
     static let border = Color.white.opacity(0.12)
     static let text = Color.white
     static let muted = Color(red: 0.72, green: 0.72, blue: 0.74)
-    static let accent = Color(red: 0.04, green: 0.52, blue: 1.0)
+    // Acento y rojo elevados para que el texto pequeño alcance contraste AA
+    // sobre `card`; los controles con relleno de acento usan texto oscuro.
+    static let accent = Color(red: 0.18, green: 0.62, blue: 1.0)
     static let good = Color(red: 0.19, green: 0.82, blue: 0.35)
     static let warn = Color(red: 1.0, green: 0.62, blue: 0.04)
-    static let bad = Color(red: 1.0, green: 0.27, blue: 0.23)
+    static let bad = Color(red: 1.0, green: 0.40, blue: 0.36)
 
     static func toneColor(_ tone: String?) -> Color {
         let value = (tone ?? "").uppercased()
@@ -394,7 +396,7 @@ private enum NexusControlStyle {
 
     static func foreground(_ role: NexusControlRole) -> Color {
         switch role {
-        case .prominent: return Color.white
+        case .prominent: return NexusTheme.bg
         case .secondary: return NexusTheme.text
         case .onAccent: return Color.white
         }

@@ -2,12 +2,12 @@
   <img src="assets/AppIcon.png" alt="NEXUS logo" width="144">
   <h1>NEXUS Workstation</h1>
   <p><strong>Market intelligence for disciplined decisions.</strong></p>
-  <p>Workstation 3.5 · Native macOS interface · Python decision engine · Explainable market context</p>
+  <p>Workstation 3.9 · Native macOS interface · Python decision engine · Explainable market context</p>
   <p>
     <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
     <img alt="Swift 5.9+" src="https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white">
     <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
-    <img alt="Release 3.5" src="https://img.shields.io/badge/release-3.5-0A84FF">
+    <img alt="Release 3.9" src="https://img.shields.io/badge/release-3.9-0A84FF">
   </p>
 </div>
 
@@ -30,7 +30,7 @@ La aplicación está diseñada para responder tres preguntas:
 
 NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las señales, escenarios y simulaciones son herramientas de análisis.
 
-### Novedades de la versión 3.5
+### Novedades de la versión 3.9
 
 - Interfaz nativa bilingüe en español e inglés.
 - Resumen ejecutivo más compacto, con plan por activo, ranking técnico y contexto macro.
@@ -39,6 +39,16 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - Gráficos de divisas ampliados, USD/EUR invertido con precisión y oro COMEX.
 - RSI con divergencias alcistas/bajistas, MACD y cursor sincronizado durante el arrastre.
 - Navegación sectorial por temas y empresas, con inspector técnico lateral.
+- Divisas y oro separados, con una nueva perspectiva agrupada del oro a 21/63 sesiones.
+- Inflación general/subyacente mensual e interanual, TIPS reales, energía y actividad.
+- Posicionamiento semanal CFTC/COMEX del oro con Managed Money, concentración,
+  percentil de tres años, divergencia y fecha real de publicación.
+- Backtest point-in-time y ablación por familia; los factores nuevos permanecen
+  como contexto hasta demostrar valor fuera de muestra en ambos horizontes.
+- Historial normalizado de oro frente a posicionamiento y procedencia visible en
+  cada bloque, sin convertir datos ausentes en votos neutrales.
+- Mejoras de accesibilidad, contraste, rejillas adaptables y arranque directo de
+  la aplicación instalada desde Finder.
 
 ## Características
 
@@ -56,7 +66,14 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - **Resumen**: decisión operativa, ranking, pulso macro y asignación.
 - **Noticias**: fuentes, sentimiento, narrativas por tema y lectura contextual.
 - **Historial**: cambios de decisión, score, precios y atribución entre snapshots.
-- **Forex y oro**: USD/EUR, EUR/USD, principales cruces, oro, momentum y catalizadores.
+- **Divisas**: USD/EUR, EUR/USD, principales cruces, momentum y catalizadores.
+- **Oro**: perspectiva separada a 21/63 sesiones, inflación mensual e interanual,
+  tipos reales, dólar, energía, actividad y contribución agrupada sin doble conteo.
+  Sus observaciones, revisiones y predicciones se conservan en SQLite para una
+  validación temporal posterior sin mezclar datos futuros. La evaluación histórica
+  usa primeras publicaciones de FRED/ALFRED, informes CFTC conocidos en cada corte
+  y evaluaciones mensuales desde el día 15. El posicionamiento CFTC se muestra como
+  contexto mientras no supere el umbral de validación para incorporarse al score.
 - **Rotación sectorial**: líderes, receptores de flujo, sectores neutrales y débiles.
 - **Gráficos**: terminal 2/3–1/3 configurable, velas a demanda, RSI/MACD, divergencias y cursor compartido.
 - **Cartera virtual**: simulación, comparación con SPY, drawdown, concentración y escenarios.
@@ -68,6 +85,22 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - Anomalías de volatilidad, curva de tipos y momentum.
 - Factores estructurados detrás de la decisión.
 - Estado y calidad de las fuentes de datos.
+- Perspectiva preliminar del oro con cobertura explícita; las fuentes privadas
+  y los consensos históricos permanecen en standby hasta evaluar su licencia.
+- Backtest point-in-time de diez años frente a momentum y dólar + tipos reales.
+  El resultado permanece marcado como preliminar si no supera ambas referencias
+  en error probabilístico y precisión equilibrada para los dos horizontes.
+- Ingesta CFTC/COMEX degradable con caché, unidades canónicas, fecha real de
+  publicación y tratamiento explícito de retrasos extraordinarios.
+
+El informe histórico del oro se puede regenerar con:
+
+```bash
+.venv/bin/python gold_backtest.py
+```
+
+Se guarda localmente en `data/reports/gold_backtest_latest.json`; no se publica
+en Git porque depende de la fecha de ejecución y de datos externos actualizados.
 - Hash de auditoría por snapshot.
 - Track record histórico y resultados agrupados por señal operativa.
 
@@ -78,6 +111,7 @@ flowchart TB
     subgraph sources["Fuentes externas"]
         YF["Yahoo Finance<br/>precios y OHLCV"]
         FRED["FRED / macro<br/>tipos e inflación"]
+        CFTC["CFTC / COMEX<br/>posicionamiento semanal"]
         RSS["RSS y proveedores<br/>noticias y calendario"]
     end
 
@@ -99,18 +133,20 @@ flowchart TB
 
     subgraph persistence["Persistencia"]
         HISTORY[("Snapshots e historial")]
+        GOLDHISTORY[("Oro: observaciones,<br/>predicciones y resultados")]
         PAPER["Paper trading<br/>y track record"]
         SETTINGS[("Preferencias<br/>y watchlist")]
     end
 
     subgraph delivery["Entrega local"]
         API["FastAPI local<br/>/api/native · /chart"]
-        UI["SwiftUI Workstation 3.5"]
-        VIEWS["Resumen · Forex · Rotación<br/>Gráficos · Global · Historial"]
+        UI["SwiftUI Workstation 3.9"]
+        VIEWS["Resumen · Divisas · Oro · Rotación<br/>Gráficos · Global · Historial"]
     end
 
     YF --> ING
     FRED --> ING
+    CFTC --> ING
     RSS --> ING
     ING --> CACHE --> QUALITY
     CACHE --> SERIES
@@ -122,6 +158,7 @@ flowchart TB
     ROTATION --> DECISION
     RISK --> DECISION
     DECISION --> EXPLAIN
+    EXPLAIN --> GOLDHISTORY
     DECISION --> HISTORY --> PAPER
     SERIES --> API
     NEWS --> API
@@ -157,7 +194,7 @@ flowchart TB
 ### Requisitos
 
 - macOS 14 o superior.
-- Python 3.11+ recomendado.
+- Python 3.11–3.13 recomendado. En macOS 27, NEXUS prioriza Python 3.12 porque Python 3.14 puede bloquearse al arrancar como proceso gráfico sin terminal.
 - Swift 5.9+.
 - Dependencias Python del proyecto.
 - Opcional: `FRED_API_KEY` para datos macro adicionales.
@@ -221,7 +258,9 @@ Ejecutar toda la suite Python:
 .venv/bin/python -m pytest
 ```
 
-Las pruebas cubren ingestión/cache, calendario, motor de decisión, historial, noticias, sentimiento, cartera virtual, track record y contrato del API nativo.
+Las pruebas cubren ingestión/cache, calendario, motor de decisión, historial,
+noticias, sentimiento, cartera virtual, track record, contrato del API nativo,
+vintages macroeconómicos, posicionamiento CFTC y backtest del oro point-in-time.
 
 ## Estructura del proyecto
 
@@ -233,6 +272,10 @@ NEXUS/
 ├── tests/                  # Suite de regresión Python
 ├── assets/                 # Icono y recursos de la aplicación
 ├── native_api.py           # Contrato FastAPI para la app nativa
+├── cftc_positioning.py     # Posicionamiento CFTC/COMEX y política point-in-time
+├── gold_outlook.py         # Perspectiva agrupada del oro a 21/63 sesiones
+├── gold_backtest.py        # Validación histórica y ablación por familia
+├── gold_history.py         # Observaciones y predicciones versionadas
 ├── decision_engine.py      # Score, acción y asignación
 ├── decision_intelligence.py# Régimen, anomalías y calidad
 ├── data_ingestion.py      # Mercado, macro, caché y procedencia
