@@ -12,7 +12,7 @@ CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 ICON_SRC="$NEXUS_ROOT/assets/AppIcon.png"
-VERSION="3.9.0"
+VERSION="3.10.0"
 
 echo "Construyendo ${APP_NAME} v${VERSION}"
 echo "  Fuente: $NEXUS_ROOT"

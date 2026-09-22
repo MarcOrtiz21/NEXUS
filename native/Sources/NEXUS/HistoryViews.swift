@@ -378,6 +378,7 @@ struct ForexGoldView: View {
             goldSparkline
             goldFactorSummary
             goldPositioningCard
+            goldDemandCard
             goldBacktestCard
             if hasGoldAblation {
                 goldAblationCard
@@ -1047,6 +1048,123 @@ struct ForexGoldView: View {
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
         .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+
+    private var goldDemandCard: some View {
+        let demand = store.snapshot?.gold?.demand
+        let official = demand?.official
+        let reserves = official?.reserves ?? []
+        let proxy = demand?.etfMarketProxy
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                NexusSectionHeader(
+                    title: "DEMANDA OFICIAL Y PRESIÓN ETF",
+                    detail: "contexto · fuera del score",
+                    help: "Las reservas son saldos oficiales de cobertura parcial. El bloque GLD mide presión negociada por precio y volumen, no flujos ni toneladas del fondo."
+                )
+                Spacer(minLength: 8)
+                Text(official?.status == "PARTIAL" ? "COBERTURA PARCIAL" : (official?.status ?? "PENDIENTE"))
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(official?.status == "PARTIAL" ? NexusTheme.warn : NexusTheme.muted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background((official?.status == "PARTIAL" ? NexusTheme.warn : NexusTheme.muted).opacity(0.14), in: Capsule())
+            }
+
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1, spacing: 12) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("RESERVAS OFICIALES PUBLICADAS")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(NexusTheme.accent)
+                    if reserves.isEmpty {
+                        NexusEmptyState(
+                            title: "Sin reservas verificables",
+                            detail: "Se conserva la ausencia; no se sustituye por cero.",
+                            symbol: "building.columns"
+                        )
+                    } else {
+                        ForEach(reserves) { reserve in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(reserve.label ?? "Autoridad")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Corte \(reserve.asOf ?? "—") · \(reserve.status == "STALE" ? "CACHÉ" : (reserve.status ?? "—"))")
+                                        .font(.caption2)
+                                        .foregroundStyle(reserve.status == "STALE" ? NexusTheme.warn : NexusTheme.muted)
+                                    Text(reserve.source ?? "Fuente oficial")
+                                        .font(.caption2)
+                                        .foregroundStyle(NexusTheme.muted)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 8)
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(reserve.tonnes.map { String(format: "%.1f t", $0) } ?? "—")
+                                        .font(.subheadline.monospacedDigit().weight(.bold))
+                                    Text(reserve.changeTonnes.map { String(format: "%+.2f t", $0) } ?? "sin comparativa")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(contributionTone(reserve.changeTonnes))
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
+                            if reserve.id != reserves.last?.id { Divider().opacity(0.10) }
+                        }
+                    }
+                    Text(official?.coverage?.scope ?? "Cobertura oficial todavía incompleta.")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack {
+                        Text("PRESIÓN NEGOCIADA · GLD")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(NexusTheme.accent)
+                        Spacer()
+                        Text("PROXY")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(NexusTheme.warn)
+                    }
+                    if proxy?.status == "PROXY" {
+                        Text(proxy?.label ?? "NEUTRAL")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(contributionTone(proxy?.signedVolumeBalance))
+                        NexusResponsiveGrid(wideColumns: 3, mediumColumns: 3, spacing: 8) {
+                            positioningMetric("BALANCE 20S", proxy?.signedVolumeBalance.map { String(format: "%+.0f%%", $0 * 100) } ?? "—", "volumen direccional")
+                            positioningMetric("PRECIO 1M", signed(proxy?.priceReturn1MPct), "GLD")
+                            positioningMetric("VOL. 5D / 20D", number(proxy?.volumeRatio5D20D, digits: 2), "actividad relativa")
+                        }
+                    } else {
+                        NexusEmptyState(
+                            title: "Proxy ETF sin volumen suficiente",
+                            detail: "No se genera una lectura neutral artificial.",
+                            symbol: "chart.bar.xaxis"
+                        )
+                    }
+                    Text(proxy?.note ?? "No hay datos suficientes para estimar presión negociada.")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+
+            Label(
+                "Flujos ETF reales: \(demand?.actualETFFlowsStatus ?? "STANDBY") · pendiente de una fuente con licencia compatible y derecho de almacenamiento.",
+                systemImage: "lock.doc"
+            )
+            .font(.caption2)
+            .foregroundStyle(NexusTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
     }
 
     private func contracts(_ value: Double?) -> String {

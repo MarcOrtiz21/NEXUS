@@ -20,7 +20,7 @@ from user_settings import (
     save_user_settings,
 )
 
-app = FastAPI(title="NEXUS Dashboard", version="1.11")
+app = FastAPI(title="NEXUS Dashboard", version="1.12")
 
 
 def _build_live_snapshot() -> dict:
@@ -277,13 +277,15 @@ def api_health() -> JSONResponse:
     return JSONResponse({
         "ok": True,
         "service": "nexus",
-        "version": "1.11",
+        "version": "1.12",
         "capabilities": {
             "rotation_companies": True,
             "gold_outlook": True,
             "gold_history": True,
             "gold_backtest_point_in_time": True,
             "gold_cftc_positioning": True,
+            "gold_official_demand": True,
+            "gold_etf_market_proxy": True,
             "native_settings": True,
             "shared_snapshot_cache": True,
         },

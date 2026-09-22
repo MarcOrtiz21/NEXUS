@@ -956,9 +956,90 @@ struct GoldBlock: Codable {
     let signal: GoldSignal?
     let outlook: GoldOutlook?
     let positioning: GoldPositioning?
+    let demand: GoldDemand?
     let history: GoldHistorySummary?
     let change: GoldChangeSummary?
     let backtest: GoldBacktestReport?
+}
+
+struct GoldDemand: Codable {
+    let status: String?
+    let official: GoldOfficialDemand?
+    let etfMarketProxy: GoldETFMarketProxy?
+    let actualETFFlowsStatus: String?
+    let scoreEnabled: Bool?
+    let methodology: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, official, methodology
+        case etfMarketProxy = "etf_market_proxy"
+        case actualETFFlowsStatus = "actual_etf_flows_status"
+        case scoreEnabled = "score_enabled"
+    }
+}
+
+struct GoldOfficialDemand: Codable {
+    let status: String?
+    let coverage: GoldDemandCoverage?
+    let reserves: [GoldReserveRecord]?
+    let scoreEnabled: Bool?
+    let capturedAt: String?
+    let errors: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case status, coverage, reserves, errors
+        case scoreEnabled = "score_enabled"
+        case capturedAt = "captured_at"
+    }
+}
+
+struct GoldDemandCoverage: Codable {
+    let available: Int?
+    let tracked: Int?
+    let scope: String?
+}
+
+struct GoldReserveRecord: Codable, Identifiable {
+    let id: String
+    let label: String?
+    let status: String?
+    let asOf: String?
+    let tonnes: Double?
+    let changeTonnes: Double?
+    let previousAsOf: String?
+    let source: String?
+    let sourceURL: String?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, status, tonnes, source, note
+        case asOf = "as_of"
+        case changeTonnes = "change_tonnes"
+        case previousAsOf = "previous_as_of"
+        case sourceURL = "source_url"
+    }
+}
+
+struct GoldETFMarketProxy: Codable {
+    let status: String?
+    let instrument: String?
+    let label: String?
+    let asOf: String?
+    let signedVolumeBalance: Double?
+    let priceReturn1MPct: Double?
+    let volumeRatio5D20D: Double?
+    let scoreEnabled: Bool?
+    let method: String?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, instrument, label, method, note
+        case asOf = "as_of"
+        case signedVolumeBalance = "signed_volume_balance"
+        case priceReturn1MPct = "price_return_1m_pct"
+        case volumeRatio5D20D = "volume_ratio_5d_20d"
+        case scoreEnabled = "score_enabled"
+    }
 }
 
 struct GoldChangeSummary: Codable {

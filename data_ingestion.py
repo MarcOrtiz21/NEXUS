@@ -48,6 +48,7 @@ from cftc_positioning import (
     positioning_data_fields,
     summarize_gold_positioning,
 )
+from gold_demand import fetch_official_gold_demand
 from rotation_catalog import ROTATION_COMPANY_TICKERS
 
 logging.basicConfig(
@@ -85,7 +86,7 @@ ROTATION_CACHE_KEYS = ("RotationCompanies",)
 
 # Cambia cuando se modifica el contrato de los bloques cacheados. Así no se
 # reutiliza un cache antiguo que, por ejemplo, no contiene nuevos proxies.
-CACHE_SCHEMA_VERSION = 12
+CACHE_SCHEMA_VERSION = 13
 MIN_USABLE_CACHE_SCHEMA = 6
 CACHE_METRIC_GROUPS = {"Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets"}
 
@@ -102,7 +103,7 @@ SLOW_VALUE_KEYS = (
     "Unemployment_Rate_Pct", "Unemployment_1M_Change_Pp",
     "Payrolls_Level_Thousands", "Payrolls_1M_Change_Thousands",
     "Industrial_Production_MoM_Pct",
-    "GoldCFTC",
+    "GoldCFTC", "GoldOfficialDemand",
     "CFTC_MM_Net_Contracts", "CFTC_MM_Net_Pct_OI",
     "CFTC_MM_Weekly_Change_Contracts", "CFTC_MM_4W_Change_Contracts",
     "CFTC_MM_4W_Change_Pct_OI", "CFTC_MM_Percentile_3Y", "CFTC_MM_ZScore_3Y",
@@ -655,6 +656,7 @@ def _ohlc_sparkline_points(
     open_s = _ohlc_series(df, "Open", ticker)
     high_s = _ohlc_series(df, "High", ticker)
     low_s = _ohlc_series(df, "Low", ticker)
+    volume_s = _ohlc_series(df, "Volume", ticker)
     ma20 = close.rolling(20, min_periods=20).mean()
     window = close.tail(points)
     spy_aligned = spy.dropna().reindex(window.index).ffill() if spy is not None else None
@@ -685,6 +687,7 @@ def _ohlc_sparkline_points(
                 rel = round(((px / base) - (float(spy_px) / spy_base)) * 100, 2)
         ma = _px(ma20)
         open_px, high_px, low_px = _px(open_s), _px(high_s), _px(low_s)
+        volume = _px(volume_s)
         synthetic_ohlc = any(value is None for value in (open_px, high_px, low_px))
         date = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
         out.append({
@@ -694,6 +697,7 @@ def _ohlc_sparkline_points(
             "high": high_px if high_px is not None else round(px, decimals),
             "low": low_px if low_px is not None else round(px, decimals),
             "ma20": ma,
+            "volume": volume,
             "rel_spy": rel,
             "synthetic_ohlc": synthetic_ohlc,
         })
@@ -1216,6 +1220,7 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         "China_M2_AsOf": None,
         "US2Y_AsOf": None,
         "GoldCFTC": {},
+        "GoldOfficialDemand": {},
         "CFTC_AsOf": None,
         "CFTC_ReleaseAt": None,
         "CFTC_MM_Net_Contracts": None,
@@ -1310,7 +1315,10 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         )
         _apply_tier_cache(data, fast_cache, FAST_CACHE_KEYS, stale=not use_fast_cache)
 
-    should_download_market = refresh or not have_fast
+    fast_schema_outdated = (
+        have_fast and (fast_cache or {}).get("schema_version") != CACHE_SCHEMA_VERSION
+    )
+    should_download_market = refresh or not have_fast or fast_schema_outdated
     if should_download_market:
         tickers = sorted(set(
             ["^VIX", "^TNX", "IVV", "USDEUR=X", "GC=F"] + SECTOR_ETFS + DECISION_ASSETS + ROTATION_ASSETS
@@ -1714,6 +1722,12 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
                 cftc_detail,
                 as_of=cftc_summary.get("as_of"),
             )
+
+        # ─── 4d. Reservas oficiales de oro ───
+        # Solo se muestran como contexto: la cobertura BCE + Tesoro de EE. UU.
+        # no representa el flujo mundial y por ello no altera el score.
+        logging.info("Descargando reservas oficiales de oro (BCE/Tesoro EE. UU.)...")
+        data["GoldOfficialDemand"] = fetch_official_gold_demand(refresh=refresh)
 
         # ─── 5. FRED: Liquidez China (M2 YoY) ───
         if FRED_API_KEY:

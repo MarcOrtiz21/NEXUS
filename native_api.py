@@ -37,6 +37,7 @@ from forex_engine import (
 from gold_outlook import build_gold_outlook
 from gold_backtest import load_gold_backtest_report
 from gold_history import gold_change_summary, gold_history_summary, record_gold_snapshot
+from gold_demand import build_gold_demand
 from gold_validation import settle_predictions_from_prices, validation_summary
 from history_view import (
     compare_to_prior,
@@ -367,6 +368,10 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "signal": gold_sig,
             "outlook": gold_outlook,
             "positioning": data.get("GoldCFTC") or {},
+            "demand": build_gold_demand(
+                data.get("GoldOfficialDemand") or {},
+                (data.get("PriceSparklines") or {}).get("GLD") or [],
+            ),
             "history": gold_history,
             "change": gold_change,
             "backtest": gold_backtest,

@@ -184,6 +184,8 @@ REPORTS_DIR = DATA_DIR / "reports"
 GOLD_BACKTEST_REPORT = REPORTS_DIR / "gold_backtest_latest.json"
 CFTC_GOLD_CACHE_FILE = CACHE_DIR / "cftc_gold_positioning.json"
 CFTC_GOLD_CACHE_TTL_SECONDS = 60 * 60 * 12
+GOLD_DEMAND_CACHE_FILE = CACHE_DIR / "gold_official_demand.json"
+GOLD_DEMAND_CACHE_TTL_SECONDS = 60 * 60 * 12
 
 # ─── Calendario y dashboard ───
 CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"

@@ -64,6 +64,12 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Ingerir posicionamiento CFTC/COMEX con fecha real de publicación y caché degradable.
 - [ ] Ingerir flujos de ETF respaldados por oro.
 - [ ] Ingerir reservas y compras oficiales por banco central.
+  - [x] Ingerir el saldo mensual de oro monetario del BCE desde su API pública.
+  - [x] Ingerir el saldo semanal publicado por el Tesoro de EE. UU.
+  - [ ] Ampliar a China, India, Polonia y otros compradores relevantes con fuentes públicas estables.
+  - [x] Mantener la cobertura parcial fuera del score hasta validar representatividad.
+- [x] Añadir proxy GLD de presión negociada por precio/volumen, rotulado como proxy y fuera del score.
+- [ ] Sustituir el proxy por flujos/tenencias ETF reales cuando exista una licencia compatible con almacenamiento y redistribución.
 - [ ] Calcular compradores y vendedores líderes móviles a 12 meses.
 - [ ] Sustituir tres votos fijos por una contribución agregada y limitada.
 
@@ -117,7 +123,7 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Exponer limitaciones y estado de fuentes privadas.
 - [x] Exponer recuento histórico y estado de validación por horizonte.
 - [x] Exponer calendario mensual específico del oro sin ampliar la ventana de bloqueo operativo.
-- [ ] Exponer demanda de bancos centrales.
+- [x] Exponer demanda oficial parcial y su cobertura sin convertir ausencias en cero.
 - [x] Exponer el último informe de validación histórica y la versión evaluada.
 - [x] Exponer posicionamiento CFTC, frescura, concentración e histórico normalizado.
 
@@ -149,7 +155,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Hacer que el ejecutable SwiftUI sea la identidad real del bundle para permitir inspección por Accesibilidad.
 - [x] Añadir un carril de eventos macro a 30 días dentro del gráfico XAU/USD.
 - [x] Añadir panel CFTC/COMEX con Managed Money, concentración, divergencia y comparación histórica con oro spot.
-- [ ] Añadir panel de bancos centrales con toneladas y frescura.
+- [x] Añadir panel de reservas oficiales con toneladas, cambio, corte y cobertura parcial.
+- [x] Añadir panel de presión ETF separando explícitamente proxy de flujos reales.
 - [ ] Añadir histórico de probabilidad, resultado y calibración.
 - [ ] `PRIORIDAD MEDIA-BAJA` · Tabla ordenable de factores, fuentes, fecha y frescura.
 - [ ] `PRIORIDAD MEDIA-BAJA` · Gráfico de cascada para contribuciones positivas y negativas.
@@ -193,3 +200,12 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Desplegado de factores secundarios y lectura accesible de factores sin score.
 - [x] Panel CFTC/COMEX, histórico normalizado, concentración y procedencia visibles.
 - [x] API 1.11, aplicación 3.9.0, compilación de producción y suite automática verificadas.
+
+## Avance de la versión 3.10.0 · 2026-09-20
+
+- [x] Reservas oficiales del BCE y del Tesoro de EE. UU. con toneladas, comparativa y caché degradable.
+- [x] Proxy de presión negociada de GLD con volumen real, separado de flujos/tenencias del ETF.
+- [x] Cobertura parcial, datos caducados y ausencias expresados sin convertirlos en cero ni señal neutral.
+- [x] API 1.12, aplicación 3.10.0, compilación de producción y suite Python verificadas.
+- [x] Contrato real verificado: BCE 508,4 t, Tesoro de EE. UU. 8.133,5 t y proxy GLD disponible.
+- [x] Inspección visual final de la tarjeta en ventana ancha y en la anchura mínima admitida (~900 px): distribución estable, navegación adaptable y contenido legible sin recortes ni transparencias.
