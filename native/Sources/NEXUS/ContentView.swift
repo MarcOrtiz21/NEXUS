@@ -189,6 +189,7 @@ struct ContentView: View {
             ViewThatFits(in: .horizontal) {
                 toolbarNavigationFull
                 toolbarNavigationCompact
+                toolbarNavigationMinimal
             }
 
             Spacer(minLength: 8)
@@ -257,7 +258,9 @@ struct ContentView: View {
                 }
             }
             .lineLimit(1)
+            .frame(minWidth: 0, maxWidth: 220, alignment: .trailing)
             .layoutPriority(-1)
+            .help("\(store.engineStatus) · \(store.snapshot?.freshness?.headline ?? "")")
 
             if store.loading {
                 ProgressView()
@@ -283,6 +286,28 @@ struct ContentView: View {
             ) {
                 Task { await store.refresh(persist: true) }
             }
+        }
+    }
+
+    private var toolbarNavigationMinimal: some View {
+        HStack(spacing: 4) {
+            toolbarGroup([store.selected])
+            Menu {
+                ForEach(NavItem.allCases.filter { $0 != .paper && $0 != store.selected }) { item in
+                    Button {
+                        store.selected = item
+                    } label: {
+                        Label(item.rawValue, systemImage: item.symbol)
+                    }
+                }
+            } label: {
+                Label("Secciones", systemImage: "ellipsis.circle")
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: NexusLayout.toolbarButtonSize)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Todas las secciones")
         }
         .fixedSize(horizontal: true, vertical: false)
     }

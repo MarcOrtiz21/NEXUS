@@ -20,6 +20,8 @@ from config import GOLD_HISTORY_DB
 
 
 _DB_LOCK = threading.RLock()
+GOLD_MONTHLY_CUT_DAY = 15
+GOLD_EVENT_RECAPTURE_HOURS = 48
 
 OBSERVATION_SPECS: dict[str, tuple[str, str | None]] = {
     "CPI_MoM_Pct": ("%", "CPI_AsOf"),
@@ -83,6 +85,18 @@ def _period_date(value: Any) -> date | None:
             return None
 
 
+def _release_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        released = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if released.tzinfo is None:
+        released = released.replace(tzinfo=timezone.utc)
+    return released.astimezone(timezone.utc)
+
+
 def _number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -101,6 +115,12 @@ def _connect(path: Path) -> sqlite3.Connection:
     connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA synchronous = NORMAL")
     return connection
+
+
+def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def initialize_gold_history(db_path: Path = GOLD_HISTORY_DB) -> None:
@@ -166,8 +186,50 @@ def initialize_gold_history(db_path: Path = GOLD_HISTORY_DB) -> None:
                 direction_up INTEGER NOT NULL,
                 PRIMARY KEY(prediction_id, horizon_days)
             );
+
+            CREATE TABLE IF NOT EXISTS gold_capture_audits (
+                captured_at TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                cutoff_at TEXT NOT NULL,
+                capture_kind TEXT NOT NULL,
+                trigger_event TEXT,
+                future_observations_rejected INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(captured_at, model_version)
+            );
             """
         )
+        _ensure_column(connection, "gold_predictions", "cutoff_at", "TEXT")
+        _ensure_column(connection, "gold_predictions", "capture_kind", "TEXT NOT NULL DEFAULT 'ROUTINE'")
+        _ensure_column(connection, "gold_predictions", "trigger_event", "TEXT")
+
+
+def gold_capture_policy(
+    captured_at: str | datetime | None = None,
+    *,
+    trigger_event: str | None = None,
+    has_monthly_cut: bool = False,
+) -> dict[str, Any]:
+    """Clasifica la captura sin impedir snapshots rutinarios o por evento."""
+    cutoff_at = _utc_iso(captured_at)
+    cutoff = datetime.fromisoformat(cutoff_at)
+    clean_event = str(trigger_event).strip() if trigger_event else None
+    if clean_event:
+        kind = "EVENT_RECAPTURE"
+    elif cutoff.day >= GOLD_MONTHLY_CUT_DAY and not has_monthly_cut:
+        kind = "MONTHLY_CUTOFF"
+    else:
+        kind = "ROUTINE"
+    return {
+        "cutoff_at": cutoff_at,
+        "capture_kind": kind,
+        "trigger_event": clean_event,
+        "monthly_cut_day": GOLD_MONTHLY_CUT_DAY,
+        "event_recapture_hours": GOLD_EVENT_RECAPTURE_HOURS,
+        "policy": (
+            "Corte base desde el día 15; recaptura tras CPI, PCE, empleo o FOMC. "
+            "Nunca se admiten periodos ni publicaciones posteriores al corte."
+        ),
+    }
 
 
 def _insert_observation(
@@ -212,11 +274,13 @@ def record_gold_snapshot(
     outlook: dict[str, Any],
     *,
     captured_at: str | datetime | None = None,
+    capture_context: dict[str, Any] | None = None,
     db_path: Path = GOLD_HISTORY_DB,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Guarda observaciones y predicción; rechaza periodos posteriores al corte."""
     observed_at = _utc_iso(captured_at)
-    cutoff = datetime.fromisoformat(observed_at).date()
+    cutoff_instant = datetime.fromisoformat(observed_at)
+    cutoff = cutoff_instant.date()
     quality_map = data.get("DataQuality") if isinstance(data.get("DataQuality"), dict) else {}
     inserted = 0
     unchanged = 0
@@ -225,6 +289,20 @@ def record_gold_snapshot(
     initialize_gold_history(db_path)
     with _DB_LOCK, closing(_connect(Path(db_path))) as connection:
         connection.execute("BEGIN IMMEDIATE")
+        monthly_prefix = observed_at[:7]
+        has_monthly_cut = connection.execute(
+            """
+            SELECT 1 FROM gold_capture_audits
+            WHERE substr(cutoff_at, 1, 7) = ? AND capture_kind = 'MONTHLY_CUTOFF'
+            LIMIT 1
+            """,
+            (monthly_prefix,),
+        ).fetchone() is not None
+        policy = gold_capture_policy(
+            observed_at,
+            trigger_event=(capture_context or {}).get("trigger_event"),
+            has_monthly_cut=has_monthly_cut,
+        )
         for metric, (unit, as_of_key) in OBSERVATION_SPECS.items():
             value = _number(data.get(metric))
             if value is None:
@@ -244,6 +322,11 @@ def record_gold_snapshot(
             market_live = as_of_key is None and source.lower().startswith("yfinance")
             cftc_public = metric.startswith("CFTC_") and bool(data.get("CFTC_ReleaseAt"))
             release_at = str(data.get("CFTC_ReleaseAt")) if cftc_public else (observed_at if market_live else None)
+            if cftc_public:
+                released = _release_datetime(release_at)
+                if released is None or released > cutoff_instant:
+                    rejected_future += 1
+                    continue
             did_insert = _insert_observation(
                 connection,
                 metric=metric,
@@ -272,7 +355,9 @@ def record_gold_snapshot(
         ).fetchone()
         prediction_id = int(existing_prediction["id"]) if existing_prediction is not None else None
         prediction_inserted = 0
-        if prediction_id is None:
+        # La predicción contiene todos los factores de entrada; si alguno se
+        # rechazó, tampoco se persiste una probabilidad potencialmente contaminada.
+        if prediction_id is None and rejected_future == 0:
             cursor = connection.execute(
                 """
                 INSERT INTO gold_predictions
@@ -280,8 +365,8 @@ def record_gold_snapshot(
                  short_horizon_days, short_probability, short_score, short_label,
                  short_confidence, short_coverage, medium_horizon_days,
                  medium_probability, medium_score, medium_label, medium_confidence,
-                 medium_coverage, payload_json)
-                VALUES (?, ?, ?, 'GLD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 medium_coverage, payload_json, cutoff_at, capture_kind, trigger_event)
+                VALUES (?, ?, ?, 'GLD', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     observed_at,
@@ -301,6 +386,9 @@ def record_gold_snapshot(
                     str(medium.get("confidence") or "BAJA"),
                     float(medium.get("coverage_pct") or 0),
                     json.dumps(outlook, ensure_ascii=False, sort_keys=True),
+                    policy["cutoff_at"],
+                    policy["capture_kind"],
+                    policy["trigger_event"],
                 ),
             )
             prediction_id = int(cursor.lastrowid)
@@ -324,6 +412,22 @@ def record_gold_snapshot(
                         json.dumps(group, ensure_ascii=False, sort_keys=True),
                     ),
                 )
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO gold_capture_audits
+            (captured_at, model_version, cutoff_at, capture_kind, trigger_event,
+             future_observations_rejected)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                observed_at,
+                model_version,
+                policy["cutoff_at"],
+                policy["capture_kind"],
+                policy["trigger_event"],
+                rejected_future,
+            ),
+        )
         connection.commit()
 
     return {
@@ -331,6 +435,10 @@ def record_gold_snapshot(
         "observations_unchanged": unchanged,
         "future_observations_rejected": rejected_future,
         "prediction_inserted": prediction_inserted,
+        "prediction_blocked_by_cutoff": rejected_future > 0,
+        "capture_kind": policy["capture_kind"],
+        "cutoff_at": policy["cutoff_at"],
+        "trigger_event": policy["trigger_event"],
     }
 
 
@@ -346,6 +454,22 @@ def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
             connection.execute("SELECT COUNT(*) FROM gold_observations WHERE point_in_time = 1").fetchone()[0]
         )
         latest = connection.execute("SELECT MAX(captured_at) FROM gold_predictions").fetchone()[0]
+        latest_audit = connection.execute(
+            """
+            SELECT cutoff_at, capture_kind, trigger_event, future_observations_rejected
+            FROM gold_capture_audits ORDER BY cutoff_at DESC LIMIT 1
+            """
+        ).fetchone()
+        future_rejected = int(connection.execute(
+            "SELECT COALESCE(SUM(future_observations_rejected), 0) FROM gold_capture_audits"
+        ).fetchone()[0])
+        stored_violations = int(connection.execute(
+            """
+            SELECT COUNT(*) FROM gold_observations
+            WHERE date(period) > date(observed_at)
+               OR (release_at IS NOT NULL AND datetime(release_at) > datetime(observed_at))
+            """
+        ).fetchone()[0])
         recent_rows = connection.execute(
             """
             SELECT p.captured_at, p.short_probability, p.medium_probability,
@@ -367,6 +491,24 @@ def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
         "predictions": predictions,
         "settled_outcomes": outcomes,
         "latest_prediction_at": latest,
+        "capture_policy": {
+            "monthly_cut_day": GOLD_MONTHLY_CUT_DAY,
+            "event_recapture_hours": GOLD_EVENT_RECAPTURE_HOURS,
+            "policy": (
+                "Corte base desde el día 15; recaptura tras CPI, PCE, empleo o FOMC. "
+                "Nunca se admiten periodos ni publicaciones posteriores al corte."
+            ),
+        },
+        "temporal_audit": {
+            "cutoff_at": latest_audit["cutoff_at"] if latest_audit else latest,
+            "capture_kind": latest_audit["capture_kind"] if latest_audit else None,
+            "trigger_event": latest_audit["trigger_event"] if latest_audit else None,
+            "latest_future_observations_rejected": int(latest_audit["future_observations_rejected"])
+            if latest_audit else 0,
+            "future_observations_rejected_total": future_rejected,
+            "stored_cutoff_violations": stored_violations,
+            "status": "PASS" if stored_violations == 0 else "FAIL",
+        },
         "recent_predictions": [
             {
                 "captured_at": row["captured_at"],

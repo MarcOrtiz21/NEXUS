@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from gold_backtest import _decision_dates, run_gold_backtest
+from gold_backtest import _decision_dates, _regime_diagnostics, run_gold_backtest
 
 
 def _monthly_rows(start="2012-01-01", periods=180, base=100.0):
@@ -25,6 +25,12 @@ def _daily_rows(start="2012-01-01", periods=4000, base=2.0):
 
 
 class GoldBacktestTests(unittest.TestCase):
+    def test_regime_diagnostics_withhold_small_sample_conclusions(self):
+        rows = [{"macro_regime": "EASING", "model_probability": 60.0, "direction_up": 1}] * 3
+        diagnostics = _regime_diagnostics(rows)
+        self.assertEqual(diagnostics["EASING"]["status"], "INSUFFICIENT_DATA")
+        self.assertIsNone(diagnostics["EASING"]["model_brier"])
+
     def test_decision_is_first_session_on_or_after_fifteenth(self):
         index = pd.bdate_range("2024-01-01", "2024-03-31")
         dates = _decision_dates(index, date(2024, 1, 1), date(2024, 3, 31))
@@ -51,6 +57,13 @@ class GoldBacktestTests(unittest.TestCase):
         self.assertTrue(report["point_in_time"])
         self.assertGreaterEqual(report["horizons"]["63"]["model"]["sample_size"], 30)
         self.assertIn("inflation", report["horizons"]["21"]["ablation"])
+        self.assertEqual(report["report_schema_version"], 2)
+        self.assertEqual(report["horizons"]["21"]["baseline_constant"]["brier_score"], 0.25)
+        self.assertLess(report["horizons"]["63"]["overlap"]["non_overlapping_count"], report["horizons"]["63"]["model"]["sample_size"])
+        for horizon in report["horizons"].values():
+            for fold in horizon["walk_forward_folds"]:
+                self.assertLess(fold["train_last_outcome"], fold["test_from"])
+        self.assertTrue(report["horizons"]["21"]["macro_regimes"])
         self.assertIn(
             report["horizons"]["21"]["ablation"]["inflation"]["interpretation"],
             {"APORTA", "NEUTRAL", "REVISAR"},

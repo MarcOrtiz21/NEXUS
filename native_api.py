@@ -151,6 +151,25 @@ def _trim_sparklines(sparklines: Any, limit: int = 42) -> Dict[str, list]:
     }
 
 
+def _gold_capture_context(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Detecta recapturas posteriores a eventos macro relevantes para el oro."""
+    relevant_terms = (
+        "cpi", "inflation", "pce", "payroll", "employment", "unemployment",
+        "fomc", "federal reserve", "fed rate", "nóminas", "empleo", "inflación",
+    )
+    for event in events:
+        hours = event.get("hours_until")
+        title = str(event.get("title") or "").strip()
+        if (
+            title
+            and isinstance(hours, (int, float))
+            and -48 <= float(hours) <= 0
+            and any(term in title.lower() for term in relevant_terms)
+        ):
+            return {"trigger_event": title}
+    return {}
+
+
 def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     raw = build_snapshot(use_news=True, export=export)
     data = raw["data"]
@@ -191,6 +210,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
                 data,
                 gold_outlook,
                 captured_at=raw.get("captured_at_utc"),
+                capture_context=_gold_capture_context(events_detail),
             )
             gold_points = (data.get("PriceSparklines") or {}).get("GLD") or []
             price_rows = [
@@ -375,6 +395,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "history": gold_history,
             "change": gold_change,
             "backtest": gold_backtest,
+            "revisions": data.get("GoldRevisions") or {},
         },
         "news": {
             "items": news_items[:40],

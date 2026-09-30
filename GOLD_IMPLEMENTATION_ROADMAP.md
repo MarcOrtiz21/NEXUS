@@ -20,9 +20,18 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Definir horizontes de 21 y 63 sesiones.
 - [x] Definir salida `ALCISTA / NEUTRAL / BAJISTA` sin convertirla en orden.
 - [x] Definir contribuciones continuas y límites por grupo.
-- [ ] Corregir RBI = India y NBP = Polonia al importar la hoja histórica.
-- [ ] Documentar definitivamente WGC, GMC, RG y FMI/3BC.
-- [ ] Definir fecha de corte mensual y política de recaptura por evento.
+- [x] Corregir RBI = India y NBP = Polonia en la referencia importada, preservando el texto original y la celda.
+- [ ] Documentar definitivamente WGC, GMC, RG y FMI/3BC. La hoja ya está contrastada; la expansión de RG y «FMI» y la composición exacta de los tres bancos necesitan confirmación del autor.
+
+### Glosario y procedencia · 2026-09-27
+
+- **WGC**: World Gold Council. Sus tablas, informes y posibles descargas no se integran automáticamente: antes hay que comprobar permiso de uso, almacenamiento y redistribución aplicable a NEXUS. [Condiciones oficiales](https://www.gold.org/terms-and-conditions).
+- **GMC**: Gold Market Commentary, serie mensual de comentarios del WGC. Es análisis editorial y no una observación cuantitativa independiente ni un voto del modelo. [Serie oficial](https://www.gold.org/goldhub/research/gold-market-commentary).
+- **RG**: `IMPLEMENTAR` contiene «RG (DXY)», «RG (US10)», «RG (XAU/USD)», «RG Real» y «RG Year». La fila real calcula un diferencial manual de rendimiento nominal menos inflación, **no** el rendimiento TIPS del motor. La expansión de RG, el periodo exacto y su regla de signo siguen sin confirmar; los votos de la hoja no puntúan.
+- **FMI/3BC**: el autor lo define como resultados de los tres principales bancos de cada país/zona en un periodo parecido. **No es** un total de reservas ni necesariamente una serie del Fondo Monetario Internacional. En `IMPLEMENTAR` el encabezado «FMI/3BC» precede a tres filas de compras de bancos **centrales** (PBoC, RBI, NBP): se conserva como encabezado histórico ambiguo, pero estas filas se clasifican por separado como existencias oficiales nacionales, nunca como resultados de tres bancos comerciales. Pendientes expansión de FMI, territorios, selección de tres bancos, métrica, calendarios y licencias.
+- **RBI / NBP**: Reserve Bank of India = India; Narodowy Bank Polski = Polonia. El importador muestra la corrección sin sobrescribir «India / NBP» ni «Polonia / RBI» del libro.
+- **Reservas oficiales**: existencias físicas en toneladas por entidad y fecha. Una diferencia entre cortes es cambio de existencias, **no** compras netas intrames ni demanda mundial. El BCE es un área económica, los demás registros son nacionales; no hay total global ni se suman registros como si fueran universales.
+- [x] Definir fecha de corte mensual desde el día 15 y recaptura posterior a CPI, PCE, empleo o FOMC.
 - [x] Definir unidades canónicas para porcentajes, puntos, contratos CFTC, toneladas y precios.
 
 ## 2. Ingesta pública y normalización
@@ -36,7 +45,7 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Inflación energética mensual e interanual.
 - [x] Añadir aceleración de 3 meses anualizada para CPI y PCE.
 - [x] Guardar la primera publicación histórica mediante vintages ALFRED.
-- [ ] Incorporar revisiones posteriores como una capa separada de diagnóstico.
+- [x] Incorporar revisiones posteriores como una capa separada de diagnóstico: primera publicación y última revisión conocida por periodo, con retirada explícita de observaciones y caché independiente.
 
 ### Tipos, dólar y liquidez
 
@@ -67,11 +76,29 @@ elementos se marcarán al completar código, pruebas y revisión visual.
   - [x] Ingerir el saldo mensual de oro monetario del BCE desde su API pública.
   - [x] Ingerir el saldo semanal publicado por el Tesoro de EE. UU.
   - [ ] Ampliar a China, India, Polonia y otros compradores relevantes con fuentes públicas estables.
+    - [x] China SAFE: volumen físico mensual en 10.000 onzas troy finas, convertido a toneladas; comparación con mes anterior y mismo mes del año previo. El valor monetario de la fila Gold se excluye. [Tabla 2026](https://www.safe.gov.cn/en/2021/0203/2045.html) · [tabla 2025](https://www.safe.gov.cn/en/2021/0203/2385.html).
+    - [ ] India RBI: algunas ediciones de la tabla «Foreign Exchange Reserves» del [boletín mensual](https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx) separan «Volume (Metric Tonnes)» del valor en USD/INR. **HTML histórico ya parseado y probado** con fecha del boletín y fechas de observación; solo se acepta si la observación tiene como máximo 75 días. El índice vigente el 29-09-2026 enlaza únicamente PDF y `rbidocs.rbi.org.in` no responde desde este entorno. NEXUS puede mostrar la [edición oficial anterior de agosto](https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx?Id=24414), con corte 31-07-2026 y **estado ARCHIVO**, sin presentarla como dato vigente. Falta extracción PDF validada o una vía HTML/serie oficial actual, hora de difusión y comparativa de 12 meses; el WSS semanal expresa valor, no volumen.
+    - [ ] Polonia NBP: comprobar una serie oficial **versionable de volumen físico** con fecha de publicación. Algunas versiones del [informe de balanza de pagos](https://static.nbp.pl/dane/bilans-platniczy/bopa_en.pdf) mencionan toneladas, pero el PDF se reemplaza y la edición consultada el 27-09-2026 no contiene una tabla de existencias físicas. El XLS mensual de reservas en USD/PLN/EUR es valoración monetaria; la API pública de oro es precio. Hasta localizar un archivo físico estable: `MISSING`, sin estimar toneladas por precio.
   - [x] Mantener la cobertura parcial fuera del score hasta validar representatividad.
 - [x] Añadir proxy GLD de presión negociada por precio/volumen, rotulado como proxy y fuera del score.
 - [ ] Sustituir el proxy por flujos/tenencias ETF reales cuando exista una licencia compatible con almacenamiento y redistribución.
 - [ ] Calcular compradores y vendedores líderes móviles a 12 meses.
 - [ ] Sustituir tres votos fijos por una contribución agregada y limitada.
+
+### Contrato de procedencia y puertas de fuentes · 2026-09-27
+
+- [x] Cada reserva expone ámbito (`country` o `economic_area`), identificador, tipo `monetary_gold_stock`, toneladas físicas, periodo, URL, calidad y ausencia explícita de `release_at` cuando no se conoce. `change_tonnes` está tipado como diferencia de existencias con intervalo; no como compra. Caché sin dato previo sigue `MISSING`, no `STALE`.
+- [x] La cobertura distingue fuentes actuales, archivo oficial anterior, caché caducada y ausentes; el denominador es **el conjunto rastreado**, no el mundo. `world_total_available=false`, `aggregation_allowed=false` y demanda oficial fuera del score incluso si llega un valor manual de compras netas.
+- [ ] **P1 RBI**: localizar el fichero oficial por edición, parsear *solo* `Volume (Metric Tonnes)`, asociar periodo y hora/fecha de difusión demostrables, preservar URL/versiones y ensayar unidades, huecos y revisiones. Mantener `MISSING` si falla cualquier puerta.
+  - [x] Parser de edición HTML oficial y descubrimiento de enlaces HTML del índice; extrae año/fecha semanal, volumen físico y fecha del boletín, no importes INR/USD. Prueba contra una edición real de mayo de 2026 y fixtures de fuente solo-PDF, datos ausentes y antigüedad.
+  - [x] Si la edición vigente es solo PDF, consultar **una** edición anterior identificada por el propio índice oficial; mostrar su saldo únicamente como `ARCHIVED` y solo mientras el corte tenga ≤75 días. El parser se contrastó también con la edición real de agosto de 2026 (fecha abreviada `Aug`, 880,52 t a 31-07-2026).
+  - [ ] Recuperar y validar la tabla PDF del boletín vigente o encontrar una serie oficial alternativa con archivo histórico. No aceptar un espejo no oficial como fuente de producción.
+  - [ ] Registrar la hora de publicación exacta o aplicar una política temporal conservadora para backtest; comparar revisiones y cerrar QA de 12 meses. Hasta entonces RBI es solo contexto descriptivo cuando exista HTML reciente, nunca señal.
+- [ ] **P1 NBP**: localizar archivo mensual histórico de onzas/toneladas físicas, documentar política de revisión y disponibilidad point-in-time; si solo existe valor monetario o PDF sobrescrito, dejar `MISSING` y estudiar IRFCL/IMF con sus condiciones.
+- [ ] **P2 ETF**: evaluar datos oficiales de participaciones/toneladas de GLD e IAU (archivo histórico, hora de publicación, licencia de conservación y redistribución). Cada fondo se etiqueta por `fund_id`, nunca «flujos de todos los ETF»; el proxy de volumen actual permanece separado.
+- [x] **P2 ALFRED**: visualizar revisión posterior frente a primera publicación por serie, sin reemplazar el vintage histórico de la captura. Panel de nueve series y tres periodos recientes por serie; diferencias en unidades originales, fechas de difusión con precisión de día y ausencias/caché caducada visibles.
+- [ ] **P3 WGC / consenso / FMI-3BC**: pasar revisión de licencia, definición por territorio y entidad, periodización, comparabilidad y backtest antes de cualquier ingesta puntuable. Fuentes privadas siguen `STANDBY`.
+- [ ] Puerta de activación para una fuente: identidad y unidad física verificadas → periodo y fecha de difusión → historial versionado reproducible → prueba de ausencia/revisión y licencia → valor incremental fuera de muestra. La disponibilidad descriptiva por sí sola **no** autoriza score ni confianza alta.
 
 ## 3. Fuentes privadas o con licencia · STANDBY
 
@@ -98,7 +125,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Limitar la confianza de la versión heurística a `MEDIA`.
 - [ ] Incorporar sorpresas estandarizadas cuando exista consenso fiable.
 - [ ] Añadir pesos aprendidos por horizonte tras el backtest.
-- [ ] Añadir detección explícita de régimen macroeconómico.
+- [x] Añadir clasificación explícita y descriptiva de régimen macroeconómico (TIPS reales y dólar), sin voto ni modificación de pesos.
+- [ ] Demostrar valor incremental del régimen por estratos fuera de muestra antes de usarlo en el score. El backtest expone recuentos y Brier por régimen solo a partir de 30 casos comparables; esto todavía no demuestra mejora causal.
 - [x] Añadir explicación de cambios frente a la captura anterior.
 
 ## 5. Persistencia histórica
@@ -112,7 +140,7 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Guardar capturas inmutables de 21 y 63 sesiones.
 - [x] Registrar versión del modelo y contribuciones usadas.
 - [x] Liquidar automáticamente resultados vencidos usando solo sesiones posteriores.
-- [ ] Importar la hoja `IMPLEMENTAR` como referencia, no como verdad histórica.
+- [x] Importar la hoja `IMPLEMENTAR` como referencia, no como verdad histórica: `gold_reference.py` lee solo esa pestaña en modo lectura, 153 filas de nueve meses de 2026, conserva celdas y rótulos originales, corrige RBI/NBP para presentación y deja todos los votos `score_eligible=false` y `release_at=null`. No escribe en SQLite ni en el workbook.
 - [x] Reconstruir al menos 10 años sin anticipación temporal.
 
 ## 6. API de NEXUS
@@ -157,12 +185,12 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Añadir panel CFTC/COMEX con Managed Money, concentración, divergencia y comparación histórica con oro spot.
 - [x] Añadir panel de reservas oficiales con toneladas, cambio, corte y cobertura parcial.
 - [x] Añadir panel de presión ETF separando explícitamente proxy de flujos reales.
-- [ ] Añadir histórico de probabilidad, resultado y calibración.
-- [ ] `PRIORIDAD MEDIA-BAJA` · Tabla ordenable de factores, fuentes, fecha y frescura.
+- [x] Añadir histórico de probabilidad y resultado observado por horizonte.
+- [x] Tabla ordenable de factores, fuentes, periodo, publicación conocida y frescura: búsqueda, filtro de incidencias y orden reversible; tabla en ventana amplia y tarjetas en ventana reducida. El impacto repetido se identifica como contribución de la familia, no del indicador.
 - [ ] `PRIORIDAD MEDIA-BAJA` · Gráfico de cascada para contribuciones positivas y negativas.
-- [ ] `PRIORIDAD MEDIA-BAJA` · Serie temporal de probabilidad frente al resultado posterior.
+- [x] Serie temporal de probabilidad frente al resultado posterior.
 - [ ] `PRIORIDAD MEDIA-BAJA` · Mapa de calor de inflación general/subyacente y mensual/interanual.
-- [ ] `PRIORIDAD MEDIA-BAJA` · Diagrama de calibración previsto frente a observado.
+- [x] Diagrama de calibración previsto frente a observado, con fallos direccionales y principal impulsor registrado.
 - [ ] Probar VoiceOver real, contraste aumentado y tamaños de texto del sistema.
 - [x] Verificar navegación por teclado y etiquetas de accesibilidad de controles, métricas y gráficas.
 - [x] Completar inspección visual panorámica y del inspector lateral; las rejillas mantienen distribución adaptable y el panel es opaco.
@@ -176,16 +204,20 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Impedir que la liquidación use la sesión de la propia captura.
 - [x] Crear backtest walk-forward, nunca partición aleatoria.
 - [x] Comparar contra momentum simple y contra dólar + TIPS.
+- [x] Comparar también con probabilidad constante del 50% y frecuencia histórica de subidas conocida en cada entrenamiento; evaluar las cuatro referencias sobre los mismos cortes fuera de muestra.
+- [x] Purgar resultados de entrenamiento aún no vencidos al comenzar cada ventana de prueba; mostrar ventanas concurrentes y subconjunto sin solapamiento sin equipararlo a muestras independientes.
+- [x] Añadir intervalos aproximados del 95% para diferencias de Brier mediante bloques temporales y estabilidad por ventana; contrastar sensibilidad entre primera publicación y revisiones conocidas.
 - [ ] Acumular 30 resultados vencidos por horizonte antes de publicar métricas.
+  - [x] Mostrar el avance `n/30` y ocultar gráfica de calibración, acierto y fallos en la interfaz hasta que haya 30 resultados vencidos reales por horizonte.
 - [x] Ejecutar ablación por grupo para detectar doble conteo residual.
 - [x] Mantener CFTC como contexto hasta que su ablación mejore ambos horizontes fuera de muestra.
 - [ ] Exigir mejora estable fuera de muestra antes de elevar la confianza.
-- [ ] Documentar limitaciones y periodos en los que el modelo falla.
+- [x] Documentar en la interfaz los fallos vencidos de mayor error, su retorno y el impulsor dominante.
 
 ## 9. Criterios de cierre
 
 - [ ] Cobertura de datos públicos superior al 90% en las capturas mensuales.
-- [ ] Cero observaciones posteriores a la fecha de corte.
+- [x] Cero observaciones almacenadas posteriores a la fecha de corte, con auditoría persistente de rechazos e incumplimientos.
 - [x] Un fallo de fuente no impide abrir la aplicación; se conserva caché y se expone su calidad.
 - [x] La interfaz explica el porqué de cada dirección sin depender del color.
 - [ ] El modelo supera las referencias simples fuera de muestra.
@@ -209,3 +241,44 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] API 1.12, aplicación 3.10.0, compilación de producción y suite Python verificadas.
 - [x] Contrato real verificado: BCE 508,4 t, Tesoro de EE. UU. 8.133,5 t y proxy GLD disponible.
 - [x] Inspección visual final de la tarjeta en ventana ancha y en la anchura mínima admitida (~900 px): distribución estable, navegación adaptable y contenido legible sin recortes ni transparencias.
+
+## Avance de la versión 3.11.0 · 2026-09-22
+
+- [x] Política auditable de corte mensual desde el día 15 y recaptura por evento macro relevante.
+- [x] Persistencia del tipo de captura, evento detonante, fecha de corte y observaciones futuras rechazadas.
+- [x] Auditoría acumulada de fugas temporales y estado visible en la pestaña Oro.
+- [x] Resultado observado junto a cada probabilidad vencida de 21 y 63 sesiones.
+- [x] Calibración prevista frente a observada y diagnóstico de fallos direccionales.
+- [x] API 1.13, aplicación 3.11.0, compilación de producción, suite automática (199 pruebas) e inspección visual verificadas en ventana amplia y reducida; arranque en frío del motor confirmado.
+- [x] El corte comprueba también la hora de publicación CFTC con zona horaria: rechaza publicaciones posteriores y bloquea la persistencia de la predicción completa si hay datos rechazados. El estado visual distingue «SIN FUGAS» de «FILTRO APLICADO».
+- [ ] Validar calibración y diagnóstico de fallos con resultados en vivo vencidos: el recuento cambia con cada captura; consultar la API en vez de congelarlo aquí. No se puede declarar calibrado el modelo hasta reunir al menos 30 resultados por horizonte.
+
+## Revisión de `IMPLEMENTAR` y secuencia actual · 2026-09-27
+
+1. [x] Separar `FMI/3BC` (definición pendiente de bancos de cada territorio) de reservas oficiales de PBoC, RBI y NBP. Los `+1/-1` de mayo-septiembre y otros meses son juicios manuales no verificables, no etiquetas de entrenamiento ni compras medidas.
+2. [x] Fijar procedencia por celda, país/área y calidad; bloquear extrapolación mundial y la entrada accidental al score. Los datos actuales de BCE, Tesoro y SAFE son contexto parcial; RBI/NBP siguen pendientes de volumen físico extraíble y reproducible.
+3. [ ] Resolver RBI/NBP con las puertas anteriores y después ETF reales/tenencias. El diagnóstico de revisión ALFRED ya está implementado por separado. No introducir valores de reservas por conversión de moneda/valor ni atribuir flujos a partir del volumen negociado.
+4. [ ] Con el autor, cerrar nomenclatura RG y FMI/3BC y definir un dataset de bancos comerciales individualizado por país/zona; no mezclarlo con PBoC/RBI/NBP ni con WGC.
+5. [ ] Solo después de cobertura, derechos, timestamp y suficiente histórico: contrastar pesos/regímenes con ablación walk-forward contra momentum y dólar+TIPS. La validación histórica actual sigue **preliminar** y no demuestra mejora consistente; mantener sin permiso operativo nuevo.
+
+### Ejecución RBI · 2026-09-29
+
+- [x] El HTML oficial de la [edición del 22-05-2026](https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx?Id=24213) devuelve 880,52 t con corte 24-04-2026. Solo se usa como verificación del parser, no como saldo actual.
+- [x] El índice oficial de septiembre responde, pero para la tabla 33 ofrece PDF. Su servidor no permite recuperar el documento desde este entorno. NEXUS consulta el archivo oficial de agosto y expone 880,52 t a 31-07-2026 como `ARCHIVED`, nunca como dato vigente; vencido el límite de 75 días pasa a `MISSING`. Un valor monetario o una copia externa no reemplazan toneladas oficiales.
+- [x] API: `release_date` separada de `release_at` (hora desconocida); SwiftUI muestra la fecha y advierte que la hora no está verificada. La caché RBI antigua no se promociona a dato vigente.
+- [x] Otro ajuste de presentación: la tarjeta de Oro desglosa fuentes actuales, de archivo, de caché y ausentes. La variación de toneladas usa color neutral y se etiqueta como cambio de saldo, no como compra o señal.
+- [ ] Próxima puerta: conseguir la edición PDF o API oficial de RBI y fixture reproducible, implementar extractor por tabla con pruebas de unidad/fecha/revisión y verificar en pantalla antes de marcar esta fuente como completa.
+
+## Avance de la versión 3.12.0 · 2026-09-30
+
+- [x] Cuatro referencias comparables fuera de muestra: 50% constante, frecuencia de subidas del entrenamiento, momentum y dólar + tipos reales. La frecuencia no conoce resultados pendientes al corte.
+- [x] Ventanas cronológicas purgadas por vencimiento; intervalos de Brier aproximados mediante 1.000 remuestreos de bloques, estabilidad por ventana y diagnóstico de solapamiento. No se estima independencia a partir del subconjunto no solapado.
+- [x] ALFRED `output_type=1`, paginación y caché independiente; preservación de primeras publicaciones, selección de la revisión conocida al corte y tratamiento de retiradas. Se compara el resultado histórico de ambas políticas, sin modificar predicciones emitidas.
+- [x] Diagnóstico real de nueve series ALFRED, tres periodos por serie y diferencias en la unidad original. No introduce nuevos votos en la perspectiva.
+- [x] Oro prioriza perspectiva, impulsores, cambios, calendario y titulares. Datos/fuentes, revisiones, demanda/posicionamiento y validación disponen de controles para desplegar el detalle.
+- [x] Barra superior sin desbordamiento en media pantalla: menú de secciones compacto y estado limitado con texto completo en la ayuda. Ajustes y Actualizar permanecen visibles. Los controles y cifras desplegables del backtest conservan sus hijos accesibles.
+- [x] Tabla de 36 indicadores en la captura inspeccionada, con búsqueda, ordenación reversible, filtro de incidencias y diseño de tarjetas en ventana reducida; fecha de publicación desconocida no se infiere de la descarga.
+- [x] API 1.14 y aplicación 3.12.0 empaquetadas. Suite automática: 220 pruebas; compilación de producción correcta. Inspección funcional de búsqueda, ordenación, incidencias y despliegue de revisiones/comparaciones; inspección visual en ventana amplia y media pantalla.
+- [x] Nuevo informe 2016–2026: 98 cortes de prueba a 21 sesiones y 96 a 63; Brier 0,2574 / 0,2523, precisión equilibrada 47,6% / 44,5%. **No demuestra mejora estable frente a las cuatro referencias**: `KEEP_PRELIMINARY`. No se elevan confianza ni permisos operativos.
+- [ ] Completar prueba manual con VoiceOver real, contraste aumentado y tamaños de texto del sistema. La navegación por teclado y las etiquetas del árbol de accesibilidad sí se han comprobado; esto no equivale a certificar todo el recorrido con lector de pantalla.
+- [ ] Pendientes de fuentes: RBI vigente/archivo físico de NBP, ETF reales y cierre de nomenclatura RG/FMI-3BC. Fuentes privadas y consensos siguen en `STANDBY`.

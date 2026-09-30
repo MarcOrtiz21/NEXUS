@@ -322,6 +322,8 @@ struct ForexGoldView: View {
     @Environment(\.nexusBreakpoint) private var breakpoint
     @State private var selectedHeadline: NewsItem?
     @State private var showAllGoldFactors = false
+    @State private var showGoldValidation = false
+    @State private var showGoldContext = false
     @AppStorage("nexus.forexGold.primaryPair") private var primaryPair = "USDEUR"
     let mode: Mode
 
@@ -372,23 +374,42 @@ struct ForexGoldView: View {
         NexusPage {
             goldOutlookHeader
             goldDriverStrip
-            if store.snapshot?.gold?.change != nil {
-                goldChangeCard
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                goldMacroRegimeCard
+                if store.snapshot?.gold?.change != nil {
+                    goldChangeCard
+                }
+            }
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                fxCalendarCard
+                fxHeadlinesCard
             }
             goldSparkline
             goldFactorSummary
-            goldPositioningCard
-            goldDemandCard
-            goldBacktestCard
-            if hasGoldAblation {
-                goldAblationCard
+            GoldFactorTable(groups: store.snapshot?.gold?.outlook?.groups ?? [], revisions: store.snapshot?.gold?.revisions)
+            GoldRevisionCard(report: store.snapshot?.gold?.revisions)
+            DisclosureGroup("Demanda física y posicionamiento", isExpanded: $showGoldContext) {
+                VStack(spacing: NexusLayout.spacing) {
+                    goldPositioningCard
+                    goldDemandCard
+                }
+                .padding(.top, 12)
             }
-            goldProbabilityHistoryCard
+            .font(.subheadline.weight(.semibold))
+            .nexusCard()
+            DisclosureGroup("Validación y seguimiento", isExpanded: $showGoldValidation) {
+                VStack(spacing: NexusLayout.spacing) {
+                    goldBacktestCard
+                    if hasGoldAblation { goldAblationCard }
+                    goldTemporalAuditCard
+                    goldProbabilityHistoryCard
+                    goldCalibrationCard
+                }
+                .padding(.top, 12)
+            }
+            .font(.subheadline.weight(.semibold))
+            .nexusCard()
             goldDetailsLayout
-            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                fxHeadlinesCard
-                fxCalendarCard
-            }
         }
     }
 
@@ -723,6 +744,9 @@ struct ForexGoldView: View {
                 .tint(tone)
                 .accessibilityLabel("Probabilidad alcista")
                 .accessibilityValue(horizon?.probabilityUp.map { String(format: "%.0f por ciento", $0) } ?? "sin datos")
+            Text("Estimación alcista heurística · calibración pendiente")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
             HStack {
                 Text("Confianza \(horizon?.confidence ?? "—")")
                 Spacer()
@@ -733,6 +757,27 @@ struct ForexGoldView: View {
         }
         .nexusCard()
         .accessibilityElement(children: .combine)
+    }
+
+    private var goldMacroRegimeCard: some View {
+        let regime = store.snapshot?.gold?.outlook?.macroRegime
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "waveform.path.ecg")
+                .foregroundStyle(NexusTheme.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RÉGIMEN MACRO · CONTEXTO")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Text(regime?.label ?? "Régimen indeterminado")
+                    .font(.subheadline.weight(.semibold))
+                Text(regime?.note ?? "Faltan datos para clasificar el régimen; no modifica la señal.")
+                    .font(.caption)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nexusCard()
     }
 
     private var goldFactorSummary: some View {
@@ -1076,6 +1121,16 @@ struct ForexGoldView: View {
                     Text("RESERVAS OFICIALES PUBLICADAS")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(NexusTheme.accent)
+                    if let coverage = official?.coverage,
+                       let fresh = coverage.fresh,
+                       let archived = coverage.archived,
+                       let stale = coverage.stale,
+                       let missing = coverage.missing {
+                        Text("Fuentes: \(fresh) actuales · \(archived) archivo · \(stale) caché · \(missing) sin dato")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if reserves.isEmpty {
                         NexusEmptyState(
                             title: "Sin reservas verificables",
@@ -1088,21 +1143,37 @@ struct ForexGoldView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(reserve.label ?? "Autoridad")
                                         .font(.subheadline.weight(.semibold))
-                                    Text("Corte \(reserve.asOf ?? "—") · \(reserve.status == "STALE" ? "CACHÉ" : (reserve.status ?? "—"))")
+                                    Text("Corte \(reserve.asOf ?? "—") · \(reserve.status == "STALE" ? "CACHÉ" : reserve.status == "ARCHIVED" ? "ARCHIVO" : (reserve.status ?? "—"))")
                                         .font(.caption2)
-                                        .foregroundStyle(reserve.status == "STALE" ? NexusTheme.warn : NexusTheme.muted)
+                                        .foregroundStyle(reserve.status == "STALE" || reserve.status == "ARCHIVED" ? NexusTheme.warn : NexusTheme.muted)
+                                    if let releaseDate = reserve.releaseDate {
+                                        Text("Publicado \(releaseDate) · hora no verificada")
+                                            .font(.caption2)
+                                            .foregroundStyle(NexusTheme.muted)
+                                    }
                                     Text(reserve.source ?? "Fuente oficial")
                                         .font(.caption2)
                                         .foregroundStyle(NexusTheme.muted)
                                         .lineLimit(1)
+                                    if reserve.status == "MISSING" || reserve.status == "ARCHIVED", let note = reserve.note {
+                                        Text(note)
+                                            .font(.caption2)
+                                            .foregroundStyle(NexusTheme.muted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
                                 }
                                 Spacer(minLength: 8)
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(reserve.tonnes.map { String(format: "%.1f t", $0) } ?? "—")
                                         .font(.subheadline.monospacedDigit().weight(.bold))
-                                    Text(reserve.changeTonnes.map { String(format: "%+.2f t", $0) } ?? "sin comparativa")
+                                    Text(reserve.changeTonnes.map { String(format: "Saldo vs anterior %+.2f t", $0) } ?? "sin comparativa")
                                         .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(contributionTone(reserve.changeTonnes))
+                                        .foregroundStyle(NexusTheme.muted)
+                                    if let annual = reserve.change12MTonnes {
+                                        Text(String(format: "12 meses %+.2f t", annual))
+                                            .font(.caption2.monospacedDigit())
+                                            .foregroundStyle(NexusTheme.muted)
+                                    }
                                 }
                             }
                             .accessibilityElement(children: .combine)
@@ -1306,10 +1377,15 @@ struct ForexGoldView: View {
                 }
                 Text(promoted
                      ? "El modelo supera las referencias definidas en ambos horizontes."
-                     : "Aún no supera de forma consistente a momentum y dólar + tipos reales; la confianza permanece limitada.")
+                     : "La mejora frente a las referencias sigue sin demostrarse de forma estable; la confianza permanece limitada.")
                     .font(.caption)
                     .foregroundStyle(promoted ? NexusTheme.good : NexusTheme.warn)
                     .fixedSize(horizontal: false, vertical: true)
+                if (report?.reportSchemaVersion ?? 0) < 2 {
+                    Text("Informe anterior: pendiente de recalcular las cuatro referencias y el diagnóstico de solapamiento.")
+                        .font(.caption)
+                        .foregroundStyle(NexusTheme.warn)
+                }
             } else {
                 NexusEmptyState(
                     title: "Validación todavía no ejecutada",
@@ -1324,6 +1400,7 @@ struct ForexGoldView: View {
 
     private var goldProbabilityHistoryCard: some View {
         let points = store.snapshot?.gold?.history?.recentPredictions ?? []
+        let settled = points.filter { $0.shortReturnPct != nil || $0.mediumReturnPct != nil }
         return VStack(alignment: .leading, spacing: 10) {
             NexusSectionHeader(
                 title: "HISTÓRICO DE PROBABILIDAD",
@@ -1376,8 +1453,191 @@ struct ForexGoldView: View {
             Text("Resultados vencidos: \(store.snapshot?.gold?.history?.settledOutcomes ?? 0). Las probabilidades no equivalen a una orden de entrada.")
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
+            if !settled.isEmpty {
+                Divider().opacity(0.12)
+                Text("RESULTADO OBSERVADO")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                ForEach(Array(settled.suffix(5).reversed())) { point in
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) {
+                            Text(goldDateLabel(point.capturedAt))
+                                .foregroundStyle(NexusTheme.muted)
+                                .frame(minWidth: 72, alignment: .leading)
+                            goldOutcomeMetric("21S", probability: point.shortProbability, returnPct: point.shortReturnPct)
+                            goldOutcomeMetric("63S", probability: point.mediumProbability, returnPct: point.mediumReturnPct)
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(goldDateLabel(point.capturedAt)).foregroundStyle(NexusTheme.muted)
+                            goldOutcomeMetric("21S", probability: point.shortProbability, returnPct: point.shortReturnPct)
+                            goldOutcomeMetric("63S", probability: point.mediumProbability, returnPct: point.mediumReturnPct)
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
         }
         .nexusCard()
+    }
+
+    private func goldOutcomeMetric(_ label: String, probability: Double?, returnPct: Double?) -> some View {
+        let correct = probability.map { $0 >= 50 } == returnPct.map { $0 > 0 }
+        return HStack(spacing: 6) {
+            Text(label).fontWeight(.bold)
+            Text(probability.map { String(format: "%.0f%%", $0) } ?? "—")
+            Text(returnPct.map { String(format: "%+.2f%%", $0) } ?? "pendiente")
+                .foregroundStyle(returnPct == nil ? NexusTheme.muted : (correct ? NexusTheme.good : NexusTheme.bad))
+            if returnPct != nil {
+                Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(correct ? NexusTheme.good : NexusTheme.bad)
+                    .accessibilityLabel(correct ? "dirección acertada" : "dirección fallida")
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var goldTemporalAuditCard: some View {
+        let history = store.snapshot?.gold?.history
+        let audit = history?.temporalAudit
+        let policy = history?.capturePolicy
+        let passes = audit?.status == "PASS"
+        let filtered = (audit?.latestFutureObservationsRejected ?? 0) > 0
+        let badge = passes ? (filtered ? "FILTRO APLICADO" : "SIN FUGAS") : "REVISAR"
+        let badgeColor = passes ? (filtered ? NexusTheme.warn : NexusTheme.good) : NexusTheme.bad
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                NexusSectionHeader(
+                    title: "CORTE Y AUDITORÍA TEMPORAL",
+                    detail: "sin anticipación de datos",
+                    help: "NEXUS conserva la fecha de corte y rechaza observaciones o publicaciones posteriores a cada predicción."
+                )
+                Spacer(minLength: 8)
+                Text(badge)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(badgeColor)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(badgeColor.opacity(0.14), in: Capsule())
+            }
+            NexusResponsiveGrid(wideColumns: 3, mediumColumns: 1) {
+                temporalAuditMetric("ÚLTIMO CORTE", relativeAge(from: audit?.cutoffAt), detail: goldDateLabel(audit?.cutoffAt))
+                temporalAuditMetric("TIPO DE CAPTURA", goldCaptureKind(audit?.captureKind), detail: audit?.triggerEvent ?? "sin evento asociado")
+                temporalAuditMetric("INCUMPLIMIENTOS GUARDADOS", String(audit?.storedCutoffViolations ?? 0), detail: "rechazados en total \(audit?.futureObservationsRejectedTotal ?? 0)")
+            }
+            Text(policy?.policy ?? "Corte base desde el día 15 y recaptura posterior a eventos macro relevantes.")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .nexusCard()
+    }
+
+    private func temporalAuditMetric(_ title: String, _ value: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption2.weight(.bold)).foregroundStyle(NexusTheme.accent)
+            Text(value).font(.headline.monospacedDigit())
+            Text(detail).font(.caption2).foregroundStyle(NexusTheme.muted).lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var goldCalibrationCard: some View {
+        let validation = store.snapshot?.gold?.history?.validation
+        return VStack(alignment: .leading, spacing: 12) {
+            NexusSectionHeader(
+                title: "CALIBRACIÓN Y FALLOS EN VIVO",
+                detail: "probabilidad prevista frente a resultado",
+                help: "Compara cuántas subidas anticipó el modelo con cuántas ocurrieron realmente. Solo usa predicciones emitidas y ya vencidas."
+            )
+            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
+                goldCalibrationHorizon("21", summary: validation?["short"])
+                goldCalibrationHorizon("63", summary: validation?["medium"])
+            }
+        }
+        .nexusCard()
+    }
+
+    private func goldCalibrationHorizon(_ label: String, summary: GoldValidationSummary?) -> some View {
+        let bins = summary?.calibration ?? []
+        let failures = summary?.failures ?? []
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(label) SESIONES")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Spacer()
+                Text("\(summary?.sampleSize ?? 0)/\(summary?.minimumSampleSize ?? 30) resultados")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
+            if summary?.status != "READY" {
+                ProgressView(value: summary?.progressPct ?? 0, total: 100)
+                    .tint(NexusTheme.warn)
+                    .accessibilityLabel("Progreso de validación")
+                    .accessibilityValue("\(summary?.sampleSize ?? 0) de \(summary?.minimumSampleSize ?? 30) resultados vencidos")
+                NexusEmptyState(
+                    title: "Muestra aún insuficiente",
+                    detail: "Faltan \(summary?.remainingResults ?? 30) resultados vencidos. Los porcentajes y fallos todavía no permiten concluir fiabilidad.",
+                    symbol: "scope"
+                )
+            } else if bins.isEmpty {
+                NexusEmptyState(title: "Sin datos de calibración", detail: "La muestra está completa, pero faltan rangos verificables.", symbol: "scope")
+            } else {
+                Chart(bins) { bin in
+                    BarMark(
+                        x: .value("Rango previsto", calibrationRange(bin)),
+                        y: .value("Frecuencia observada", (bin.observedFrequency ?? 0) * 100)
+                    )
+                    .foregroundStyle(NexusTheme.accent.opacity(0.55))
+                    PointMark(
+                        x: .value("Rango previsto", calibrationRange(bin)),
+                        y: .value("Probabilidad media", (bin.meanProbability ?? 0) * 100)
+                    )
+                    .foregroundStyle(NexusTheme.warn)
+                    .symbolSize(65)
+                }
+                .chartYScale(domain: 0...100)
+                .chartYAxis { AxisMarks(values: [0, 25, 50, 75, 100]) }
+                .frame(height: 150)
+                HStack {
+                    Text("Acierto direccional")
+                    Spacer()
+                    Text(summary?.directionalAccuracy.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
+                        .fontWeight(.bold)
+                }
+                .font(.caption)
+                HStack {
+                    Text("Fallos · alta convicción")
+                    Spacer()
+                    Text("\(summary?.directionalMisses ?? 0) · \(summary?.highConfidenceMisses ?? 0)")
+                        .fontWeight(.bold)
+                }
+                .font(.caption)
+                if let failure = failures.first {
+                    Text("Mayor error: \(goldDateLabel(failure.capturedAt)) · \(failure.probabilityUp.map { String(format: "%.0f%%", $0) } ?? "—") → \(failure.returnPct.map { String(format: "%+.2f%%", $0) } ?? "—")\(failure.dominantDriver.map { " · impulsor: \($0)" } ?? "")")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.bad)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(12)
+        .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func calibrationRange(_ bin: GoldCalibrationBin) -> String {
+        String(format: "%.0f–%.0f", (bin.from ?? 0) * 100, (bin.to ?? 0) * 100)
+    }
+
+    private func goldCaptureKind(_ raw: String?) -> String {
+        switch raw {
+        case "MONTHLY_CUTOFF": return "CORTE MENSUAL"
+        case "EVENT_RECAPTURE": return "RECAPTURA POR EVENTO"
+        case "ROUTINE": return "SEGUIMIENTO"
+        default: return "SIN CAPTURA"
+        }
     }
 
     private var hasGoldAblation: Bool {
@@ -1489,7 +1749,8 @@ struct ForexGoldView: View {
                 value: percentRatio(model?.balancedAccuracy),
                 tone: passed ? NexusTheme.good : NexusTheme.warn
             )
-            NexusKVRow(label: "Retorno medio observado", value: formatPct(model?.meanReturnPct))
+            NexusKVRow(label: "Retorno del oro en esos cortes", value: formatPct(model?.meanReturnPct))
+            GoldBacktestComparisonDetails(result: result)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1498,10 +1759,8 @@ struct ForexGoldView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(NexusTheme.border, lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(key) sesiones, \(model?.sampleSize ?? 0) cortes, Brier \(decimal(model?.brierScore, digits: 3)), precisión equilibrada \(percentRatio(model?.balancedAccuracy))"
-        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Validación histórica de \(key) sesiones")
     }
 
     private func backtestPeriod(_ report: GoldBacktestReport?) -> String? {
@@ -1562,6 +1821,12 @@ struct ForexGoldView: View {
         guard let raw else { return nil }
         return ISO8601DateFormatter.nexus.date(from: raw)
             ?? ISO8601DateFormatter.nexusFractional.date(from: raw)
+    }
+
+    private func goldDateLabel(_ raw: String?) -> String {
+        guard let raw else { return "—" }
+        guard let date = goldPredictionDate(raw) else { return String(raw.prefix(10)) }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
     private var goldCard: some View {

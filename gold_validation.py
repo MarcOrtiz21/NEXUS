@@ -81,6 +81,36 @@ def _iso_date(value: str) -> date:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
 
 
+def _dominant_driver(payload_json: str | None, horizon_days: int) -> str | None:
+    if not payload_json:
+        return None
+    try:
+        import json
+        payload = json.loads(payload_json)
+    except (TypeError, ValueError):
+        return None
+    contribution_key = "short_contribution" if horizon_days == 21 else "medium_contribution"
+    groups = [group for group in payload.get("groups") or [] if isinstance(group, dict)]
+    ranked = sorted(
+        groups,
+        key=lambda group: abs(float(group.get(contribution_key) or 0)),
+        reverse=True,
+    )
+    if not ranked or not ranked[0].get(contribution_key):
+        return None
+    return str(ranked[0].get("label") or ranked[0].get("id") or "").strip() or None
+
+
+def _calibration_error(bins: list[dict[str, Any]], sample_size: int) -> float | None:
+    if not bins or sample_size < 1:
+        return None
+    return round(sum(
+        abs(float(row["mean_probability"]) - float(row["observed_frequency"]))
+        * int(row["count"]) / sample_size
+        for row in bins
+    ), 6)
+
+
 def settle_predictions_from_prices(
     price_rows: Sequence[tuple[str, float]],
     *,
@@ -143,7 +173,9 @@ def validation_summary(
     db_path: Path = GOLD_HISTORY_DB,
 ) -> dict[str, Any]:
     if not Path(db_path).exists():
-        return {"horizon_days": horizon_days, "sample_size": 0, "status": "INSUFFICIENT_DATA"}
+        return {"horizon_days": horizon_days, "sample_size": 0, "minimum_sample_size": 30,
+                "remaining_results": 30, "progress_pct": 0.0, "metrics_publishable": False,
+                "status": "INSUFFICIENT_DATA"}
     initialize_gold_history(db_path)
     probability_column = "short_probability" if horizon_days == 21 else "medium_probability"
     with closing(sqlite3.connect(Path(db_path), timeout=10)) as connection:
@@ -151,7 +183,7 @@ def validation_summary(
         rows = connection.execute(
             f"""
             SELECT p.{probability_column} AS probability, o.direction_up, o.return_pct,
-                   p.captured_at, o.evaluated_at
+                   p.captured_at, o.evaluated_at, p.payload_json
             FROM gold_prediction_outcomes o
             JOIN gold_predictions p ON p.id = o.prediction_id
             WHERE o.horizon_days = ?
@@ -162,15 +194,42 @@ def validation_summary(
     probabilities = [float(row["probability"]) / 100 for row in rows]
     outcomes = [int(row["direction_up"]) for row in rows]
     sample_size = len(rows)
+    bins = calibration_bins(probabilities, outcomes)
+    misses = []
+    for row, probability, outcome in zip(rows, probabilities, outcomes):
+        predicted_up = probability >= 0.5
+        if predicted_up == bool(outcome):
+            continue
+        misses.append({
+            "captured_at": row["captured_at"],
+            "evaluated_at": row["evaluated_at"],
+            "probability_up": round(probability * 100, 2),
+            "return_pct": round(float(row["return_pct"]), 4),
+            "error": round((probability - outcome) ** 2, 6),
+            "dominant_driver": _dominant_driver(row["payload_json"], horizon_days),
+        })
+    misses.sort(key=lambda item: item["error"], reverse=True)
     return {
         "horizon_days": horizon_days,
         "sample_size": sample_size,
+        "minimum_sample_size": 30,
+        "remaining_results": max(0, 30 - sample_size),
+        "progress_pct": round(min(sample_size / 30, 1) * 100, 1),
+        "metrics_publishable": sample_size >= 30,
         "status": "READY" if sample_size >= 30 else "INSUFFICIENT_DATA",
         "brier_score": brier_score(probabilities, outcomes),
         "balanced_accuracy": balanced_accuracy(probabilities, outcomes),
         "mean_return_pct": round(sum(float(row["return_pct"]) for row in rows) / sample_size, 4)
         if sample_size else None,
-        "calibration": calibration_bins(probabilities, outcomes),
+        "calibration": bins,
+        "calibration_error": _calibration_error(bins, sample_size),
+        "directional_accuracy": round((sample_size - len(misses)) / sample_size, 6)
+        if sample_size else None,
+        "directional_misses": len(misses),
+        "high_confidence_misses": sum(
+            1 for item in misses if item["probability_up"] >= 65 or item["probability_up"] <= 35
+        ),
+        "failures": misses[:5],
         "walk_forward_folds": len(walk_forward_splits(sample_size, min_train=24, test_size=6))
         if sample_size >= 24 else 0,
         "point_in_time_warning": (

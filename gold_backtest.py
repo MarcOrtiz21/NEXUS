@@ -17,9 +17,10 @@ from cftc_positioning import (
     positioning_data_fields,
     summarize_gold_positioning,
 )
-from fred_vintages import fetch_initial_releases, known_rows, lagged_change, latest_value
+from fred_vintages import fetch_revision_history, first_release_rows, known_rows, lagged_change, latest_value
+from gold_backtest_stats import BASELINES, assign_historical_baseline, overlap_diagnostics, paired_brier_interval, purged_folds
 from gold_outlook import MODEL_VERSION, build_gold_outlook
-from gold_validation import balanced_accuracy, brier_score, calibration_bins, walk_forward_splits
+from gold_validation import balanced_accuracy, brier_score, calibration_bins
 
 
 MONTHLY_SERIES = {
@@ -154,6 +155,23 @@ def _evaluation(rows: list[dict[str, Any]], probability_key: str) -> dict[str, A
     }
 
 
+def _regime_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Estratificación histórica; no entrena pesos ni valida valor incremental."""
+    result: dict[str, Any] = {}
+    for identifier in ("TIGHTENING", "EASING", "MIXED", "UNDETERMINED"):
+        selected = [row for row in rows if row.get("macro_regime") == identifier]
+        if not selected:
+            continue
+        result[identifier] = {
+            "sample_size": len(selected),
+            "status": "DESCRIPTIVE" if len(selected) >= 30 else "INSUFFICIENT_DATA",
+            "model_brier": brier_score([row["model_probability"] / 100 for row in selected],
+                                        [row["direction_up"] for row in selected]) if len(selected) >= 30 else None,
+            "note": "No prueba mejora incremental del régimen ni activa pesos nuevos.",
+        }
+    return result
+
+
 def _probability_without_group(groups: list[dict[str, Any]], horizon: str, omitted: str) -> float | None:
     signal_key = f"{horizon}_signal"
     weight_key = f"{horizon}_weight"
@@ -216,7 +234,7 @@ def run_gold_backtest(
     end = end or datetime.now(timezone.utc).date()
     warmup = start - timedelta(days=800)
     series = vintage_series or {
-        name: fetch_initial_releases(series_id, warmup.isoformat(), end.isoformat(), refresh=refresh)
+        name: fetch_revision_history(series_id, warmup.isoformat(), end.isoformat(), refresh=refresh)
         for name, series_id in {**MONTHLY_SERIES, **DAILY_SERIES}.items()
     }
     market = market_prices if market_prices is not None else download_market_history(warmup, end)
@@ -227,6 +245,8 @@ def run_gold_backtest(
     )
     if "GLD" not in market or market["GLD"].dropna().empty:
         raise RuntimeError("No hay histórico de GLD para ejecutar el backtest")
+    market = market.loc[market.index <= pd.Timestamp(end)].sort_index()
+    initial_series = {name: first_release_rows(rows) for name, rows in series.items()}
 
     samples: list[dict[str, Any]] = []
     dates = _decision_dates(market["GLD"].dropna().index, start, end)
@@ -257,6 +277,11 @@ def run_gold_backtest(
         outlook = build_gold_outlook(
             macro, gld, uup, include_positioning_in_score=True
         )
+        initial_macro = _macro_snapshot(initial_series, decision_at.date())
+        initial_macro.update(positioning_data_fields(positioning))
+        if "VIX" in macro:
+            initial_macro["VIX"] = macro["VIX"]
+        initial_outlook = build_gold_outlook(initial_macro, gld, uup, include_positioning_in_score=True)
         future_prices = market.loc[market.index > decision_at, "GLD"].dropna()
         entry = float(gld["price"] or 0)
         for horizon, key in ((21, "short_term"), (63, "medium_term")):
@@ -284,9 +309,11 @@ def run_gold_backtest(
                 "return_pct": round(return_pct, 4),
                 "direction_up": int(return_pct > 0),
                 "model_probability": float(outlook[key]["probability_up"]),
+                "initial_release_probability": float(initial_outlook[key]["probability_up"]),
                 "momentum_probability": round(max(15, min(85, 50 + momentum * 5)), 2),
                 "macro_probability": round(max(15, min(85, 50 - dollar_momentum * 5 - real_change * 35)), 2),
                 "coverage_pct": float(outlook[key]["coverage_pct"]),
+                "macro_regime": outlook["macro_regime"]["id"],
                 "latest_release_at": macro.get("PointInTime_LastRelease"),
                 "latest_cftc_release_at": positioning.get("release_at"),
                 "ablation_probabilities": ablation_probabilities,
@@ -295,29 +322,47 @@ def run_gold_backtest(
     horizons: dict[str, Any] = {}
     for horizon in (21, 63):
         rows = [row for row in samples if row["horizon_days"] == horizon]
+        assign_historical_baseline(rows)
         folds = []
-        for train, test in walk_forward_splits(len(rows), min_train=24, test_size=6):
-            test_rows = [rows[index] for index in test]
+        evaluation_rows = []
+        for train, test_rows in purged_folds(rows):
+            evaluation_rows.extend(test_rows)
             folds.append({
                 "train_size": len(train),
+                "train_last_outcome": max(row["evaluated_at"] for row in train),
                 "test_from": test_rows[0]["decision_at"],
                 "test_to": test_rows[-1]["decision_at"],
                 **_evaluation(test_rows, "model_probability"),
+                "baselines": {name: _evaluation(test_rows, key) for name, key in BASELINES.items()},
             })
-        model_metrics = _evaluation(rows, "model_probability")
+        model_metrics = _evaluation(evaluation_rows, "model_probability")
         horizons[str(horizon)] = {
             "model": model_metrics,
-            "baseline_momentum": _evaluation(rows, "momentum_probability"),
-            "baseline_dollar_real_yield": _evaluation(rows, "macro_probability"),
+            "all_cuts": _evaluation(rows, "model_probability"),
+            "baseline_constant": _evaluation(evaluation_rows, "constant_probability"),
+            "baseline_historical_frequency": _evaluation(evaluation_rows, "historical_probability"),
+            "baseline_momentum": _evaluation(evaluation_rows, "momentum_probability"),
+            "baseline_dollar_real_yield": _evaluation(evaluation_rows, "macro_probability"),
             "walk_forward_folds": folds,
-            "ablation": _ablation_report(rows),
+            "overlap": overlap_diagnostics(evaluation_rows),
+            "comparisons": {name: paired_brier_interval(evaluation_rows, key) for name, key in BASELINES.items()},
+            "revision_diagnostics": {
+                "initial_release": _evaluation(evaluation_rows, "initial_release_probability"),
+                "known_revision": model_metrics,
+                "mean_probability_change_pp": round(sum(row["model_probability"] - row["initial_release_probability"]
+                                                         for row in evaluation_rows) / len(evaluation_rows), 4) if evaluation_rows else None,
+                "direction_changes": sum((row["model_probability"] >= 50) != (row["initial_release_probability"] >= 50)
+                                         for row in evaluation_rows),
+            },
+            "ablation": _ablation_report(evaluation_rows),
+            "macro_regimes": _regime_diagnostics(evaluation_rows),
         }
 
     passes_baselines = True
     for horizon in (21, 63):
         result = horizons[str(horizon)]
         model = result["model"]
-        baselines = [result["baseline_momentum"], result["baseline_dollar_real_yield"]]
+        baselines = [result[f"baseline_{name}"] for name in BASELINES]
         brier_pass = all(
             model["brier_score"] is not None
             and baseline["brier_score"] is not None
@@ -330,7 +375,15 @@ def run_gold_backtest(
             and model["balanced_accuracy"] >= baseline["balanced_accuracy"]
             for baseline in baselines
         )
-        result["passes_baselines"] = brier_pass and accuracy_pass
+        folds = result["walk_forward_folds"]
+        wins = sum(all(fold["brier_score"] < baseline["brier_score"]
+                       for baseline in fold["baselines"].values()) for fold in folds)
+        result["stability"] = {"folds": len(folds), "winning_folds": wins,
+                               "win_ratio": round(wins / len(folds), 4) if folds else None}
+        uncertainty_pass = all(item.get("upper") is not None and item["upper"] < 0
+                               for item in result["comparisons"].values())
+        result["passes_baselines"] = (model["sample_size"] >= 30 and brier_pass and accuracy_pass
+                                      and len(folds) >= 4 and wins / len(folds) >= 0.6 and uncertainty_pass)
         passes_baselines = passes_baselines and result["passes_baselines"]
 
     positioning_checks = []
@@ -351,7 +404,9 @@ def run_gold_backtest(
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "decision_policy": "Primera sesión de mercado desde el día 15 de cada mes",
         "point_in_time": True,
-        "vintage_policy": "Primera publicación FRED/ALFRED (output_type=4); revisiones posteriores excluidas",
+        "report_schema_version": 2,
+        "vintage_policy": "Última revisión ALFRED conocida en cada corte (output_type=1); primera publicación conservada como diagnóstico paralelo",
+        "evaluation_policy": "Ventanas cronológicas con entrenamiento purgado por fecha de vencimiento; cuatro referencias sobre los mismos cortes de prueba",
         "promotion_status": "CANDIDATE" if passes_baselines else "KEEP_PRELIMINARY",
         "passes_baselines": passes_baselines,
         "feature_gates": {
@@ -361,7 +416,9 @@ def run_gold_backtest(
         "horizons": horizons,
         "samples": samples,
         "limitations": [
-            "El modelo v1 usa pesos heurísticos fijos; las ventanas walk-forward evalúan, no entrenan pesos.",
+            "El modelo usa pesos heurísticos fijos; las ventanas walk-forward evalúan, no entrenan pesos.",
+            "El bootstrap de bloques aproxima incertidumbre; los cortes mensuales pueden compartir sesiones futuras.",
+            "ALFRED aporta fecha de disponibilidad diaria, no una hora de difusión verificada; los cortes son al cierre.",
             "GLD y UUP son proxies negociables y no sustituyen al oro spot ni al índice DXY.",
             "Costes, deslizamiento, flujos ETF y compras oficiales aún no están incluidos.",
             "CFTC usa fecha de publicación point-in-time; su peso en producción depende de la puerta de ablación.",

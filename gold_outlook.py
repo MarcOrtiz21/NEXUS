@@ -49,6 +49,8 @@ def _detail(
     source: str | None = None,
     as_of: str | None = None,
     quality: str | None = None,
+    metric_key: str | None = None,
+    release_at: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         "label": label,
@@ -63,6 +65,10 @@ def _detail(
         payload["as_of"] = as_of
     if quality:
         payload["quality"] = quality
+    if metric_key:
+        payload["metric_key"] = metric_key
+    if release_at:
+        payload["release_at"] = release_at
     return payload
 
 
@@ -79,6 +85,8 @@ def _provenance(data: dict[str, Any], key: str) -> dict[str, str]:
         payload["as_of"] = str(as_of)
     if quality:
         payload["quality"] = str(quality)
+    if item.get("release_at"):
+        payload["release_at"] = str(item["release_at"])
     return payload
 
 
@@ -95,6 +103,7 @@ def _metric_detail(
         _number(data.get(key)),
         unit=unit,
         digits=digits,
+        metric_key=key,
         **_provenance(data, key),
     )
 
@@ -210,6 +219,31 @@ def _horizon(groups: list[dict[str, Any]], horizon: str) -> dict[str, Any]:
         "coverage_pct": coverage,
         "drivers": drivers[:5],
     }
+
+
+def classify_macro_regime(data: dict[str, Any], uup_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Contexto descriptivo; no altera pesos, probabilidades ni permiso operativo."""
+    real_change = _number(data.get("Real_Yield_10Y_1M_Change_Pp"))
+    dollar_change = _number(uup_metrics.get("momentum_1m"))
+    inflation_3m = _mean([_number(data.get(key)) for key in (
+        "CPI_3M_Annualized_Pct", "Core_CPI_3M_Annualized_Pct",
+        "PCE_3M_Annualized_Pct", "Core_PCE_3M_Annualized_Pct",
+    )])
+    if real_change is None or dollar_change is None:
+        return {"id": "UNDETERMINED", "label": "Régimen indeterminado", "status": "INSUFFICIENT_DATA",
+                "score_enabled": False, "note": "Faltan cambios observados de TIPS reales o del dólar."}
+    rates = "alza" if real_change > 0.05 else "baja" if real_change < -0.05 else "estables"
+    dollar = "alza" if dollar_change > 0.5 else "baja" if dollar_change < -0.5 else "estable"
+    if rates == "alza" and dollar == "alza":
+        identifier, label = "TIGHTENING", "Endurecimiento monetario"
+    elif rates == "baja" and dollar == "baja":
+        identifier, label = "EASING", "Relajación monetaria"
+    else:
+        identifier, label = "MIXED", "Señales macro mixtas"
+    return {"id": identifier, "label": label, "status": "DESCRIPTIVE", "score_enabled": False,
+            "real_yield_change_pp": real_change, "dollar_momentum_1m_pct": dollar_change,
+            "inflation_3m_annualized_pct": inflation_3m,
+            "note": f"TIPS reales en {rates}; dólar en {dollar}. Clasificación descriptiva sin voto adicional."}
 
 
 def build_gold_outlook(
@@ -412,7 +446,8 @@ def build_gold_outlook(
         _group(
             "official_demand", "Demanda oficial", official_signal, official_signal, 0.00, 0.12,
             [_detail("Compras netas", central_bank_tonnes, unit=" t", digits=1)],
-            "Pendiente de una fuente pública/licenciada estable; no se sustituyen ausencias por votos positivos.",
+            "Solo contexto: no existe una serie global de compras netas verificada. Los saldos nacionales no se suman ni puntúan.",
+            score_enabled=False,
         ),
     ]
 
@@ -422,6 +457,7 @@ def build_gold_outlook(
         "as_of": _latest_as_of(data),
         "private_sources_status": PRIVATE_SOURCES_STATUS,
         "methodology": "Perspectiva heurística agrupada; no es una orden y el modelo sigue en fase preliminar.",
+        "macro_regime": classify_macro_regime(data, uup_metrics),
         "short_term": _horizon(groups, "short"),
         "medium_term": _horizon(groups, "medium"),
         "groups": groups,

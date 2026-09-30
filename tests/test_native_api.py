@@ -1,10 +1,20 @@
 import unittest
 from unittest.mock import patch
 
-from native_api import _block_banner, _trim_sparklines, build_native_snapshot
+from native_api import _block_banner, _gold_capture_context, _trim_sparklines, build_native_snapshot
 
 
 class NativeApiContractTests(unittest.TestCase):
+    def test_gold_capture_context_only_uses_recent_relevant_events(self):
+        context = _gold_capture_context([
+            {"title": "United States CPI", "hours_until": -3},
+            {"title": "Retail Sales", "hours_until": -1},
+        ])
+        self.assertEqual(context["trigger_event"], "United States CPI")
+        self.assertEqual(_gold_capture_context([
+            {"title": "United States CPI", "hours_until": 2},
+        ]), {})
+
     def test_snapshot_sparklines_are_trimmed_to_42_points(self):
         points = [{"date": f"day-{index}", "value": index} for index in range(60)]
 
@@ -92,6 +102,7 @@ class NativeApiContractTests(unittest.TestCase):
         self.assertIn("outlook", payload["gold"])
         self.assertIn("history", payload["gold"])
         self.assertIn("backtest", payload["gold"])
+        self.assertIn("revisions", payload["gold"])
         self.assertIn("validation", payload["gold"]["history"])
         self.assertEqual(payload["gold"]["outlook"]["version"], "gold-outlook-v2")
         self.assertIn("positioning", payload["gold"])

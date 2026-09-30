@@ -71,7 +71,8 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
   tipos reales, dólar, energía, actividad y contribución agrupada sin doble conteo.
   Sus observaciones, revisiones y predicciones se conservan en SQLite para una
   validación temporal posterior sin mezclar datos futuros. La evaluación histórica
-  usa primeras publicaciones de FRED/ALFRED, informes CFTC conocidos en cada corte
+  usa revisiones FRED/ALFRED conocidas en cada corte y compara en paralelo con las
+  primeras publicaciones, junto con informes CFTC conocidos en cada corte
   y evaluaciones mensuales desde el día 15. El posicionamiento CFTC se muestra como
   contexto mientras no supere el umbral de validación para incorporarse al score.
 - **Rotación sectorial**: líderes, receptores de flujo, sectores neutrales y débiles.
@@ -87,7 +88,12 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - Estado y calidad de las fuentes de datos.
 - Perspectiva preliminar del oro con cobertura explícita; las fuentes privadas
   y los consensos históricos permanecen en standby hasta evaluar su licencia.
-- Backtest point-in-time de diez años frente a momentum y dólar + tipos reales.
+- Backtest point-in-time de diez años frente a momentum, dólar + tipos reales,
+  probabilidad constante y frecuencia histórica. Entrenamientos purgados de
+  resultados no vencidos, diagnóstico de solapamiento e intervalos aproximados
+  para las diferencias de error. La perspectiva sigue siendo preliminar.
+- Tabla adaptativa de factores de Oro con búsqueda, ordenación, calidad de fuente
+  y fechas verificables; diagnóstico separado de primeras publicaciones y revisiones.
   El resultado permanece marcado como preliminar si no supera ambas referencias
   en error probabilístico y precisión equilibrada para los dos horizontes.
 - Ingesta CFTC/COMEX degradable con caché, unidades canónicas, fecha real de

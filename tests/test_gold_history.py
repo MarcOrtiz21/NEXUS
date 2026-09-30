@@ -4,7 +4,12 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from gold_history import gold_change_summary, gold_history_summary, record_gold_snapshot
+from gold_history import (
+    gold_capture_policy,
+    gold_change_summary,
+    gold_history_summary,
+    record_gold_snapshot,
+)
 from gold_validation import (
     balanced_accuracy,
     brier_score,
@@ -102,7 +107,64 @@ class GoldHistoryTests(unittest.TestCase):
             db_path=self.db,
         )
         self.assertEqual(result["future_observations_rejected"], 1)
-        self.assertEqual(gold_history_summary(self.db)["observations"], 0)
+        self.assertTrue(result["prediction_blocked_by_cutoff"])
+        summary = gold_history_summary(self.db)
+        self.assertEqual(summary["observations"], 0)
+        self.assertEqual(summary["predictions"], 0)
+        self.assertEqual(summary["temporal_audit"]["stored_cutoff_violations"], 0)
+        self.assertEqual(summary["temporal_audit"]["future_observations_rejected_total"], 1)
+        self.assertEqual(summary["temporal_audit"]["status"], "PASS")
+
+    def test_rejects_report_released_after_capture_even_with_old_period(self):
+        result = record_gold_snapshot(
+            {
+                "CFTC_MM_Net_Contracts": 12345,
+                "CFTC_AsOf": "2026-09-22",
+                "CFTC_ReleaseAt": "2026-09-25T17:00:00-04:00",
+                "Assets": {"GLD": {"price": 200.0}},
+            },
+            outlook(),
+            captured_at="2026-09-25T20:59:59+00:00",
+            db_path=self.db,
+        )
+        self.assertEqual(result["future_observations_rejected"], 1)
+        self.assertEqual(result["prediction_inserted"], 0)
+        self.assertTrue(result["prediction_blocked_by_cutoff"])
+        summary = gold_history_summary(self.db)
+        self.assertEqual(summary["observations"], 0)
+        self.assertEqual(summary["predictions"], 0)
+        self.assertEqual(summary["temporal_audit"]["future_observations_rejected_total"], 1)
+
+    def test_accepts_report_published_before_capture_across_timezones(self):
+        result = record_gold_snapshot(
+            {
+                "CFTC_MM_Net_Contracts": 12345,
+                "CFTC_AsOf": "2026-09-22",
+                "CFTC_ReleaseAt": "2026-09-25T17:00:00-04:00",
+                "Assets": {"GLD": {"price": 200.0}},
+            },
+            outlook(),
+            captured_at="2026-09-25T21:00:01+00:00",
+            db_path=self.db,
+        )
+        self.assertEqual(result["future_observations_rejected"], 0)
+        self.assertEqual(result["prediction_inserted"], 1)
+        self.assertEqual(gold_history_summary(self.db)["point_in_time_observations"], 1)
+
+    def test_capture_policy_distinguishes_monthly_cut_and_event_recapture(self):
+        monthly = gold_capture_policy("2026-09-15T12:00:00+00:00")
+        routine = gold_capture_policy(
+            "2026-09-16T12:00:00+00:00", has_monthly_cut=True
+        )
+        event = gold_capture_policy(
+            "2026-09-16T12:00:00+00:00",
+            trigger_event="United States CPI",
+            has_monthly_cut=True,
+        )
+        self.assertEqual(monthly["capture_kind"], "MONTHLY_CUTOFF")
+        self.assertEqual(routine["capture_kind"], "ROUTINE")
+        self.assertEqual(event["capture_kind"], "EVENT_RECAPTURE")
+        self.assertEqual(event["trigger_event"], "United States CPI")
 
     def test_history_exposes_recent_predictions_and_change_summary(self):
         first = outlook()
@@ -146,6 +208,30 @@ class GoldHistoryTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(rows, [(2, 102.0), (3, 99.0)])
 
+    def test_validation_exposes_calibration_and_failure_diagnostics(self):
+        record_gold_snapshot(
+            {"Assets": {"GLD": {"price": 100.0}}},
+            outlook(),
+            captured_at="2026-01-01T18:00:00+00:00",
+            db_path=self.db,
+        )
+        prices = [
+            ((date(2026, 1, 1) + timedelta(days=offset)).isoformat(), 99.0 - offset / 10)
+            for offset in range(1, 65)
+        ]
+        settle_predictions_from_prices(prices, db_path=self.db)
+        summary = validation_summary(horizon_days=21, db_path=self.db)
+        self.assertEqual(summary["sample_size"], 1)
+        self.assertEqual(summary["remaining_results"], 29)
+        self.assertEqual(summary["minimum_sample_size"], 30)
+        self.assertEqual(summary["status"], "INSUFFICIENT_DATA")
+        self.assertFalse(summary["metrics_publishable"])
+        self.assertEqual(summary["directional_misses"], 1)
+        self.assertEqual(summary["high_confidence_misses"], 0)
+        self.assertEqual(summary["failures"][0]["dominant_driver"], "inflation")
+        self.assertEqual(sum(row["count"] for row in summary["calibration"]), 1)
+        self.assertIsNotNone(summary["calibration_error"])
+
 
 class GoldValidationTests(unittest.TestCase):
     def test_metrics_and_calibration(self):
@@ -166,6 +252,7 @@ class GoldValidationTests(unittest.TestCase):
             summary = validation_summary(horizon_days=21, db_path=Path(temp) / "missing.sqlite3")
         self.assertEqual(summary["status"], "INSUFFICIENT_DATA")
         self.assertEqual(summary["sample_size"], 0)
+        self.assertEqual(summary["remaining_results"], 30)
 
 
 if __name__ == "__main__":

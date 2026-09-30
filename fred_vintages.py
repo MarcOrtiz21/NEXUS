@@ -133,15 +133,100 @@ def fetch_initial_releases(
 
 
 def known_rows(rows: Iterable[dict[str, Any]], as_of: str | date | datetime) -> list[dict[str, Any]]:
-    """Devuelve exclusivamente observaciones publicadas antes del corte."""
+    """Un valor por periodo: la última revisión conocida en el corte."""
     cutoff = _day(as_of)
-    return sorted(
-        (
-            row for row in rows
-            if _day(row["period"]) <= cutoff and _day(row["release_at"]) <= cutoff
-        ),
-        key=lambda item: (_day(item["period"]), _day(item["release_at"])),
-    )
+    visible: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if _day(row["period"]) > cutoff or _day(row["release_at"]) > cutoff:
+            continue
+        previous = visible.get(row["period"])
+        if previous is None or row["release_at"] > previous["release_at"]:
+            visible[row["period"]] = row
+    return [visible[key] for key in sorted(visible) if visible[key].get("value") is not None]
+
+
+def first_release_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Primera publicación válida de cada periodo, para diagnóstico paralelo."""
+    first: dict[str, dict[str, Any]] = {}
+    for row in sorted(rows, key=lambda item: (item["period"], item["release_at"])):
+        if row.get("value") is not None:
+            first.setdefault(row["period"], row)
+    return list(first.values())
+
+
+def parse_revision_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    result = []
+    for raw in payload.get("observations") or []:
+        try:
+            period, release = _day(raw["date"]), _day(raw["realtime_start"])
+            value = None if raw["value"] == "." else float(raw["value"])
+            if release < period or (value is not None and not math.isfinite(value)):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        result.append({"period": period.isoformat(), "release_at": release.isoformat(),
+                       "realtime_end": str(raw.get("realtime_end") or "")[:10] or None,
+                       "value": value})
+    return result
+
+
+def fetch_revision_history(
+    series_id: str, observation_start: str, observation_end: str, *,
+    api_key: str | None = FRED_API_KEY, cache_dir: Path = FRED_VINTAGE_CACHE_DIR,
+    refresh: bool = False, request_get: Callable[..., Any] = requests.get,
+) -> list[dict[str, Any]]:
+    """ALFRED output_type=1: conserva los intervalos de vigencia y revisiones.
+
+    Los tramos pueden repetir un valor vigente al inicio del tramo. Se unen
+    por periodo/fecha y se suprimen repeticiones consecutivas del mismo valor;
+    no se inventa una publicación por el límite artificial de una petición.
+    """
+    if not api_key:
+        raise RuntimeError("FRED_API_KEY no está configurada")
+    start, end = _day(observation_start), _day(observation_end)
+    if start > end:
+        raise ValueError("observation_start no puede ser posterior a observation_end")
+    path = _cache_path(f"revisions_v1_{series_id}", start.isoformat(), end.isoformat(), Path(cache_dir))
+    if not refresh and path.exists() and time.time() - path.stat().st_mtime <= VINTAGE_CACHE_TTL_SECONDS:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        return list(cached.get("observations") or [])
+    rows = []
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(end, chunk_start + timedelta(days=1_400))
+        offset = 0
+        while True:
+            response = request_get(FRED_OBSERVATIONS_URL, params={
+                "series_id": series_id, "api_key": api_key, "file_type": "json",
+                "observation_start": start.isoformat(), "observation_end": end.isoformat(),
+                "realtime_start": chunk_start.isoformat(), "realtime_end": chunk_end.isoformat(),
+                "output_type": 1, "sort_order": "asc", "limit": 100000, "offset": offset,
+            }, timeout=30)
+            if not getattr(response, "ok", True):
+                raise RuntimeError(f"FRED rechazó {series_id} ({response.status_code})")
+            response.raise_for_status()
+            payload = response.json()
+            raw_rows = payload.get("observations") or []
+            rows.extend(parse_revision_rows(payload))
+            offset += len(raw_rows)
+            if offset >= int(payload.get("count", offset)):
+                break
+            if not raw_rows:
+                raise RuntimeError(f"Respuesta ALFRED incompleta para {series_id}")
+        chunk_start = chunk_end + timedelta(days=1)
+    unique = {(row["period"], row["release_at"]): row for row in rows}
+    normalized = []
+    for row in sorted(unique.values(), key=lambda item: (item["period"], item["release_at"])):
+        if normalized and normalized[-1]["period"] == row["period"] and normalized[-1]["value"] == row["value"]:
+            normalized[-1]["realtime_end"] = row["realtime_end"]
+        else:
+            normalized.append(row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"series_id": series_id, "source": "FRED/ALFRED output_type=1",
+                                     "observations": normalized}, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+    return normalized
 
 
 def latest_value(rows: Iterable[dict[str, Any]], as_of: str | date | datetime) -> dict[str, Any] | None:

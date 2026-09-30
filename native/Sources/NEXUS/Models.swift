@@ -960,6 +960,50 @@ struct GoldBlock: Codable {
     let history: GoldHistorySummary?
     let change: GoldChangeSummary?
     let backtest: GoldBacktestReport?
+    let revisions: GoldRevisionReport?
+}
+
+struct GoldRevisionReport: Codable {
+    let status: String?
+    let asOf: String?
+    let methodology: String?
+    let series: [GoldRevisionSeries]?
+    enum CodingKeys: String, CodingKey {
+        case status, methodology, series
+        case asOf = "as_of"
+    }
+}
+
+struct GoldRevisionSeries: Codable, Identifiable {
+    var id: String { seriesID ?? label ?? "unknown" }
+    let seriesID: String?
+    let label: String?
+    let unit: String?
+    let status: String?
+    let observations: [GoldRevisionObservation]?
+    enum CodingKeys: String, CodingKey {
+        case label, unit, status, observations
+        case seriesID = "series_id"
+    }
+}
+
+struct GoldRevisionObservation: Codable, Identifiable {
+    var id: String { period ?? "unknown" }
+    let period: String?
+    let initialValue: Double?
+    let knownValue: Double?
+    let initialReleaseAt: String?
+    let knownReleaseAt: String?
+    let delta: Double?
+    let revisionCount: Int?
+    enum CodingKeys: String, CodingKey {
+        case period, delta
+        case initialValue = "initial_value"
+        case knownValue = "known_value"
+        case initialReleaseAt = "initial_release_at"
+        case knownReleaseAt = "known_release_at"
+        case revisionCount = "revision_count"
+    }
 }
 
 struct GoldDemand: Codable {
@@ -995,6 +1039,10 @@ struct GoldOfficialDemand: Codable {
 
 struct GoldDemandCoverage: Codable {
     let available: Int?
+    let fresh: Int?
+    let stale: Int?
+    let archived: Int?
+    let missing: Int?
     let tracked: Int?
     let scope: String?
 }
@@ -1006,7 +1054,10 @@ struct GoldReserveRecord: Codable, Identifiable {
     let asOf: String?
     let tonnes: Double?
     let changeTonnes: Double?
+    let change12MTonnes: Double?
+    let yearAgoAsOf: String?
     let previousAsOf: String?
+    let releaseDate: String?
     let source: String?
     let sourceURL: String?
     let note: String?
@@ -1015,7 +1066,10 @@ struct GoldReserveRecord: Codable, Identifiable {
         case id, label, status, tonnes, source, note
         case asOf = "as_of"
         case changeTonnes = "change_tonnes"
+        case change12MTonnes = "change_12m_tonnes"
+        case yearAgoAsOf = "year_ago_as_of"
         case previousAsOf = "previous_as_of"
+        case releaseDate = "release_date"
         case sourceURL = "source_url"
     }
 }
@@ -1098,6 +1152,8 @@ struct GoldBacktestReport: Codable {
     let featureGates: [String: String]?
     let horizons: [String: GoldBacktestHorizon]?
     let limitations: [String]?
+    let reportSchemaVersion: Int?
+    let vintagePolicy: String?
 
     enum CodingKeys: String, CodingKey {
         case status, period, horizons, limitations
@@ -1106,6 +1162,8 @@ struct GoldBacktestReport: Codable {
         case promotionStatus = "promotion_status"
         case passesBaselines = "passes_baselines"
         case featureGates = "feature_gates"
+        case reportSchemaVersion = "report_schema_version"
+        case vintagePolicy = "vintage_policy"
     }
 }
 
@@ -1118,15 +1176,66 @@ struct GoldBacktestHorizon: Codable {
     let model: GoldBacktestMetrics?
     let baselineMomentum: GoldBacktestMetrics?
     let baselineDollarRealYield: GoldBacktestMetrics?
+    let baselineConstant: GoldBacktestMetrics?
+    let baselineHistoricalFrequency: GoldBacktestMetrics?
+    let overlap: GoldBacktestOverlap?
+    let comparisons: [String: GoldBrierComparison]?
+    let stability: GoldBacktestStability?
+    let revisionDiagnostics: GoldBacktestRevisions?
     let passesBaselines: Bool?
     let ablation: [String: GoldAblationMetrics]?
 
     enum CodingKeys: String, CodingKey {
-        case model
+        case model, overlap, comparisons, stability
         case baselineMomentum = "baseline_momentum"
         case baselineDollarRealYield = "baseline_dollar_real_yield"
         case passesBaselines = "passes_baselines"
         case ablation
+        case baselineConstant = "baseline_constant"
+        case baselineHistoricalFrequency = "baseline_historical_frequency"
+        case revisionDiagnostics = "revision_diagnostics"
+    }
+}
+
+struct GoldBacktestOverlap: Codable {
+    let nonOverlappingCount: Int?
+    let maxConcurrentWindows: Int?
+    enum CodingKeys: String, CodingKey {
+        case nonOverlappingCount = "non_overlapping_count"
+        case maxConcurrentWindows = "max_concurrent_windows"
+    }
+}
+
+struct GoldBacktestStability: Codable {
+    let folds: Int?
+    let winningFolds: Int?
+    enum CodingKeys: String, CodingKey {
+        case folds
+        case winningFolds = "winning_folds"
+    }
+}
+
+struct GoldBrierComparison: Codable {
+    let status: String?
+    let lower: Double?
+    let upper: Double?
+    let deltaBrier: Double?
+    enum CodingKeys: String, CodingKey {
+        case status, lower, upper
+        case deltaBrier = "delta_brier"
+    }
+}
+
+struct GoldBacktestRevisions: Codable {
+    let initialRelease: GoldBacktestMetrics?
+    let knownRevision: GoldBacktestMetrics?
+    let meanProbabilityChangePp: Double?
+    let directionChanges: Int?
+    enum CodingKeys: String, CodingKey {
+        case initialRelease = "initial_release"
+        case knownRevision = "known_revision"
+        case meanProbabilityChangePp = "mean_probability_change_pp"
+        case directionChanges = "direction_changes"
     }
 }
 
@@ -1170,6 +1279,8 @@ struct GoldHistorySummary: Codable {
     let latestPredictionAt: String?
     let validation: [String: GoldValidationSummary]?
     let recentPredictions: [GoldPredictionPoint]?
+    let capturePolicy: GoldCapturePolicy?
+    let temporalAudit: GoldTemporalAudit?
 
     enum CodingKeys: String, CodingKey {
         case observations, predictions, validation
@@ -1177,6 +1288,40 @@ struct GoldHistorySummary: Codable {
         case settledOutcomes = "settled_outcomes"
         case latestPredictionAt = "latest_prediction_at"
         case recentPredictions = "recent_predictions"
+        case capturePolicy = "capture_policy"
+        case temporalAudit = "temporal_audit"
+    }
+}
+
+struct GoldCapturePolicy: Codable {
+    let monthlyCutDay: Int?
+    let eventRecaptureHours: Int?
+    let policy: String?
+
+    enum CodingKeys: String, CodingKey {
+        case policy
+        case monthlyCutDay = "monthly_cut_day"
+        case eventRecaptureHours = "event_recapture_hours"
+    }
+}
+
+struct GoldTemporalAudit: Codable {
+    let cutoffAt: String?
+    let captureKind: String?
+    let triggerEvent: String?
+    let latestFutureObservationsRejected: Int?
+    let futureObservationsRejectedTotal: Int?
+    let storedCutoffViolations: Int?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case cutoffAt = "cutoff_at"
+        case captureKind = "capture_kind"
+        case triggerEvent = "trigger_event"
+        case latestFutureObservationsRejected = "latest_future_observations_rejected"
+        case futureObservationsRejectedTotal = "future_observations_rejected_total"
+        case storedCutoffViolations = "stored_cutoff_violations"
     }
 }
 
@@ -1204,22 +1349,74 @@ struct GoldPredictionPoint: Codable, Identifiable {
 struct GoldValidationSummary: Codable {
     let horizonDays: Int?
     let sampleSize: Int?
+    let minimumSampleSize: Int?
+    let remainingResults: Int?
+    let progressPct: Double?
     let status: String?
     let brierScore: Double?
     let balancedAccuracy: Double?
     let meanReturnPct: Double?
     let walkForwardFolds: Int?
     let pointInTimeWarning: String?
+    let calibration: [GoldCalibrationBin]?
+    let calibrationError: Double?
+    let directionalAccuracy: Double?
+    let directionalMisses: Int?
+    let highConfidenceMisses: Int?
+    let failures: [GoldValidationFailure]?
 
     enum CodingKeys: String, CodingKey {
         case status
         case horizonDays = "horizon_days"
         case sampleSize = "sample_size"
+        case minimumSampleSize = "minimum_sample_size"
+        case remainingResults = "remaining_results"
+        case progressPct = "progress_pct"
         case brierScore = "brier_score"
         case balancedAccuracy = "balanced_accuracy"
         case meanReturnPct = "mean_return_pct"
         case walkForwardFolds = "walk_forward_folds"
         case pointInTimeWarning = "point_in_time_warning"
+        case calibration
+        case calibrationError = "calibration_error"
+        case directionalAccuracy = "directional_accuracy"
+        case directionalMisses = "directional_misses"
+        case highConfidenceMisses = "high_confidence_misses"
+        case failures
+    }
+}
+
+struct GoldCalibrationBin: Codable, Identifiable {
+    var id: String { "\(from ?? 0)-\(to ?? 0)" }
+    let from: Double?
+    let to: Double?
+    let count: Int?
+    let meanProbability: Double?
+    let observedFrequency: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case from, to, count
+        case meanProbability = "mean_probability"
+        case observedFrequency = "observed_frequency"
+    }
+}
+
+struct GoldValidationFailure: Codable, Identifiable {
+    var id: String { "\(capturedAt ?? "")-\(evaluatedAt ?? "")" }
+    let capturedAt: String?
+    let evaluatedAt: String?
+    let probabilityUp: Double?
+    let returnPct: Double?
+    let error: Double?
+    let dominantDriver: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case capturedAt = "captured_at"
+        case evaluatedAt = "evaluated_at"
+        case probabilityUp = "probability_up"
+        case returnPct = "return_pct"
+        case dominantDriver = "dominant_driver"
     }
 }
 
@@ -1229,6 +1426,7 @@ struct GoldOutlook: Codable {
     let asOf: String?
     let privateSourcesStatus: String?
     let methodology: String?
+    let macroRegime: GoldMacroRegime?
     let shortTerm: GoldHorizon?
     let mediumTerm: GoldHorizon?
     let groups: [GoldFactorGroup]?
@@ -1237,12 +1435,32 @@ struct GoldOutlook: Codable {
 
     enum CodingKeys: String, CodingKey {
         case version, status, methodology, groups
+        case macroRegime = "macro_regime"
         case asOf = "as_of"
         case privateSourcesStatus = "private_sources_status"
         case shortTerm = "short_term"
         case mediumTerm = "medium_term"
         case dataNotes = "data_notes"
         case whatChangesSignal = "what_changes_signal"
+    }
+}
+
+struct GoldMacroRegime: Codable {
+    let id: String?
+    let label: String?
+    let status: String?
+    let scoreEnabled: Bool?
+    let realYieldChangePp: Double?
+    let dollarMomentum1MPct: Double?
+    let inflation3MAnnualizedPct: Double?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, status, note
+        case scoreEnabled = "score_enabled"
+        case realYieldChangePp = "real_yield_change_pp"
+        case dollarMomentum1MPct = "dollar_momentum_1m_pct"
+        case inflation3MAnnualizedPct = "inflation_3m_annualized_pct"
     }
 }
 
@@ -1392,10 +1610,14 @@ struct GoldFactorDetail: Codable, Identifiable {
     let source: String?
     let asOf: String?
     let quality: String?
+    let metricKey: String?
+    let releaseAt: String?
 
     enum CodingKeys: String, CodingKey {
         case label, value, unit, display, available, source, quality
         case asOf = "as_of"
+        case metricKey = "metric_key"
+        case releaseAt = "release_at"
     }
 }
 

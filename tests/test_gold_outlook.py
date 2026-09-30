@@ -1,9 +1,17 @@
 import unittest
 
-from gold_outlook import build_gold_outlook
+from gold_outlook import build_gold_outlook, classify_macro_regime
 
 
 class GoldOutlookTests(unittest.TestCase):
+    def test_macro_regime_is_descriptive_and_does_not_change_score(self):
+        data = {"Real_Yield_10Y_1M_Change_Pp": 0.2, "VIX": 20}
+        regime = classify_macro_regime(data, {"momentum_1m": 1.5})
+        self.assertEqual(regime["id"], "TIGHTENING")
+        self.assertFalse(regime["score_enabled"])
+        self.assertEqual(classify_macro_regime({}, {})["id"], "UNDETERMINED")
+        outlook = build_gold_outlook(data, uup_metrics={"momentum_1m": 1.5})
+        self.assertEqual(outlook["macro_regime"]["id"], "TIGHTENING")
     def test_correlated_inflation_series_stay_in_one_group(self):
         outlook = build_gold_outlook({
             "CPI_MoM_Pct": 0.5,
@@ -31,6 +39,16 @@ class GoldOutlookTests(unittest.TestCase):
         self.assertFalse(official["available"])
         self.assertIsNone(official["medium_contribution"])
         self.assertLess(outlook["medium_term"]["coverage_pct"], 100)
+
+    def test_unvalidated_global_purchase_number_cannot_score(self):
+        baseline = build_gold_outlook({"VIX": 22.0})
+        claimed = build_gold_outlook({"VIX": 22.0, "Central_Bank_Net_Purchases_Tonnes": 500.0})
+        official = next(group for group in claimed["groups"] if group["id"] == "official_demand")
+        self.assertTrue(official["available"])
+        self.assertFalse(official["score_enabled"])
+        self.assertEqual(official["medium_weight"], 0.0)
+        self.assertIsNone(official["medium_contribution"])
+        self.assertEqual(baseline["medium_term"]["probability_up"], claimed["medium_term"]["probability_up"])
 
     def test_energy_exposes_monthly_and_yearly_in_one_capped_group(self):
         outlook = build_gold_outlook({

@@ -9,12 +9,14 @@ se presenta como tal.
 from __future__ import annotations
 
 import csv
+import calendar
 import html
 import io
 import json
 import math
 import re
 from datetime import date, datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,206 @@ ECB_PAGE = (
 )
 US_TREASURY_SOURCE = "U.S. Treasury: U.S. International Reserve Position"
 US_TREASURY_INDEX = "https://home.treasury.gov/data/us-international-reserve-position"
+SAFE_SOURCE = "SAFE: Official Reserve Assets, volumen de oro monetario"
+SAFE_INDEX_CURRENT = "https://www.safe.gov.cn/en/2021/0203/2045.html"
+SAFE_INDEX_PREVIOUS = "https://www.safe.gov.cn/en/2021/0203/2385.html"
+RBI_BULLETIN_INDEX = "https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx"
+RBI_SOURCE = "RBI Bulletin: Foreign Exchange Reserves, volumen físico"
+RESERVE_SCHEMA_VERSION = 4
+RESERVE_SCOPES = {
+    "ecb": ("economic_area", "euro_area"),
+    "us_treasury": ("country", "US"),
+    "safe": ("country", "CN"),
+    "rbi": ("country", "IN"),
+    "nbp": ("country", "PL"),
+}
+
+
+class _SafeTable(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self.row: list[str] | None = None
+        self.cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "tr":
+            self.row = []
+        elif tag in {"td", "th"} and self.row is not None:
+            self.cell = []
+
+    def handle_data(self, data: str) -> None:
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"td", "th"} and self.cell is not None and self.row is not None:
+            self.row.append(re.sub(r"\s+", "", "".join(self.cell)))
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+
+
+class _RbiRows(HTMLParser):
+    """Filas de la tabla RBI, conservando colspan de las cabeceras anuales."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[tuple[str, int]]] = []
+        self.row: list[tuple[str, int]] | None = None
+        self.cell: list[str] | None = None
+        self.span = 1
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "tr":
+            self.row = []
+        elif tag in {"td", "th"} and self.row is not None:
+            self.cell = []
+            self.span = int(dict(attrs).get("colspan") or 1)
+
+    def handle_data(self, data: str) -> None:
+        if self.cell is not None:
+            self.cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"td", "th"} and self.cell is not None and self.row is not None:
+            self.row.append((re.sub(r"\s+", " ", "".join(self.cell)).strip(), self.span))
+            self.cell = None
+        elif tag == "tr" and self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+
+
+def parse_rbi_bulletin_html_links(index_html: str) -> list[str]:
+    """Descubre solo páginas HTML oficiales de la tabla 33, nunca PDF o XLS."""
+    links: list[str] = []
+    for row in re.findall(r"<tr\b[^>]*>.*?</tr>", index_html, flags=re.I | re.S):
+        if not re.search(r"33\.\s*Foreign Exchange Reserves", row, re.I):
+            continue
+        for identifier in re.findall(r"BS_ViewBulletin\.aspx\?Id=(\d+)", row, flags=re.I):
+            url = f"{RBI_BULLETIN_INDEX}?Id={identifier}"
+            if url not in links:
+                links.append(url)
+    return links
+
+
+def rbi_previous_bulletin_url(index_html: str) -> str | None:
+    """Deriva el archivo anterior solo de la edición identificada por RBI."""
+    match = re.search(r"Reserve Bank of India Bulletin\s*-\s*([A-Za-z]+)\s+(20\d{2})", index_html)
+    if not match:
+        return None
+    try:
+        month = list(calendar.month_name).index(match.group(1))
+    except ValueError:
+        return None
+    year = int(match.group(2))
+    if month == 1:
+        month, year = 12, year - 1
+    else:
+        month -= 1
+    return f"{RBI_BULLETIN_INDEX}?mon={month}&yr={year}"
+
+
+def parse_rbi_gold_html(text: str, source_url: str) -> list[dict[str, Any]]:
+    """Extrae la fila de toneladas de oro de una edición HTML identificable.
+
+    La cabecera de año y la fecha semanal deben casar con cada cantidad. La
+    fecha del boletín se guarda como fecha, nunca como hora de publicación.
+    """
+    if not re.fullmatch(re.escape(RBI_BULLETIN_INDEX) + r"\?Id=\d+", source_url):
+        return []
+    marker = re.search(r"Volume\s*\(Metric Tonnes\)", text, flags=re.I)
+    if not marker:
+        return []
+    start = text.rfind("<table", 0, marker.start())
+    end = text.find("</table>", marker.end())
+    if start < 0 or end < 0:
+        return []
+    heading = text.rfind("33. Foreign Exchange Reserves", 0, start)
+    if heading < 0 or start - heading > 10_000:
+        return []
+    preamble = html.unescape(re.sub(r"<[^>]+>", " ", text[heading:start]))
+    stamp = re.search(r"Date\s*:\s*([A-Za-z]+\s+\d{1,2},\s*\d{4})", preamble, flags=re.I)
+    if not stamp:
+        return []
+    try:
+        parts = re.fullmatch(r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})", stamp.group(1))
+        if parts is None:
+            return []
+        release_date = datetime.strptime(
+            f"{parts.group(1)[:3]} {parts.group(2)}, {parts.group(3)}", "%b %d, %Y"
+        ).date()
+    except ValueError:
+        return []
+    parser = _RbiRows()
+    parser.feed(text[start:end + len("</table>")])
+    rows = parser.rows
+    year_row = next((row for row in rows if len(row) >= 3 and row[0][0] == "Item"
+                     and row[1][0] == "Unit"), None)
+    if year_row is None:
+        return []
+    years = [value for label, count in year_row[2:] for value in [label] * count]
+    if not years or any(not re.fullmatch(r"20\d{2}", year) for year in years):
+        return []
+    date_row = next((row for row in rows if len(row) == len(years)
+                     and all(re.fullmatch(r"[A-Za-z]{3,9}\.?\s*\d{1,2}", cell[0]) for cell in row)), None)
+    volume_index = next((index for index, row in enumerate(rows)
+                         if len(row) == len(years) + 2 and row[1][0] == "Volume (Metric Tonnes)"), None)
+    if date_row is None or volume_index is None or not any(
+        row and row[0][0] == "1.2 Gold" for row in rows[max(0, volume_index - 3):volume_index]
+    ):
+        return []
+    values = rows[volume_index][2:]
+    result = []
+    for (date_cell, _), year, (value_cell, _) in zip(date_row, years, values):
+        match = re.fullmatch(r"([A-Za-z]{3,9})\.?\s*(\d{1,2})", date_cell)
+        tonnes = _number(value_cell)
+        if not match or tonnes is None or not 0 < tonnes < 10_000:
+            return []
+        try:
+            period = datetime.strptime(f"{match.group(1)[:3]} {match.group(2)} {year}", "%b %d %Y").date()
+        except ValueError:
+            return []
+        if period > release_date:
+            return []
+        result.append({"period": period.isoformat(), "tonnes": round(tonnes, 3),
+                       "release_date": release_date.isoformat(), "url": source_url})
+    return sorted(result, key=lambda row: row["period"])
+
+
+def parse_safe_gold_html(text: str) -> list[dict[str, Any]]:
+    """Lee exclusivamente la fila física 万盎司; nunca el valor en USD/SDR."""
+    parser = _SafeTable()
+    parser.feed(text)
+    periods = next((re.findall(r"20\d{2}\.\d{2}", " ".join(row))
+                    for row in parser.rows if len(re.findall(r"20\d{2}\.\d{2}", " ".join(row))) >= 2), [])
+    quantity = next((row for row in parser.rows if sum("万盎司" in cell for cell in row) >= 2), [])
+    rows = []
+    if not periods or not quantity:
+        return rows
+    # Dos celdas idénticas por mes (USD y SDR); ambas expresan el mismo volumen.
+    for index, period in enumerate(periods):
+        first = 1 + 2 * index
+        if first + 1 >= len(quantity):
+            break
+        left, right = quantity[first:first + 2]
+        match = re.fullmatch(r"([\d,.]+)万盎司", left)
+        if not match or left != right:
+            continue
+        ten_thousand_ounces = _number(match.group(1))
+        if ten_thousand_ounces is None or ten_thousand_ounces <= 0:
+            continue
+        # 10 000 oz = 0.01 millones de onzas troy finas.
+        rows.append({"period": period.replace(".", "-"),
+                     "tonnes": _tonnes(ten_thousand_ounces / 100),
+                     "release_policy": "publicación SAFE de la tabla anual"})
+    return sorted(rows, key=lambda row: row["period"])
+
+
+def _safe_html_url(index_html: str) -> str | None:
+    match = re.search(r'href=["\'](/safe/\d{4}/[^"\']+\.html)["\'][^>]*>\s*html\s*<', index_html, re.I)
+    return f"https://www.safe.gov.cn{match.group(1)}" if match else None
 
 
 def _number(value: Any) -> float | None:
@@ -128,6 +330,20 @@ def _read_cache(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _rbi_cache_within_limit(payload: dict[str, Any]) -> bool:
+    for item in payload.get("reserves") or []:
+        if not isinstance(item, dict) or item.get("id") != "rbi":
+            continue
+        if item.get("status") not in {"OK", "ARCHIVED", "STALE"}:
+            return True
+        try:
+            age = (date.today() - date.fromisoformat(str(item["as_of"]))).days
+            return 0 <= age <= 75
+        except (KeyError, TypeError, ValueError):
+            return False
+    return True
+
+
 def _write_cache(payload: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -142,21 +358,42 @@ def _reserve_record(
     source_url: str,
     rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    if identifier not in RESERVE_SCOPES:
+        raise ValueError(f"Ámbito de reservas no reconocido: {identifier}")
     latest = rows[-1] if rows else None
     previous = rows[-2] if len(rows) >= 2 else None
     change = None
     if latest and previous:
         change = round(float(latest["tonnes"]) - float(previous["tonnes"]), 3)
+    year_ago = None
+    if latest and re.fullmatch(r"\d{4}-\d{2}", str(latest.get("period"))):
+        target = f"{int(latest['period'][:4]) - 1}{latest['period'][4:]}"
+        year_ago = next((row for row in rows if row.get("period") == target), None)
     return {
         "id": identifier,
         "label": label,
+        "scope_kind": RESERVE_SCOPES[identifier][0],
+        "scope_id": RESERVE_SCOPES[identifier][1],
+        "measure_kind": "monetary_gold_stock",
+        "unit": "metric_tonnes",
+        "aggregation_allowed": False,
+        "score_enabled": False,
         "status": "OK" if latest else "MISSING",
         "as_of": latest.get("period") if latest else None,
         "tonnes": latest.get("tonnes") if latest else None,
         "change_tonnes": change,
         "previous_as_of": previous.get("period") if previous else None,
+        "change_kind": "difference_in_stocks" if change is not None else None,
+        "change_interval": f"{previous['period']} → {latest['period']}" if change is not None else None,
+        "change_12m_tonnes": round(float(latest["tonnes"]) - float(year_ago["tonnes"]), 3)
+        if latest and year_ago else None,
+        "year_ago_as_of": year_ago.get("period") if year_ago else None,
         "source": source,
         "source_url": source_url,
+        "release_date": latest.get("release_date") if latest else None,
+        # Las páginas utilizadas no proporcionan una hora de publicación
+        # verificable por observación. Nunca inferirla del periodo/captura.
+        "release_at": None,
         "note": (
             "Saldo oficial publicado; una variación mide cambio de existencias, no compras intrames."
             if latest else "Fuente no disponible en esta actualización."
@@ -170,9 +407,10 @@ def fetch_official_gold_demand(
     cache_path: Path = GOLD_DEMAND_CACHE_FILE,
     session: Any = requests,
 ) -> dict[str, Any]:
-    """Recupera BCE y Tesoro de EE. UU.; ante fallo conserva la última caché."""
+    """Recupera saldos físicos oficiales; ante fallo conserva la última caché."""
     cached = _read_cache(cache_path)
-    if cached and not refresh and _cache_fresh(cache_path):
+    if (cached and cached.get("schema_version") == RESERVE_SCHEMA_VERSION
+            and not refresh and _cache_fresh(cache_path) and _rbi_cache_within_limit(cached)):
         return cached
 
     records: list[dict[str, Any]] = []
@@ -185,10 +423,25 @@ def fetch_official_gold_demand(
 
     def degraded_record(identifier: str, label: str, source: str, source_url: str) -> dict[str, Any]:
         previous = cached_records.get(identifier)
-        if previous:
+        if previous and previous.get("status") in {"OK", "STALE"} and previous.get("tonnes") is not None:
+            if identifier == "rbi":
+                try:
+                    if (date.today() - date.fromisoformat(str(previous["as_of"]))).days > 75:
+                        return _reserve_record(identifier, label, source, source_url, [])
+                except (KeyError, TypeError, ValueError):
+                    return _reserve_record(identifier, label, source, source_url, [])
             record = dict(previous)
             record["status"] = "STALE"
             record["note"] = "Se muestra la última observación cacheada; la fuente no respondió."
+            record.update({
+                "scope_kind": RESERVE_SCOPES[identifier][0],
+                "scope_id": RESERVE_SCOPES[identifier][1],
+                "measure_kind": "monetary_gold_stock",
+                "unit": "metric_tonnes",
+                "aggregation_allowed": False,
+                "score_enabled": False,
+                "release_at": None,
+            })
             return record
         return _reserve_record(identifier, label, source, source_url, [])
     try:
@@ -228,19 +481,96 @@ def fetch_official_gold_demand(
             "us_treasury", "Tesoro de EE. UU.", US_TREASURY_SOURCE, US_TREASURY_INDEX,
         ))
 
+    try:
+        safe_rows: list[dict[str, Any]] = []
+        for index_url in (SAFE_INDEX_PREVIOUS, SAFE_INDEX_CURRENT):
+            index = session.get(index_url, timeout=20)
+            index.raise_for_status()
+            table_url = _safe_html_url(index.text)
+            if not table_url:
+                raise ValueError("SAFE: sin enlace HTML de tabla")
+            page = session.get(table_url, timeout=20)
+            page.raise_for_status()
+            # SAFE no siempre anuncia correctamente UTF-8; requests puede
+            # interpretar el texto chino como Latin-1 y perder «万盎司».
+            page.encoding = "utf-8"
+            parsed = parse_safe_gold_html(page.text)
+            if not parsed:
+                raise ValueError("SAFE: sin cantidades físicas verificables")
+            safe_rows.extend(parsed)
+        safe_rows = list({row["period"]: row for row in safe_rows}.values())
+        records.append(_reserve_record("safe", "China · SAFE", SAFE_SOURCE, SAFE_INDEX_CURRENT, sorted(safe_rows, key=lambda row: row["period"])))
+    except Exception as exc:
+        errors.append(f"China SAFE: {type(exc).__name__}")
+        records.append(degraded_record("safe", "China · SAFE", SAFE_SOURCE, SAFE_INDEX_CURRENT))
+
+    # La edición HTML de RBI aporta volumen físico y fecha del boletín. Si la
+    # vigente solo enlaza PDF, un archivo anterior puede mostrarse como ARCHIVED
+    # durante 75 días; nunca se presenta como dato vigente ni se puntúa.
+    try:
+        index = session.get(RBI_BULLETIN_INDEX, timeout=20)
+        index.raise_for_status()
+        html_links = parse_rbi_bulletin_html_links(index.text)
+        archived = False
+        if not html_links:
+            archive_url = rbi_previous_bulletin_url(index.text)
+            if archive_url:
+                archive = session.get(archive_url, timeout=20)
+                archive.raise_for_status()
+                html_links = parse_rbi_bulletin_html_links(archive.text)
+                archived = bool(html_links)
+        if html_links:
+            page = session.get(html_links[0], timeout=20)
+            page.raise_for_status()
+            rbi_rows = parse_rbi_gold_html(page.text, html_links[0])
+            if not rbi_rows:
+                raise ValueError("RBI: sin toneladas físicas y fechas verificables")
+            latest = rbi_rows[-1]
+            age = (date.today() - date.fromisoformat(latest["period"])).days
+            if not 0 <= age <= 75:
+                raise ValueError("RBI: observación demasiado antigua")
+            if (date.today() - date.fromisoformat(latest["release_date"])).days < 0:
+                raise ValueError("RBI: fecha de publicación futura")
+            record = _reserve_record("rbi", "India · RBI", RBI_SOURCE, html_links[0], rbi_rows)
+            if archived:
+                record["status"] = "ARCHIVED"
+                record["note"] += " Edición anterior verificada; la vigente solo enlaza PDF no validado."
+            records.append(record)
+        else:
+            missing = _reserve_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX, [])
+            missing["note"] = "La edición vigente no ofrece HTML verificable; PDF pendiente de extractor validado."
+            records.append(missing)
+    except Exception as exc:
+        errors.append(f"India RBI: {type(exc).__name__}")
+        records.append(degraded_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX))
+
+    # NBP está rastreado, pero no se convierte valor monetario a toneladas.
+    records.append(degraded_record("nbp", "Polonia · NBP", "NBP: balance de pagos, reservas físicas de oro",
+                                   "https://static.nbp.pl/dane/bilans-platniczy/bopa_en.pdf"))
+
     if not records and cached:
         fallback = dict(cached)
         fallback["status"] = "STALE"
         fallback["errors"] = errors
         return fallback
 
-    available = sum(item.get("status") in {"OK", "STALE"} for item in records)
+    fresh = sum(item.get("status") == "OK" for item in records)
+    stale = sum(item.get("status") == "STALE" for item in records)
+    archived = sum(item.get("status") == "ARCHIVED" for item in records)
+    available = fresh + stale + archived
     payload = {
+        "schema_version": RESERVE_SCHEMA_VERSION,
         "status": "PARTIAL" if available else "MISSING",
         "coverage": {
             "available": available,
+            "fresh": fresh,
+            "stale": stale,
+            "archived": archived,
+            "missing": len(records) - available,
             "tracked": len(records),
-            "scope": "BCE y Tesoro de EE. UU.; no representa la demanda oficial mundial",
+            "basis": "tracked_sources_not_world",
+            "world_total_available": False,
+            "scope": "Fuentes rastreadas: BCE, EE. UU., China, India y Polonia. Saldo por entidad; no sumar como reservas o compras mundiales.",
         },
         "reserves": records,
         "score_enabled": False,

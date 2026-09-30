@@ -49,6 +49,7 @@ from cftc_positioning import (
     summarize_gold_positioning,
 )
 from gold_demand import fetch_official_gold_demand
+from gold_revisions import fetch_gold_revision_diagnostics
 from rotation_catalog import ROTATION_COMPANY_TICKERS
 
 logging.basicConfig(
@@ -86,7 +87,7 @@ ROTATION_CACHE_KEYS = ("RotationCompanies",)
 
 # Cambia cuando se modifica el contrato de los bloques cacheados. Así no se
 # reutiliza un cache antiguo que, por ejemplo, no contiene nuevos proxies.
-CACHE_SCHEMA_VERSION = 13
+CACHE_SCHEMA_VERSION = 14
 MIN_USABLE_CACHE_SCHEMA = 6
 CACHE_METRIC_GROUPS = {"Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets"}
 
@@ -103,7 +104,7 @@ SLOW_VALUE_KEYS = (
     "Unemployment_Rate_Pct", "Unemployment_1M_Change_Pp",
     "Payrolls_Level_Thousands", "Payrolls_1M_Change_Thousands",
     "Industrial_Production_MoM_Pct",
-    "GoldCFTC", "GoldOfficialDemand",
+    "GoldCFTC", "GoldOfficialDemand", "GoldRevisions",
     "CFTC_MM_Net_Contracts", "CFTC_MM_Net_Pct_OI",
     "CFTC_MM_Weekly_Change_Contracts", "CFTC_MM_4W_Change_Contracts",
     "CFTC_MM_4W_Change_Pct_OI", "CFTC_MM_Percentile_3Y", "CFTC_MM_ZScore_3Y",
@@ -1724,10 +1725,13 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
             )
 
         # ─── 4d. Reservas oficiales de oro ───
-        # Solo se muestran como contexto: la cobertura BCE + Tesoro de EE. UU.
+        # Solo se muestran como contexto: la cobertura BCE + Tesoro de EE. UU. + SAFE
         # no representa el flujo mundial y por ello no altera el score.
-        logging.info("Descargando reservas oficiales de oro (BCE/Tesoro EE. UU.)...")
+        logging.info("Descargando reservas oficiales de oro (BCE/Tesoro EE. UU./SAFE)...")
         data["GoldOfficialDemand"] = fetch_official_gold_demand(refresh=refresh)
+
+        logging.info("Contrastando primeras publicaciones y revisiones ALFRED...")
+        data["GoldRevisions"] = fetch_gold_revision_diagnostics(as_of=datetime.fromisoformat(captured_at).date(), refresh=refresh)
 
         # ─── 5. FRED: Liquidez China (M2 YoY) ───
         if FRED_API_KEY:
