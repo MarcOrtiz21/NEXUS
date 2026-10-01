@@ -1230,9 +1230,10 @@ struct GoldBacktestHorizon: Codable {
     let revisionDiagnostics: GoldBacktestRevisions?
     let passesBaselines: Bool?
     let ablation: [String: GoldAblationMetrics]?
+    let candidates: [String: GoldBacktestCandidate]?
 
     enum CodingKeys: String, CodingKey {
-        case model, overlap, comparisons, stability
+        case model, overlap, comparisons, stability, candidates
         case baselineMomentum = "baseline_momentum"
         case baselineDollarRealYield = "baseline_dollar_real_yield"
         case passesBaselines = "passes_baselines"
@@ -1240,6 +1241,25 @@ struct GoldBacktestHorizon: Codable {
         case baselineConstant = "baseline_constant"
         case baselineHistoricalFrequency = "baseline_historical_frequency"
         case revisionDiagnostics = "revision_diagnostics"
+    }
+}
+
+struct GoldBacktestCandidate: Codable {
+    let status: String?
+    let sampleSize: Int?
+    let brierScore: Double?
+    let balancedAccuracy: Double?
+    let deltaBrierVsModel: Double?
+    let passesBaselines: Bool?
+    let comparisons: [String: GoldBrierComparison]?
+
+    enum CodingKeys: String, CodingKey {
+        case status, comparisons
+        case sampleSize = "sample_size"
+        case brierScore = "brier_score"
+        case balancedAccuracy = "balanced_accuracy"
+        case deltaBrierVsModel = "delta_brier_vs_model"
+        case passesBaselines = "passes_baselines"
     }
 }
 
@@ -1519,12 +1539,30 @@ struct GoldHorizon: Codable {
     let confidence: String?
     let coveragePct: Double?
     let drivers: [GoldFactorDriver]?
+    let probabilityCalibrated: Double?
+    let calibration: GoldHorizonCalibration?
 
     enum CodingKeys: String, CodingKey {
-        case label, tone, score, confidence, drivers
+        case label, tone, score, confidence, drivers, calibration
         case horizonDays = "horizon_days"
         case probabilityUp = "probability_up"
         case coveragePct = "coverage_pct"
+        case probabilityCalibrated = "probability_calibrated"
+    }
+}
+
+struct GoldHorizonCalibration: Codable {
+    let status: String?
+    let eligible: Bool?
+    let k: Double?
+    let basePct: Double?
+    let sampleSize: Int?
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, eligible, k, note
+        case basePct = "base_pct"
+        case sampleSize = "sample_size"
     }
 }
 

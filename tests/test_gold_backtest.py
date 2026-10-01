@@ -66,7 +66,7 @@ class GoldBacktestTests(unittest.TestCase):
         self.assertTrue(report["point_in_time"])
         self.assertGreaterEqual(report["horizons"]["63"]["model"]["sample_size"], 30)
         self.assertIn("inflation", report["horizons"]["21"]["ablation"])
-        self.assertEqual(report["report_schema_version"], 2)
+        self.assertEqual(report["report_schema_version"], 3)
         self.assertEqual(report["horizons"]["21"]["baseline_constant"]["brier_score"], 0.25)
         self.assertLess(report["horizons"]["63"]["overlap"]["non_overlapping_count"], report["horizons"]["63"]["model"]["sample_size"])
         for horizon in report["horizons"].values():

@@ -309,6 +309,16 @@ struct GoldBacktestComparisonDetails: View {
                         Text("Δ Brier = NEXUS − referencia. Un intervalo que cruza cero no establece una mejora. IC 95% aproximado por bloques de cortes consecutivos.")
                             .foregroundStyle(NexusTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let candidates = result?.candidates, !candidates.isEmpty {
+                            Divider()
+                            Text("CANDIDATOS WALK-FORWARD · FUERA DEL SCORE").fontWeight(.semibold)
+                            candidate("Calibración hacia la base", candidates["calibrated"])
+                            candidate("Pesos aprendidos", candidates["learned"])
+                            candidate("Pesos aprendidos + régimen 2022", candidates["learned_regime"])
+                            Text("Ajustados en cada ventana solo con resultados vencidos. El régimen 2022 es una hipótesis elegida a posteriori. Ninguno puntúa sin superar las cuatro referencias con intervalo por debajo de cero.")
+                                .foregroundStyle(NexusTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if let revision = result?.revisionDiagnostics {
                             Divider()
                             Text("PRIMERA PUBLICACIÓN / REVISIÓN CONOCIDA").fontWeight(.semibold)
@@ -338,5 +348,24 @@ struct GoldBacktestComparisonDetails: View {
         }
         .accessibilityElement(children: .combine)
     }
+
+    private func candidate(_ title: String, _ item: GoldBacktestCandidate?) -> some View {
+        let interval = item?.comparisons?["historical_frequency"]
+        return VStack(alignment: .leading, spacing: 4) {
+            NexusKVRow(
+                label: title,
+                value: item?.passesBaselines == true ? "SUPERA REFERENCIAS" : "NO CONCLUYENTE"
+            )
+            Text("Brier \(number(item?.brierScore)) · Δ vs NEXUS \(number(item?.deltaBrierVsModel)) · precisión equilibrada \(item?.balancedAccuracy.map { String(format: "%.1f%%", $0 * 100) } ?? "—")")
+                .monospacedDigit()
+            if let lower = interval?.lower, let upper = interval?.upper {
+                Text("Δ vs frecuencia histórica · IC95% [\(number(lower)), \(number(upper))]")
+                    .monospacedDigit()
+                    .foregroundStyle(upper < 0 ? NexusTheme.good : NexusTheme.muted)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private func number(_ value: Double?) -> String { value.map { String(format: "%.3f", $0) } ?? "—" }
 }

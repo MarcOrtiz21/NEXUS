@@ -54,7 +54,13 @@ def overlap_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "note": "El subconjunto sin solapamiento no estima el número efectivo de muestras independientes."}
 
 
-def paired_brier_interval(rows: list[dict[str, Any]], baseline_key: str, *, draws: int = 1000) -> dict[str, Any]:
+def paired_brier_interval(
+    rows: list[dict[str, Any]],
+    baseline_key: str,
+    *,
+    draws: int = 1000,
+    model_key: str = "model_probability",
+) -> dict[str, Any]:
     """Bootstrap de bloques consecutivos para la diferencia NEXUS − referencia.
 
     Longitud mínima de seis cortes, ampliada si hay más ventanas concurrentes.
@@ -65,7 +71,7 @@ def paired_brier_interval(rows: list[dict[str, Any]], baseline_key: str, *, draw
     if n < max(30, block * 4):
         return {"status": "INSUFFICIENT_DATA", "sample_size": n, "block_length": block,
                 "lower": None, "upper": None, "delta_brier": None}
-    losses = [((row["model_probability"] / 100 - row["direction_up"]) ** 2
+    losses = [((row[model_key] / 100 - row["direction_up"]) ** 2
                - (row[baseline_key] / 100 - row["direction_up"]) ** 2) for row in rows]
     rng = random.Random(20260930)
     means = []

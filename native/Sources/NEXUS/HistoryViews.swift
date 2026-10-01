@@ -744,9 +744,23 @@ struct ForexGoldView: View {
                 .tint(tone)
                 .accessibilityLabel("Probabilidad alcista")
                 .accessibilityValue(horizon?.probabilityUp.map { String(format: "%.0f por ciento", $0) } ?? "sin datos")
-            Text("Estimación alcista heurística · calibración pendiente")
-                .font(.caption2)
-                .foregroundStyle(NexusTheme.muted)
+            if let calibrated = horizon?.probabilityCalibrated,
+               let calibration = horizon?.calibration,
+               calibration.eligible == true {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(format: "Calibrada con el histórico: %.0f%%", calibrated))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                    Text(calibration.note ?? "Probabilidad encogida hacia la frecuencia histórica.")
+                        .font(.caption2)
+                        .foregroundStyle(NexusTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                Text("Estimación alcista heurística · calibración pendiente")
+                    .font(.caption2)
+                    .foregroundStyle(NexusTheme.muted)
+            }
             HStack {
                 Text("Confianza \(horizon?.confidence ?? "—")")
                 Spacer()

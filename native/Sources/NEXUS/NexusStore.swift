@@ -88,7 +88,7 @@ final class NexusStore: ObservableObject {
                 }
             }
             engineStatus = "Motor no responde en :8765"
-            errorMessage = "No se pudo iniciar el motor local. Comprueba que el puerto 8765 esté libre o ejecuta run_dashboard.command."
+            errorMessage = "No se pudo iniciar el motor local. Si el proyecto está en Documentos, comprueba que NEXUS tenga permiso en Ajustes del Sistema › Privacidad y seguridad › Archivos y carpetas, o ejecuta scripts/run_native.command."
         } catch {
             engineStatus = "Error al arrancar motor"
             errorMessage = error.localizedDescription

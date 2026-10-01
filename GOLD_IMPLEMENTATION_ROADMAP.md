@@ -352,3 +352,31 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] IAU revisado y bloqueado por los términos de BlackRock sobre acceso automatizado; pendiente de permiso.
 - [x] Suite automática: 231 pruebas; compilación de producción Swift correcta (SDK 26.5).
 - [ ] Inspección visual del panel GLD en ventana amplia y media pantalla, y prueba con VoiceOver.
+- [x] Motor desfasado: la app reutilizaba cualquier motor que respondiera en :8765. Un proceso huérfano de la versión anterior servía código antiguo contra cachés nuevas (HTTP 500, app sin datos). `/api/health` expone `pid` y `code_stale` (algún `.py` modificado tras el arranque) y la app lo sustituye.
+- [ ] Arranque desde la app en macOS 27: tras reinstalar la app o actualizar Python con Homebrew (3.12.14 → 3.12.15 el 01-10-2026), el Python lanzado por la app puede quedarse bloqueado en `Py_Initialize` leyendo el repositorio en Documentos; desde la terminal arranca en 2 s. Revisar el permiso «Archivos y carpetas» o mover el proyecto fuera de Documentos; el mensaje de error ya lo indica.
+
+
+
+## Calibración y pesos aprendidos · 2026-10-01
+
+Diagnóstico previo con el informe real: la señal heurística no aporta sobre la frecuencia histórica. Correlación con el resultado −0,03 a 21 sesiones y −0,17 a 63; entre 2023 y 2025 el oro subió en 24 de 24 cortes a 63 sesiones con probabilidades medias del 46–49%. La ablación señala a tipos reales (`REVISAR` a 63 sesiones) y dólar como los grupos que más restan; técnica y liquidez aportan a 63. No se modifican pesos heurísticos con esta misma muestra.
+
+- [x] `gold_calibration.py`: tres candidatos ajustados en cada ventana walk-forward solo con resultados vencidos y evaluados con las mismas cuatro referencias e intervalos por bloques.
+  - Calibración: p' = frecuencia del entrenamiento + k·(p − 50), con k ∈ [0, 1].
+  - Pesos aprendidos: regresión logística con penalización L2 (λ = 4, fijada a priori) sobre las señales de los diez grupos.
+  - Régimen 2022: lo mismo más un coeficiente propio de tipos reales desde 2022-03-01. **Hipótesis elegida tras ver 2023–2025**; solo se aprende cuando el entrenamiento ya incluye ese periodo.
+- [x] Resultado fuera de muestra (informe 2016–2026, esquema 3):
+
+  | Horizonte | NEXUS | Frecuencia histórica | Calibrada | Aprendida | Aprendida + régimen |
+  | --- | --- | --- | --- | --- | --- |
+  | 21 sesiones | 0,2576 | 0,2481 | 0,2496 | 0,2573 | 0,2577 |
+  | 63 sesiones | 0,2526 | 0,2298 | 0,2298 | 0,2205 | 0,2202 |
+
+  - A 21 sesiones nada supera a la frecuencia histórica; la calibración ajusta k = 0.
+  - A 63 sesiones los pesos aprendidos superan en promedio las cuatro referencias (precisión equilibrada 52,3%), pero el IC95% frente a la frecuencia histórica cruza cero (límite superior +0,005): **no concluyente**, sigue fuera del score.
+  - El término de régimen no aporta (Δ −0,0003); su coeficiente sale más negativo después de 2022, no invertido. La hipótesis de ruptura no se confirma como mejora predictiva.
+  - Coeficientes aprendidos con toda la muestra a 63 sesiones: técnica +0,42, actividad +0,44; inflación −0,68, tipos reales −0,57, energía −0,32 (signo contrario al de la heurística en inflación y energía). Son descriptivos y no autorizan pesos nuevos.
+- [x] En vivo: cada horizonte muestra la probabilidad heurística y, si la calibración mejora al modelo y al 50% fuera de muestra, la probabilidad calibrada con su explicación. La etiqueta direccional sigue siendo la heurística. Hoy k = 0: 56% y 66%, la frecuencia base.
+- [x] Interfaz: «Calibrada con el histórico» en cada horizonte; candidatos con Brier, Δ frente a NEXUS, precisión equilibrada e IC frente a la frecuencia histórica en la tarjeta del backtest.
+- [ ] Repetir la evaluación al acumular cortes nuevos. Promover pesos aprendidos a 63 sesiones solo si el IC frente a las cuatro referencias queda por debajo de cero en dos regeneraciones consecutivas.
+- [ ] Incorporar resultados vencidos en vivo a la calibración cuando haya ≥30 por horizonte.

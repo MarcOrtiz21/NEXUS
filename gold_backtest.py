@@ -21,6 +21,7 @@ from cftc_positioning import (
 from gld_holdings import fetch_gld_holdings, holdings_data_fields, summarize_gld_holdings
 from fred_vintages import fetch_revision_history, first_release_rows, known_rows, lagged_change, latest_value
 from gold_backtest_stats import BASELINES, assign_historical_baseline, overlap_diagnostics, paired_brier_interval, purged_folds
+from gold_calibration import CANDIDATES, live_calibration, walk_forward_candidates
 from gold_outlook import MODEL_VERSION, build_gold_outlook
 from gold_validation import balanced_accuracy, brier_score, calibration_bins
 
@@ -190,6 +191,45 @@ def _probability_without_group(groups: list[dict[str, Any]], horizon: str, omitt
     return round(max(15, min(85, 50 + raw * 35)), 2)
 
 
+def _calibration_eligible(result: dict[str, Any]) -> bool:
+    """La calibración se muestra como principal solo si mejora al modelo y al 50% fuera de muestra."""
+    calibrated = (result.get("candidates") or {}).get("calibrated") or {}
+    brier = calibrated.get("brier_score")
+    return (
+        calibrated.get("status") == "EVALUATED"
+        and brier is not None
+        and brier < float(result["model"]["brier_score"])
+        and brier < float(result["baseline_constant"]["brier_score"])
+    )
+
+
+def _candidate_report(rows: list[dict[str, Any]], key: str, model_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Evalúa un candidato walk-forward con las mismas referencias que el modelo."""
+    usable = [row for row in rows if row.get(key) is not None]
+    if len(usable) < 30:
+        return {"status": "INSUFFICIENT_DATA", "sample_size": len(usable), "passes_baselines": False}
+    metrics = _evaluation(usable, key)
+    baselines = {name: _evaluation(usable, baseline_key) for name, baseline_key in BASELINES.items()}
+    comparisons = {
+        name: paired_brier_interval(usable, baseline_key, model_key=key)
+        for name, baseline_key in BASELINES.items()
+    }
+    passes = (
+        all(metrics["brier_score"] < item["brier_score"] for item in baselines.values())
+        and all(metrics["balanced_accuracy"] >= item["balanced_accuracy"] for item in baselines.values())
+        and all(item.get("upper") is not None and item["upper"] < 0 for item in comparisons.values())
+    )
+    return {
+        "status": "EVALUATED",
+        **metrics,
+        "delta_brier_vs_model": round(metrics["brier_score"] - model_metrics["brier_score"], 4)
+        if model_metrics.get("brier_score") is not None else None,
+        "baseline_brier": {name: item["brier_score"] for name, item in baselines.items()},
+        "comparisons": comparisons,
+        "passes_baselines": passes,
+    }
+
+
 def _ablation_report(rows: list[dict[str, Any]]) -> dict[str, Any]:
     group_ids = sorted({key for row in rows for key in (row.get("ablation_probabilities") or {})})
     report: dict[str, Any] = {}
@@ -331,9 +371,15 @@ def run_gold_backtest(
                 "latest_cftc_release_at": positioning.get("release_at"),
                 "latest_gld_holdings_release_at": holdings.get("release_at"),
                 "ablation_probabilities": ablation_probabilities,
+                "group_signals": {
+                    group["id"]: group[f"{horizon_key}_signal"]
+                    for group in outlook["groups"]
+                    if group.get(f"{horizon_key}_signal") is not None
+                },
             })
 
     horizons: dict[str, Any] = {}
+    live_calibrations: dict[str, Any] = {}
     for horizon in (21, 63):
         rows = [row for row in samples if row["horizon_days"] == horizon]
         assign_historical_baseline(rows)
@@ -350,7 +396,13 @@ def run_gold_backtest(
                 "baselines": {name: _evaluation(test_rows, key) for name, key in BASELINES.items()},
             })
         model_metrics = _evaluation(evaluation_rows, "model_probability")
+        candidate_rows = walk_forward_candidates(purged_folds(rows))
+        live_calibrations[str(horizon)] = live_calibration(rows)
         horizons[str(horizon)] = {
+            "candidates": {
+                name: _candidate_report(candidate_rows, key, model_metrics)
+                for name, key in CANDIDATES.items()
+            },
             "model": model_metrics,
             "all_cuts": _evaluation(rows, "model_probability"),
             "baseline_constant": _evaluation(evaluation_rows, "constant_probability"),
@@ -419,7 +471,7 @@ def run_gold_backtest(
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "decision_policy": "Primera sesión de mercado desde el día 15 de cada mes",
         "point_in_time": True,
-        "report_schema_version": 2,
+        "report_schema_version": 3,
         "vintage_policy": "Última revisión ALFRED conocida en cada corte (output_type=1); primera publicación conservada como diagnóstico paralelo",
         "evaluation_policy": "Ventanas cronológicas con entrenamiento purgado por fecha de vencimiento; cuatro referencias sobre los mismos cortes de prueba",
         "promotion_status": "CANDIDATE" if passes_baselines else "KEEP_PRELIMINARY",
@@ -430,6 +482,17 @@ def run_gold_backtest(
             "rule": "Aporta en Brier en 21 y 63 sesiones, n>=30 y sin deterioro material de precisión equilibrada",
         },
         "horizons": horizons,
+        "live_calibration": {
+            horizon: {
+                **params,
+                "eligible": _calibration_eligible(horizons[horizon]),
+            }
+            for horizon, params in live_calibrations.items()
+        },
+        "candidate_policy": (
+            "Calibración y pesos aprendidos se ajustan en cada ventana solo con resultados vencidos; "
+            "la variante de régimen separa tipos reales desde 2022-03 y es una hipótesis elegida a posteriori."
+        ),
         "samples": samples,
         "limitations": [
             "El modelo usa pesos heurísticos fijos; las ventanas walk-forward evalúan, no entrenan pesos.",

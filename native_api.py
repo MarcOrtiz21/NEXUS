@@ -34,6 +34,7 @@ from forex_engine import (
     forex_signal,
     gold_signal,
 )
+from gold_calibration import calibrate_live_horizon
 from gold_outlook import build_gold_outlook
 from gold_backtest import load_gold_backtest_report
 from gold_history import gold_change_summary, gold_history_summary, record_gold_snapshot
@@ -207,6 +208,12 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     if isinstance(data.get("GoldETFHoldings"), dict):
         data["GoldETFHoldings"] = {**data["GoldETFHoldings"], "score_enabled": data["GLD_Holdings_Model_Eligible"]}
     gold_outlook = build_gold_outlook(data, gld, uup)
+    calibrations = gold_backtest.get("live_calibration") or {}
+    for key, horizon in (("short_term", "21"), ("medium_term", "63")):
+        params = calibrations.get(horizon) or {}
+        gold_outlook[key] = calibrate_live_horizon(
+            gold_outlook[key], params, eligible=bool(params.get("eligible"))
+        )
     history_write = None
     if export:
         try:
