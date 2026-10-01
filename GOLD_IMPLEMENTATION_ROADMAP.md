@@ -391,4 +391,5 @@ Diagnóstico: Myfxbook devuelve HTTP 403 de forma permanente (calendario y dos f
 - [x] Respaldo manual FOMC corregido con las fechas oficiales de 2026 y 2027.
 - [x] Calendario mensual del oro: incluye FOMC oficial, PPI y ventas minoristas. Verificación en vivo: NFP 02-10, CPI 14-10, PPI y ventas minoristas 15-10, PCE 27-10 y FOMC 28-10 a las 18:00 UTC.
 - [x] Suite: 247 pruebas con HTML sintético; compilación Swift correcta.
-- [ ] Decisiones del BCE: ya no llegan desde Myfxbook. Candidata: página oficial del calendario de reuniones del BCE, con el mismo patrón de caché.
+- [x] Decisiones del BCE desde la página oficial de reuniones (`risk_filters/ecb_calendar.py`): último día de cada reunión de política monetaria a las 14:15 de Frankfurt; se descartan reuniones no monetarias y del Consejo General, y los días consecutivos se agrupan en una sola decisión porque algunos primeros días no llevan la marca «Day 1». Se muestran en los calendarios del oro y del euro/dólar con hora oficial, pero no bloquean señales (el bloqueo sigue limitado a EE. UU.). Verificado en vivo: 18 decisiones hasta 2028, la próxima el 29-10-2026 a las 13:15 UTC.
+- [x] La caché degradable es común a la Fed y al BCE (`risk_filters/official_calendar.py`). Suite: 250 pruebas.

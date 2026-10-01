@@ -3,7 +3,7 @@ Filtro de Calendario Económico (calendar.py)
 
 Detecta eventos macroeconómicos inminentes de alto impacto usando:
 1. Fechas oficiales de publicación FRED (CPI, NFP, PIB, PCE, PPI, ventas minoristas, subsidios, JOLTS)
-2. Calendario oficial de reuniones del FOMC (federalreserve.gov)
+2. Calendarios oficiales de reuniones del FOMC (federalreserve.gov) y del BCE (ecb.europa.eu)
 3. Fechas FOMC/IPC manuales como respaldo informativo
 
 Solo eventos macro de EE.UU. con impacto directo en SPY pueden bloquear señales.
@@ -22,6 +22,7 @@ from config import (
     CALENDAR_BLOCKS_SIGNALS,
     CALENDAR_US_ONLY_BLOCKING,
 )
+from risk_filters.ecb_calendar import ECB_SOURCE, fetch_ecb_events
 from risk_filters.fomc_calendar import FOMC_SOURCE, fetch_fomc_events
 from risk_filters.fred_calendar import fetch_fred_release_events
 from user_settings import get_setting
@@ -186,6 +187,7 @@ def gold_monthly_events(
     lookahead_hours = max(1, lookahead_days) * 24
     official = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
     official += fetch_fomc_events(lookahead_hours=lookahead_hours, now=now)
+    official += fetch_ecb_events(lookahead_hours=lookahead_hours, now=now)
     fallback = _manual_fallback_events(
         lookahead_days=max(1, lookahead_days),
         today=now.date(),
@@ -247,7 +249,7 @@ def _event_identity(event: Dict) -> tuple[str, str]:
 
 def _is_official_source(source: str | None) -> bool:
     src = str(source or "").lower()
-    return "fred" in src or src == FOMC_SOURCE
+    return "fred" in src or src in (FOMC_SOURCE, ECB_SOURCE)
 
 
 def _calendar_time_quality(source: str | None) -> str:
@@ -274,12 +276,13 @@ def check_macro_events(
     block_window = block_hours if block_hours in (3, 6) else get_setting("calendar_block_hours")
     fred_events = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
     fomc_events = fetch_fomc_events(lookahead_hours=lookahead_hours, now=now)
+    ecb_events = fetch_ecb_events(lookahead_hours=lookahead_hours, now=now)
     manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
     gold_events_30d = gold_monthly_events(as_of=now)
 
     seen_events = set()
     merged: List[Dict] = []
-    for event in fred_events + fomc_events + manual_events:
+    for event in fred_events + fomc_events + ecb_events + manual_events:
         key = _event_identity(event)
         if key in seen_events:
             continue

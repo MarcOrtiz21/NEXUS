@@ -27,7 +27,7 @@ class CalendarRegressionTests(unittest.TestCase):
     def test_manual_fallback_does_not_block(self):
         as_of = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
-            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
                 with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {"calendar_blocks_signals": True, "calendar_block_hours": 6}.get(key, True)):
                     result = check_macro_events(as_of=as_of, block_hours=6)
         manual = [event for event in result["events_detail"] if event.get("source") == "estimado_manual"]
@@ -48,7 +48,7 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
 
-        with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fake_event]):
+        with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fake_event]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
             with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
                 with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
                     with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {"calendar_blocks_signals": True, "calendar_block_hours": 6}.get(key, True)):
@@ -70,7 +70,7 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
-            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fomc_event]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fomc_event]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
                 with patch("risk_filters.calendar.get_setting", return_value=True):
                     result = check_macro_events(as_of=as_of, block_hours=6)
 
@@ -115,7 +115,7 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[official]):
-            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
                 events = gold_monthly_events(as_of=as_of)
 
         cpi_events = [event for event in events if "cpi" in event["title"].lower() or "ipc" in event["title"].lower()]
@@ -127,7 +127,7 @@ class CalendarRegressionTests(unittest.TestCase):
     def test_manual_fallback_never_counts_as_official(self):
         as_of = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
-            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
                 with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
                     "calendar_blocks_signals": True,
                     "calendar_block_hours": 6,
@@ -152,7 +152,7 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
-            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]), patch("risk_filters.calendar.fetch_ecb_events", return_value=[]):
                 with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
                     with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
                         "calendar_blocks_signals": True,
