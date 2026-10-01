@@ -4,6 +4,11 @@ Dashboard web local para NEXUS (FastAPI).
 
 from __future__ import annotations
 
+import os
+import time
+from itertools import chain
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -21,6 +26,20 @@ from user_settings import (
 )
 
 app = FastAPI(title="NEXUS Dashboard", version="1.15")
+
+_STARTED_AT = time.time()
+_CODE_ROOT = Path(__file__).resolve().parent
+
+
+def code_changed_since_start(root: Path = _CODE_ROOT, started_at: float = _STARTED_AT) -> bool:
+    """Indica si algún módulo Python cambió después de arrancar el motor."""
+    for path in chain(root.glob("*.py"), (root / "risk_filters").glob("*.py")):
+        try:
+            if path.stat().st_mtime > started_at:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _build_live_snapshot() -> dict:
@@ -278,6 +297,8 @@ def api_health() -> JSONResponse:
         "ok": True,
         "service": "nexus",
         "version": "1.15",
+        "pid": os.getpid(),
+        "code_stale": code_changed_since_start(),
         "capabilities": {
             "rotation_companies": True,
             "gold_outlook": True,

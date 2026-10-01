@@ -60,9 +60,15 @@ final class NexusStore: ObservableObject {
     }
 
     func ensureEngine() async {
-        if await client.health() {
-            engineStatus = "Motor OK · :8765"
-            return
+        if let health = await client.engineHealth() {
+            guard health.codeStale == true else {
+                engineStatus = "Motor OK · :8765"
+                return
+            }
+            // Un motor que sobrevivió a una actualización sirve código antiguo
+            // contra cachés nuevas; se sustituye en lugar de reutilizarlo.
+            engineStatus = "Reiniciando motor desactualizado…"
+            await stopForeignEngine(pid: health.pid)
         }
         engineStatus = "Arrancando motor Python…"
         engine?.terminate()
@@ -86,6 +92,18 @@ final class NexusStore: ObservableObject {
         } catch {
             engineStatus = "Error al arrancar motor"
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func stopForeignEngine(pid: Int32?) async {
+        engine?.terminate()
+        engine = nil
+        if let pid, pid > 1, pid != getpid() {
+            kill(pid, SIGTERM)
+        }
+        for _ in 0..<40 {
+            if await client.engineHealth() == nil { return }
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
 
@@ -113,7 +131,8 @@ final class NexusStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            if !(await client.health()) {
+            let health = await client.engineHealth()
+            if health == nil || health?.codeStale == true {
                 await ensureEngine()
             }
             let previous = snapshot

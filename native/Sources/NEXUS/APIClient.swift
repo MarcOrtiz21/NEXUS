@@ -1,5 +1,16 @@
 import Foundation
 
+struct EngineHealth: Decodable {
+    let version: String?
+    let pid: Int32?
+    let codeStale: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case version, pid
+        case codeStale = "code_stale"
+    }
+}
+
 enum NexusAPIError: LocalizedError {
     case badURL
     case http(Int)
@@ -52,14 +63,21 @@ actor NexusAPIClient {
     }
 
     func health() async -> Bool {
-        guard let url = URL(string: "/api/health", relativeTo: baseURL) else { return false }
+        await engineHealth() != nil
+    }
+
+    /// Estado del motor que escucha en el puerto, aunque no lo haya lanzado esta app.
+    func engineHealth() async -> EngineHealth? {
+        guard let url = URL(string: "/api/health", relativeTo: baseURL) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         do {
-            let (_, response) = try await session.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
+            let (data, response) = try await session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return (try? JSONDecoder().decode(EngineHealth.self, from: data))
+                ?? EngineHealth(version: nil, pid: nil, codeStale: nil)
         } catch {
-            return false
+            return nil
         }
     }
 
