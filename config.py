@@ -137,16 +137,6 @@ RSS_FEEDS = [
         "url": "https://news.google.com/rss/search?q=stock+market+OR+Federal+Reserve+OR+inflation+OR+Wall+Street&hl=en-US&gl=US&ceid=US:en",
         "weight": 0.85,
     },
-    {
-        "name": "Myfxbook Forex News",
-        "url": "https://www.myfxbook.com/rss/latest-forex-news",
-        "weight": 0.9,
-    },
-    {
-        "name": "Myfxbook Economic Calendar",
-        "url": "https://www.myfxbook.com/rss/forex-economic-calendar-events",
-        "weight": 1.0,
-    },
 ]
 
 # ─── Intervalo de refresco en segundos (modo loop) ───
@@ -193,7 +183,9 @@ GLD_HOLDINGS_CACHE_TTL_SECONDS = 60 * 60 * 6
 GLD_HOLDINGS_RAW_RETENTION = 30
 
 # ─── Calendario y dashboard ───
-CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"
+FOMC_CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+FOMC_CALENDAR_CACHE_FILE = CACHE_DIR / "fomc_calendar.json"
+FOMC_CALENDAR_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7
 CALENDAR_BLOCKS_SIGNALS = True
 CALENDAR_BLOCK_HOURS_DEFAULT = 6
 CALENDAR_BLOCK_HOURS_STRICT = 3

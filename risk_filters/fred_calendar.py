@@ -19,25 +19,32 @@ from config import (
     FRED_CALENDAR_LOOKAHEAD_DAYS,
 )
 
+# El FOMC no se toma de FRED: su release 101 incluye series diarias y
+# aparecería todos los días. Ver risk_filters/fomc_calendar.py.
 FRED_RELEASES = [
     {"release_id": 10, "label": "US CPI (Consumer Price Index)"},
     {"release_id": 50, "label": "US Employment Situation (NFP)"},
     {"release_id": 53, "label": "US Gross Domestic Product"},
     {"release_id": 21, "label": "US Personal Income and Outlays (PCE)"},
-    {"release_id": 677, "label": "FOMC Press Release"},
+    {"release_id": 46, "label": "US Producer Price Index (PPI)"},
+    {"release_id": 9, "label": "US Retail Sales"},
+    {"release_id": 180, "label": "US Initial Jobless Claims"},
+    {"release_id": 192, "label": "US JOLTS Job Openings", "blocks": False},
 ]
 
 # Zona horaria oficial de EE.UU. para publicaciones macro.
 _US_EASTERN = ZoneInfo("America/New_York")
 
-# Hora local ET real de cada tipo de publicación (por release_id de FRED).
-# CPI/NFP/GDP/PCE se publican a 8:30 AM ET; FOMC anuncia a 2:00 PM ET.
+# Hora local ET de cada publicación (por release_id de FRED).
 RELEASE_TIMES_ET: Dict[int, time] = {
     10: time(8, 30),   # CPI
     50: time(8, 30),   # NFP
     53: time(8, 30),   # GDP
     21: time(8, 30),   # PCE
-    677: time(14, 0),  # FOMC
+    46: time(8, 30),   # PPI
+    9: time(8, 30),    # Retail sales
+    180: time(8, 30),  # Jobless claims
+    192: time(10, 0),  # JOLTS
 }
 
 _memory_cache: Dict[str, Any] | None = None
@@ -117,11 +124,14 @@ def _cache_is_fresh(payload: Dict[str, Any], now: datetime, start: date, end: da
     age = (now - captured).total_seconds()
     if age > FRED_CALENDAR_CACHE_TTL_SECONDS:
         return False
+    cached_ids = set((payload.get("releases") or {}).keys())
+    if not {str(release["release_id"]) for release in FRED_RELEASES} <= cached_ids:
+        return False
     return payload.get("window_start") == start.isoformat() and payload.get("window_end") == end.isoformat()
 
 
 def _get_cached_release_dates(now: datetime, force: bool = False) -> Dict[str, List[Dict[str, str]]]:
-    """Devuelve fechas crudas por release_id; refresca como máximo 5 HTTP cada TTL."""
+    """Devuelve fechas crudas por release_id; refresca como máximo una petición por release cada TTL."""
     global _memory_cache
 
     if not FRED_API_KEY:
@@ -207,11 +217,11 @@ def _events_from_cached_dates(
                 "title": release["label"],
                 "when_utc": event_time.isoformat(timespec="minutes"),
                 "hours_until": round(hours_until, 1),
-                "impact": "ALTO",
+                "impact": "ALTO" if release.get("blocks", True) else "MEDIO",
                 "source": "fred_release",
                 "verified": True,
                 "us_event": True,
-                "blocks_signals": True,
+                "blocks_signals": release.get("blocks", True),
             })
 
     return sorted(events, key=lambda item: item["hours_until"])

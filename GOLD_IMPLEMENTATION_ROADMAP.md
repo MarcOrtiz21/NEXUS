@@ -353,7 +353,7 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Suite automática: 231 pruebas; compilación de producción Swift correcta (SDK 26.5).
 - [ ] Inspección visual del panel GLD en ventana amplia y media pantalla, y prueba con VoiceOver.
 - [x] Motor desfasado: la app reutilizaba cualquier motor que respondiera en :8765. Un proceso huérfano de la versión anterior servía código antiguo contra cachés nuevas (HTTP 500, app sin datos). `/api/health` expone `pid` y `code_stale` (algún `.py` modificado tras el arranque) y la app lo sustituye.
-- [ ] Arranque desde la app en macOS 27: tras reinstalar la app o actualizar Python con Homebrew (3.12.14 → 3.12.15 el 01-10-2026), el Python lanzado por la app puede quedarse bloqueado en `Py_Initialize` leyendo el repositorio en Documentos; desde la terminal arranca en 2 s. Revisar el permiso «Archivos y carpetas» o mover el proyecto fuera de Documentos; el mensaje de error ya lo indica.
+- [x] Arranque desde la app en macOS 27: tras reinstalar la app o actualizar Python con Homebrew (3.12.14 → 3.12.15 el 01-10-2026), el Python lanzado por la app se quedaba bloqueado en `Py_Initialize` leyendo el repositorio en Documentos. Con el permiso «Archivos y carpetas» concedido, la app arranca el motor en 2 s; el mensaje de error lo indica si vuelve a ocurrir tras una reinstalación.
 
 
 
@@ -380,3 +380,15 @@ Diagnóstico previo con el informe real: la señal heurística no aporta sobre l
 - [x] Interfaz: «Calibrada con el histórico» en cada horizonte; candidatos con Brier, Δ frente a NEXUS, precisión equilibrada e IC frente a la frecuencia histórica en la tarjeta del backtest.
 - [ ] Repetir la evaluación al acumular cortes nuevos. Promover pesos aprendidos a 63 sesiones solo si el IC frente a las cuatro referencias queda por debajo de cero en dos regeneraciones consecutivas.
 - [ ] Incorporar resultados vencidos en vivo a la calibración cuando haya ≥30 por horizonte.
+
+## Calendario macro con fuentes oficiales · 2026-10-01
+
+Diagnóstico: Myfxbook devuelve HTTP 403 de forma permanente (calendario y dos fuentes de noticias). El identificador FRED 677 «FOMC Press Release» no existe, así que las reuniones del FOMC nunca llegaban como evento oficial; el respaldo manual tenía tres fechas de 2026 erróneas (06-05, 04-11 y 16-12 frente a 29-04, 28-10 y 09-12).
+
+- [x] `risk_filters/fomc_calendar.py`: reuniones programadas desde la página oficial de la Fed. La decisión es el último día de reunión a las 14:00 ET; se descartan reuniones no programadas y votaciones por escrito. Caché local de 7 días, uso de la caché caducada si la página falla y espera de 15 minutos entre reintentos sin caché.
+- [x] FRED: se elimina 677 (el release 101 tampoco sirve porque incluye series diarias). Se añaden PPI, ventas minoristas y peticiones de subsidio (08:30 ET, bloquean) y JOLTS (10:00 ET, contexto, no bloquea). La caché se recarga si le falta algún release configurado.
+- [x] Myfxbook retirado del calendario y de las noticias. Fuente del calendario: `fred_release` o `fed_fomc_calendar`, ambas con confianza alta y hora oficial; el respaldo manual sigue sin bloquear.
+- [x] Respaldo manual FOMC corregido con las fechas oficiales de 2026 y 2027.
+- [x] Calendario mensual del oro: incluye FOMC oficial, PPI y ventas minoristas. Verificación en vivo: NFP 02-10, CPI 14-10, PPI y ventas minoristas 15-10, PCE 27-10 y FOMC 28-10 a las 18:00 UTC.
+- [x] Suite: 247 pruebas con HTML sintético; compilación Swift correcta.
+- [ ] Decisiones del BCE: ya no llegan desde Myfxbook. Candidata: página oficial del calendario de reuniones del BCE, con el mismo patrón de caché.

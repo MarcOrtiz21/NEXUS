@@ -27,7 +27,7 @@ class CalendarRegressionTests(unittest.TestCase):
     def test_manual_fallback_does_not_block(self):
         as_of = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
-            with patch("risk_filters.calendar._fetch_rss_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
                 with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {"calendar_blocks_signals": True, "calendar_block_hours": 6}.get(key, True)):
                     result = check_macro_events(as_of=as_of, block_hours=6)
         manual = [event for event in result["events_detail"] if event.get("source") == "estimado_manual"]
@@ -42,15 +42,13 @@ class CalendarRegressionTests(unittest.TestCase):
             "when_utc": event_time.isoformat(timespec="minutes"),
             "hours_until": 4.0,
             "impact": "ALTO",
-            "source": "myfxbook_rss",
+            "source": "fed_fomc_calendar",
             "verified": True,
             "us_event": True,
             "blocks_signals": True,
         }
 
-        from unittest.mock import patch
-
-        with patch("risk_filters.calendar._fetch_rss_events", return_value=[fake_event]):
+        with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fake_event]):
             with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
                 with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
                     with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {"calendar_blocks_signals": True, "calendar_block_hours": 6}.get(key, True)):
@@ -59,27 +57,28 @@ class CalendarRegressionTests(unittest.TestCase):
         self.assertTrue(result["should_block_signals"])
         self.assertEqual(len(result["blocking_events"]), 1)
 
-    def test_same_release_from_fred_and_rss_is_deduplicated(self):
-        as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
-        fred_event = {
-            "title": "US CPI (Consumer Price Index)",
-            "when_utc": "2026-07-14T12:30+00:00",
-            "hours_until": 2.5,
+    def test_official_fomc_replaces_manual_fallback_same_day(self):
+        as_of = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
+        fomc_event = {
+            "title": "FOMC: decisión de tipos de la Fed",
+            "when_utc": "2026-07-29T18:00+00:00",
+            "hours_until": 8.0,
             "impact": "ALTO",
-            "source": "fred_release",
+            "source": "fed_fomc_calendar",
             "verified": True,
             "us_event": True,
             "blocks_signals": True,
         }
-        rss_event = {**fred_event, "title": "US CPI m/m", "source": "myfxbook_rss"}
-        with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
-            with patch("risk_filters.calendar._fetch_rss_events", return_value=[rss_event]):
-                with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
-                    with patch("risk_filters.calendar.get_setting", return_value=True):
-                        result = check_macro_events(as_of=as_of, block_hours=6)
+        with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[fomc_event]):
+                with patch("risk_filters.calendar.get_setting", return_value=True):
+                    result = check_macro_events(as_of=as_of, block_hours=6)
 
-        self.assertEqual(len(result["events_detail"]), 1)
-        self.assertEqual(result["events_detail"][0]["source"], "fred_release")
+        fomc = [event for event in result["events_detail"] if "fomc" in event["title"].lower()]
+        self.assertEqual(len(fomc), 1)
+        self.assertEqual(fomc[0]["source"], "fed_fomc_calendar")
+        self.assertEqual(fomc[0]["time_quality"], "oficial")
+        self.assertEqual(result["confidence"], "HIGH")
 
     def test_fx_gold_filter_keeps_fomc_cpi_nfp_ecb_within_72h(self):
         self.assertTrue(is_fx_gold_calendar_event("FOMC Statement"))
@@ -116,7 +115,8 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[official]):
-            events = gold_monthly_events(as_of=as_of)
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+                events = gold_monthly_events(as_of=as_of)
 
         cpi_events = [event for event in events if "cpi" in event["title"].lower() or "ipc" in event["title"].lower()]
         self.assertEqual(len(cpi_events), 1)
@@ -124,43 +124,20 @@ class CalendarRegressionTests(unittest.TestCase):
         self.assertFalse(cpi_events[0]["estimated"])
         self.assertTrue(any("fomc" in event["title"].lower() for event in events))
 
-    def test_rss_block_stays_estimated_even_if_fred_exists_later(self):
-        as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
-        rss_event = {
-            "title": "US CPI m/m",
-            "when_utc": "2026-07-14T14:00+00:00",
-            "hours_until": 4.0,
-            "impact": "ALTO",
-            "source": "myfxbook_rss",
-            "verified": True,
-            "us_event": True,
-            "blocks_signals": True,
-        }
-        fred_event = {
-            "title": "FOMC Statement",
-            "when_utc": "2026-07-16T18:00+00:00",
-            "hours_until": 56.0,
-            "impact": "ALTO",
-            "source": "fred_release",
-            "verified": True,
-            "us_event": True,
-            "blocks_signals": True,
-        }
-        with patch("risk_filters.calendar._fetch_rss_events", return_value=[rss_event]):
-            with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
-                with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
-                    with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
-                        "calendar_blocks_signals": True,
-                        "calendar_block_hours": 6,
-                    }.get(key, True)):
-                        result = check_macro_events(as_of=as_of, block_hours=6)
+    def test_manual_fallback_never_counts_as_official(self):
+        as_of = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
+        with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
+                with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
+                    "calendar_blocks_signals": True,
+                    "calendar_block_hours": 6,
+                }.get(key, True)):
+                    result = check_macro_events(as_of=as_of, block_hours=6)
 
-        self.assertTrue(result["should_block_signals"])
-        self.assertEqual(result["next_event"]["title"], "US CPI m/m")
-        self.assertEqual(result["time_quality"], "aproximada")
-        self.assertNotEqual(result["confidence"], "HIGH")
-        self.assertIn("rss", result["source"].lower())
-        self.assertTrue(result["blocking_events"][0]["estimated"])
+        self.assertFalse(result["should_block_signals"])
+        self.assertEqual(result["source"], "estimado_manual")
+        self.assertEqual(result["confidence"], "LOW")
+        self.assertTrue(all(event["estimated"] for event in result["events_detail"]))
 
     def test_fred_block_is_official(self):
         as_of = datetime(2026, 7, 14, 10, 0, tzinfo=timezone.utc)
@@ -175,7 +152,7 @@ class CalendarRegressionTests(unittest.TestCase):
             "blocks_signals": True,
         }
         with patch("risk_filters.calendar.fetch_fred_release_events", return_value=[fred_event]):
-            with patch("risk_filters.calendar._fetch_rss_events", return_value=[]):
+            with patch("risk_filters.calendar.fetch_fomc_events", return_value=[]):
                 with patch("risk_filters.calendar._manual_fallback_events", return_value=[]):
                     with patch("risk_filters.calendar.get_setting", side_effect=lambda key: {
                         "calendar_blocks_signals": True,

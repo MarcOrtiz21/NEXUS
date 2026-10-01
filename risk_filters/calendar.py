@@ -2,8 +2,8 @@
 Filtro de Calendario Económico (calendar.py)
 
 Detecta eventos macroeconómicos inminentes de alto impacto usando:
-1. Fechas oficiales de publicación FRED (CPI, NFP, GDP, PCE, FOMC)
-2. RSS verificado de Myfxbook (calendario económico)
+1. Fechas oficiales de publicación FRED (CPI, NFP, PIB, PCE, PPI, ventas minoristas, subsidios, JOLTS)
+2. Calendario oficial de reuniones del FOMC (federalreserve.gov)
 3. Fechas FOMC/IPC manuales como respaldo informativo
 
 Solo eventos macro de EE.UU. con impacto directo en SPY pueden bloquear señales.
@@ -14,23 +14,15 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
 from typing import Dict, List
-
-import requests
-
-try:
-    import feedparser
-except ImportError:
-    feedparser = None
 
 from config import (
     CALENDAR_BLOCK_HOURS_DEFAULT,
     CALENDAR_BLOCK_HOURS_STRICT,
     CALENDAR_BLOCKS_SIGNALS,
-    CALENDAR_RSS_URL,
     CALENDAR_US_ONLY_BLOCKING,
 )
+from risk_filters.fomc_calendar import FOMC_SOURCE, fetch_fomc_events
 from risk_filters.fred_calendar import fetch_fred_release_events
 from user_settings import get_setting
 
@@ -54,12 +46,12 @@ US_EVENT_PATTERNS = [
     r"\bjobless claims\b",
 ]
 
-CALENDAR_SOURCE = "myfxbook_rss"
-CALENDAR_CONFIDENCE = "MEDIUM"
-
+# Respaldo si la página oficial de la Fed no responde y no hay caché.
 FOMC_DATES = [
-    "2026-01-28", "2026-03-18", "2026-05-06", "2026-06-17",
-    "2026-07-29", "2026-09-16", "2026-11-04", "2026-12-16",
+    "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
+    "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09",
+    "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09",
+    "2027-07-28", "2027-09-15", "2027-10-27", "2027-12-08",
 ]
 
 CPI_DATES = [
@@ -67,21 +59,6 @@ CPI_DATES = [
     "2026-05-12", "2026-06-10", "2026-07-14", "2026-08-12",
     "2026-09-15", "2026-10-13", "2026-11-10", "2026-12-10",
 ]
-
-
-def _parse_event_time(entry) -> datetime | None:
-    for field in ("published", "updated", "published_parsed", "updated_parsed"):
-        raw = entry.get(field)
-        if not raw:
-            continue
-        try:
-            if isinstance(raw, str):
-                return parsedate_to_datetime(raw).astimezone(timezone.utc)
-            if hasattr(raw, "tm_year"):
-                return datetime(*raw[:6], tzinfo=timezone.utc)
-        except Exception:
-            continue
-    return None
 
 
 def _is_us_event(title: str) -> bool:
@@ -106,50 +83,6 @@ def _event_impact(title: str) -> str:
     if _is_us_event(title):
         return "ALTO"
     return "MEDIO"
-
-
-def _fetch_rss_events(lookahead_hours: int, now: datetime) -> List[Dict]:
-    if feedparser is None:
-        return []
-
-    horizon = now + timedelta(hours=lookahead_hours)
-    events: List[Dict] = []
-
-    try:
-        response = requests.get(
-            CALENDAR_RSS_URL,
-            timeout=4,
-            headers={"User-Agent": "NEXUS/1.0 (+local workstation)"},
-        )
-        response.raise_for_status()
-        feed = feedparser.parse(response.content)
-        for entry in feed.entries[:80]:
-            title = (entry.get("title") or "").strip()
-            if not title:
-                continue
-
-            event_time = _parse_event_time(entry)
-            if event_time is None:
-                continue
-            if event_time < now - timedelta(hours=2) or event_time > horizon:
-                continue
-
-            hours_until = (event_time - now).total_seconds() / 3600
-            impact = _event_impact(title)
-            events.append({
-                "title": title,
-                "when_utc": event_time.isoformat(timespec="minutes"),
-                "hours_until": round(hours_until, 1),
-                "impact": impact,
-                "source": CALENDAR_SOURCE,
-                "verified": True,
-                "us_event": _is_us_event(title),
-                "blocks_signals": _is_us_blocking_event(title),
-            })
-    except Exception as exc:
-        logging.warning(f"Error al leer calendario RSS: {exc}")
-
-    return sorted(events, key=lambda item: item["hours_until"])
 
 
 def _manual_fallback_events(lookahead_days: int, today: date, now: datetime) -> List[Dict]:
@@ -201,6 +134,9 @@ _FX_GOLD_TITLE_TERMS = (
     "non-farm",
     "payroll",
     "ipc",
+    "ppi",
+    "producer price",
+    "retail sales",
 )
 
 
@@ -243,12 +179,13 @@ def gold_monthly_events(
 
     Se mantiene separado del filtro operativo de 72 horas: un evento lejano
     aporta contexto, pero nunca bloquea señales antes de entrar en la ventana
-    configurada. FRED tiene prioridad sobre el respaldo manual para evitar
+    configurada. FRED y la Fed tienen prioridad sobre el respaldo manual para evitar
     duplicados del mismo evento y fecha.
     """
     now = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
     lookahead_hours = max(1, lookahead_days) * 24
     official = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
+    official += fetch_fomc_events(lookahead_hours=lookahead_hours, now=now)
     fallback = _manual_fallback_events(
         lookahead_days=max(1, lookahead_days),
         today=now.date(),
@@ -308,21 +245,21 @@ def _event_identity(event: Dict) -> tuple[str, str]:
     return _event_family(str(event.get("title") or "")), event_date
 
 
-def _calendar_time_quality(source: str | None) -> str:
+def _is_official_source(source: str | None) -> bool:
     src = str(source or "").lower()
-    if "fred" in src:
-        return "oficial"
-    return "aproximada"
+    return "fred" in src or src == FOMC_SOURCE
+
+
+def _calendar_time_quality(source: str | None) -> str:
+    return "oficial" if _is_official_source(source) else "aproximada"
 
 
 def _quality_from_events(events: List[Dict], fallback_source: str, fallback_confidence: str) -> tuple[str, str, str]:
     if not events:
         return fallback_source, fallback_confidence, _calendar_time_quality(fallback_source)
     source = str(events[0].get("source") or fallback_source)
-    if "fred" in source.lower():
+    if _is_official_source(source):
         return source, "HIGH", "oficial"
-    if "rss" in source.lower() or source == CALENDAR_SOURCE:
-        return source, CALENDAR_CONFIDENCE, "aproximada"
     return source, "LOW", "aproximada"
 
 
@@ -332,17 +269,17 @@ def check_macro_events(
     as_of: datetime | None = None,
     block_hours: int | None = None,
 ) -> Dict:
-    """Comprueba eventos macro inminentes desde RSS verificado y respaldo manual."""
+    """Comprueba eventos macro inminentes desde fuentes oficiales y respaldo manual."""
     now = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
     block_window = block_hours if block_hours in (3, 6) else get_setting("calendar_block_hours")
     fred_events = fetch_fred_release_events(lookahead_hours=lookahead_hours, now=now)
-    rss_events = _fetch_rss_events(lookahead_hours=lookahead_hours, now=now)
+    fomc_events = fetch_fomc_events(lookahead_hours=lookahead_hours, now=now)
     manual_events = _manual_fallback_events(lookahead_days=lookahead_days, today=now.date(), now=now)
     gold_events_30d = gold_monthly_events(as_of=now)
 
     seen_events = set()
     merged: List[Dict] = []
-    for event in fred_events + rss_events + manual_events:
+    for event in fred_events + fomc_events + manual_events:
         key = _event_identity(event)
         if key in seen_events:
             continue
@@ -351,6 +288,7 @@ def check_macro_events(
         event["time_quality"] = _calendar_time_quality(event.get("source"))
         event["estimated"] = event["time_quality"] == "aproximada"
         merged.append(event)
+    merged.sort(key=lambda item: float(item.get("hours_until") or 0))
 
     blocking_events = [
         event for event in merged
@@ -374,8 +312,8 @@ def check_macro_events(
         for event in display_pool[:8]
     ]
 
-    source = "fred_release" if fred_events else (CALENDAR_SOURCE if rss_events else "estimado_manual")
-    confidence = "HIGH" if fred_events else (CALENDAR_CONFIDENCE if rss_events else "LOW")
+    source = "fred_release" if fred_events else (FOMC_SOURCE if fomc_events else "estimado_manual")
+    confidence = "HIGH" if fred_events or fomc_events else "LOW"
     anchor = blocking_events[0] if blocking_events else (display_pool[0] if display_pool else None)
     block_source, block_confidence, time_quality = _quality_from_events(
         [anchor] if anchor else [],

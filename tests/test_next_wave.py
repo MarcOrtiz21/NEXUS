@@ -10,6 +10,7 @@ from logic_engine import MarketStatus
 from risk_filters.fred_calendar import (
     clear_calendar_cache,
     fetch_fred_release_events,
+    _cache_window,
     _get_cached_release_dates,
 )
 
@@ -39,7 +40,10 @@ class FredCalendarTests(unittest.TestCase):
                 events = fetch_fred_release_events(lookahead_hours=48, now=now)
         self.assertTrue(events)
         self.assertTrue(all(event["source"] == "fred_release" for event in events))
-        self.assertTrue(all(event["blocks_signals"] for event in events))
+        jolts = [event for event in events if "JOLTS" in event["title"]]
+        self.assertTrue(jolts)
+        self.assertTrue(all(not event["blocks_signals"] and event["impact"] == "MEDIO" for event in jolts))
+        self.assertTrue(all(event["blocks_signals"] for event in events if event not in jolts))
 
     def test_release_calendar_uses_disk_cache_on_second_call(self):
         now = datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc)
@@ -51,7 +55,7 @@ class FredCalendarTests(unittest.TestCase):
                 mock_get.return_value.raise_for_status = lambda: None
                 fetch_fred_release_events(lookahead_hours=48, now=now)
                 fetch_fred_release_events(lookahead_hours=48, now=now)
-                self.assertEqual(mock_get.call_count, 5)
+                self.assertEqual(mock_get.call_count, 8)
                 self.assertTrue(self.cache_path.exists())
 
     def test_stale_disk_cache_used_when_api_fails(self):
@@ -65,7 +69,6 @@ class FredCalendarTests(unittest.TestCase):
                 "50": [],
                 "53": [],
                 "21": [],
-                "677": [],
             },
         }
         self.cache_path.write_text(json.dumps(stale_payload), encoding="utf-8")
@@ -74,6 +77,24 @@ class FredCalendarTests(unittest.TestCase):
                 cached = _get_cached_release_dates(now, force=True)
         self.assertIn("10", cached)
         self.assertEqual(cached["10"][0]["date"], "2026-07-14")
+
+    def test_fresh_cache_missing_new_releases_is_refreshed(self):
+        now = datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc)
+        start, end = _cache_window(now)
+        self.cache_path.write_text(json.dumps({
+            "captured_at": now.isoformat(),
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
+            "releases": {"10": [], "50": [], "53": [], "21": []},
+        }), encoding="utf-8")
+        with patch("risk_filters.fred_calendar.FRED_API_KEY", "test-key"):
+            with patch("risk_filters.fred_calendar.requests.get") as mock_get:
+                mock_get.return_value.status_code = 200
+                mock_get.return_value.json.return_value = {"release_dates": []}
+                mock_get.return_value.raise_for_status = lambda: None
+                cached = _get_cached_release_dates(now)
+        self.assertEqual(mock_get.call_count, 8)
+        self.assertIn("192", cached)
 
 
 class GlobalScoreTests(unittest.TestCase):

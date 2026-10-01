@@ -164,9 +164,6 @@ struct OverviewView: View {
         if source.contains("estimado") || source.contains("manual") || event.estimated == true {
             return "\(base) · hora estimada"
         }
-        if source.contains("rss") || source.contains("myfxbook") {
-            return "\(base) · horario RSS"
-        }
         return base
     }
 

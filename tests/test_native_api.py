@@ -125,7 +125,7 @@ class NativeApiContractTests(unittest.TestCase):
                 "should_block_signals": True,
                 "block_hours": 6,
                 "time_quality": "aproximada",
-                "source": "myfxbook_rss",
+                "source": "estimado_manual",
                 "next_event": {
                     "title": "US CPI m/m",
                     "when_utc": "2026-08-26T12:30:00+00:00",
