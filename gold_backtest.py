@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
@@ -17,11 +18,14 @@ from cftc_positioning import (
     positioning_data_fields,
     summarize_gold_positioning,
 )
+from gld_holdings import fetch_gld_holdings, holdings_data_fields, summarize_gld_holdings
 from fred_vintages import fetch_revision_history, first_release_rows, known_rows, lagged_change, latest_value
 from gold_backtest_stats import BASELINES, assign_historical_baseline, overlap_diagnostics, paired_brier_interval, purged_folds
 from gold_outlook import MODEL_VERSION, build_gold_outlook
 from gold_validation import balanced_accuracy, brier_score, calibration_bins
 
+
+_EASTERN = ZoneInfo("America/New_York")
 
 MONTHLY_SERIES = {
     "cpi": "CPIAUCSL",
@@ -229,6 +233,7 @@ def run_gold_backtest(
     market_prices: pd.DataFrame | None = None,
     vintage_series: dict[str, list[dict[str, Any]]] | None = None,
     cftc_rows: list[dict[str, Any]] | None = None,
+    gld_holdings_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Ejecuta cortes mensuales desde la segunda quincena y guarda el informe."""
     end = end or datetime.now(timezone.utc).date()
@@ -242,6 +247,9 @@ def run_gold_backtest(
         refresh=refresh,
         start=warmup,
         end=end,
+    )
+    holdings_rows = gld_holdings_rows if gld_holdings_rows is not None else (
+        fetch_gld_holdings(refresh=refresh).get("rows") or []
     )
     if "GLD" not in market or market["GLD"].dropna().empty:
         raise RuntimeError("No hay histórico de GLD para ejecutar el backtest")
@@ -272,16 +280,21 @@ def run_gold_backtest(
             release_day = str(positioning["release_at"])[:10]
             if release_day > decision_at.date().isoformat():
                 raise AssertionError("Se detectó un informe CFTC aún no publicado")
-        # El backtest evalúa el candidato CFTC aunque la puerta de producción
-        # siga cerrada. La ablación decide después si puede puntuar en vivo.
-        outlook = build_gold_outlook(
-            macro, gld, uup, include_positioning_in_score=True
-        )
+        decision_close = datetime.combine(decision_at.date(), time(16, 0), tzinfo=_EASTERN)
+        holdings = summarize_gld_holdings(holdings_rows, as_of=decision_close, history_sessions=0)
+        macro.update(holdings_data_fields(holdings))
+        if holdings.get("release_at") and datetime.fromisoformat(holdings["release_at"]) > decision_close:
+            raise AssertionError("Se detectó una tenencia GLD aún no publicada")
+        # El backtest evalúa los candidatos CFTC y GLD aunque la puerta de
+        # producción siga cerrada. La ablación decide si pueden puntuar en vivo.
+        candidates = {"include_positioning_in_score": True, "include_etf_holdings_in_score": True}
+        outlook = build_gold_outlook(macro, gld, uup, **candidates)
         initial_macro = _macro_snapshot(initial_series, decision_at.date())
         initial_macro.update(positioning_data_fields(positioning))
+        initial_macro.update(holdings_data_fields(holdings))
         if "VIX" in macro:
             initial_macro["VIX"] = macro["VIX"]
-        initial_outlook = build_gold_outlook(initial_macro, gld, uup, include_positioning_in_score=True)
+        initial_outlook = build_gold_outlook(initial_macro, gld, uup, **candidates)
         future_prices = market.loc[market.index > decision_at, "GLD"].dropna()
         entry = float(gld["price"] or 0)
         for horizon, key in ((21, "short_term"), (63, "medium_term")):
@@ -316,6 +329,7 @@ def run_gold_backtest(
                 "macro_regime": outlook["macro_regime"]["id"],
                 "latest_release_at": macro.get("PointInTime_LastRelease"),
                 "latest_cftc_release_at": positioning.get("release_at"),
+                "latest_gld_holdings_release_at": holdings.get("release_at"),
                 "ablation_probabilities": ablation_probabilities,
             })
 
@@ -386,16 +400,17 @@ def run_gold_backtest(
                                       and len(folds) >= 4 and wins / len(folds) >= 0.6 and uncertainty_pass)
         passes_baselines = passes_baselines and result["passes_baselines"]
 
-    positioning_checks = []
-    for horizon in (21, 63):
-        item = (horizons[str(horizon)].get("ablation") or {}).get("positioning") or {}
-        positioning_checks.append(
-            int(item.get("sample_size") or 0) >= 30
-            and item.get("interpretation") == "APORTA"
-            and float(item.get("delta_brier_vs_full") or 0) >= 0.002
-            and float(item.get("delta_balanced_accuracy_vs_full") or 0) >= -0.02
-        )
-    positioning_promoted = bool(positioning_checks) and all(positioning_checks)
+    def gate(group_id: str) -> str:
+        checks = []
+        for horizon in (21, 63):
+            item = (horizons[str(horizon)].get("ablation") or {}).get(group_id) or {}
+            checks.append(
+                int(item.get("sample_size") or 0) >= 30
+                and item.get("interpretation") == "APORTA"
+                and float(item.get("delta_brier_vs_full") or 0) >= 0.002
+                and float(item.get("delta_balanced_accuracy_vs_full") or 0) >= -0.02
+            )
+        return "ENABLED" if checks and all(checks) else "CONTEXT_ONLY"
 
     report = {
         "status": "READY" if all(horizons[str(h)]["model"]["sample_size"] >= 30 for h in (21, 63)) else "INSUFFICIENT_DATA",
@@ -410,7 +425,8 @@ def run_gold_backtest(
         "promotion_status": "CANDIDATE" if passes_baselines else "KEEP_PRELIMINARY",
         "passes_baselines": passes_baselines,
         "feature_gates": {
-            "positioning": "ENABLED" if positioning_promoted else "CONTEXT_ONLY",
+            "positioning": gate("positioning"),
+            "etf_holdings": gate("etf_holdings"),
             "rule": "Aporta en Brier en 21 y 63 sesiones, n>=30 y sin deterioro material de precisión equilibrada",
         },
         "horizons": horizons,
@@ -420,8 +436,9 @@ def run_gold_backtest(
             "El bootstrap de bloques aproxima incertidumbre; los cortes mensuales pueden compartir sesiones futuras.",
             "ALFRED aporta fecha de disponibilidad diaria, no una hora de difusión verificada; los cortes son al cierre.",
             "GLD y UUP son proxies negociables y no sustituyen al oro spot ni al índice DXY.",
-            "Costes, deslizamiento, flujos ETF y compras oficiales aún no están incluidos.",
+            "Costes, deslizamiento, flujos de otros ETF y compras oficiales aún no están incluidos.",
             "CFTC usa fecha de publicación point-in-time; su peso en producción depende de la puerta de ablación.",
+            "Las tenencias GLD se fechan en T+1 07:00 NYT, pero el archivo se sobrescribe: el pasado usa la versión actual y se asume sin revisiones.",
         ],
     }
     report_path = Path(report_path)

@@ -151,6 +151,19 @@ class GoldHistoryTests(unittest.TestCase):
         self.assertEqual(result["prediction_inserted"], 1)
         self.assertEqual(gold_history_summary(self.db)["point_in_time_observations"], 1)
 
+    def test_gld_holdings_follow_their_release_time(self):
+        data = {
+            "GLD_Holdings_Tonnes": 500.0,
+            "GLD_Holdings_AsOf": "2026-09-24",
+            "GLD_Holdings_ReleaseAt": "2026-09-25T11:00:00+00:00",
+            "Assets": {"GLD": {"price": 200.0}},
+        }
+        early = record_gold_snapshot(data, outlook(), captured_at="2026-09-25T10:59:59+00:00", db_path=self.db)
+        self.assertEqual(early["future_observations_rejected"], 1)
+        late = record_gold_snapshot(data, outlook(), captured_at="2026-09-25T11:00:01+00:00", db_path=self.db)
+        self.assertEqual(late["future_observations_rejected"], 0)
+        self.assertEqual(gold_history_summary(self.db)["point_in_time_observations"], 1)
+
     def test_capture_policy_distinguishes_monthly_cut_and_event_recapture(self):
         monthly = gold_capture_policy("2026-09-15T12:00:00+00:00")
         routine = gold_capture_policy(

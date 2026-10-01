@@ -186,6 +186,11 @@ CFTC_GOLD_CACHE_FILE = CACHE_DIR / "cftc_gold_positioning.json"
 CFTC_GOLD_CACHE_TTL_SECONDS = 60 * 60 * 12
 GOLD_DEMAND_CACHE_FILE = CACHE_DIR / "gold_official_demand.json"
 GOLD_DEMAND_CACHE_TTL_SECONDS = 60 * 60 * 12
+# Datos GLD de World Gold Trust Services: solo uso personal y local (ver gld_holdings.py).
+GLD_HOLDINGS_CACHE_FILE = CACHE_DIR / "gld_holdings.json"
+GLD_HOLDINGS_RAW_DIR = CACHE_DIR / "gld_holdings_raw"
+GLD_HOLDINGS_CACHE_TTL_SECONDS = 60 * 60 * 6
+GLD_HOLDINGS_RAW_RETENTION = 30
 
 # ─── Calendario y dashboard ───
 CALENDAR_RSS_URL = "https://www.myfxbook.com/rss/forex-economic-calendar-events"

@@ -49,6 +49,7 @@ from cftc_positioning import (
     summarize_gold_positioning,
 )
 from gold_demand import fetch_official_gold_demand
+from gld_holdings import GLD_SOURCE, fetch_gld_holdings, holdings_data_fields, summarize_gld_holdings
 from gold_revisions import fetch_gold_revision_diagnostics
 from rotation_catalog import ROTATION_COMPANY_TICKERS
 
@@ -87,7 +88,7 @@ ROTATION_CACHE_KEYS = ("RotationCompanies",)
 
 # Cambia cuando se modifica el contrato de los bloques cacheados. Así no se
 # reutiliza un cache antiguo que, por ejemplo, no contiene nuevos proxies.
-CACHE_SCHEMA_VERSION = 14
+CACHE_SCHEMA_VERSION = 15
 MIN_USABLE_CACHE_SCHEMA = 6
 CACHE_METRIC_GROUPS = {"Assets", "RotationAssets", "RotationCompanies", "Forex", "GlobalMarkets"}
 
@@ -111,6 +112,10 @@ SLOW_VALUE_KEYS = (
     "CFTC_Price_Positioning_Divergence",
     "CFTC_Concentration_4_Long_Pct", "CFTC_Concentration_4_Short_Pct",
     "CFTC_Concentration_8_Long_Pct", "CFTC_Concentration_8_Short_Pct",
+    "GoldETFHoldings", "GLD_Holdings_Tonnes", "GLD_Holdings_1D_Change_Tonnes",
+    "GLD_Holdings_5D_Change_Tonnes", "GLD_Holdings_21D_Change_Tonnes",
+    "GLD_Holdings_5D_Change_Pct", "GLD_Holdings_21D_Change_Pct", "GLD_Holdings_63D_Change_Pct",
+    "GLD_Holdings_21D_Change_Percentile_3Y",
     "China_M2_YoY_Pct",
     "PE_Trailing", "PE_Forward", "PE_Forward_Date", "PE_Forward_Source", "PE_Forward_Percentile",
 )
@@ -119,6 +124,7 @@ SLOW_ASOF_KEYS = (
     "Energy_CPI_AsOf", "Real_Yield_10Y_AsOf", "Breakeven_10Y_AsOf", "WTI_AsOf",
     "Unemployment_AsOf", "Payrolls_AsOf", "Industrial_Production_AsOf",
     "China_M2_AsOf", "US2Y_AsOf", "CFTC_AsOf", "CFTC_ReleaseAt",
+    "GLD_Holdings_AsOf", "GLD_Holdings_ReleaseAt",
 )
 SLOW_CACHE_KEYS = SLOW_VALUE_KEYS + SLOW_ASOF_KEYS
 _ASOF_FOR_KEY = {
@@ -1222,6 +1228,9 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         "US2Y_AsOf": None,
         "GoldCFTC": {},
         "GoldOfficialDemand": {},
+        "GoldETFHoldings": {},
+        "GLD_Holdings_AsOf": None,
+        "GLD_Holdings_ReleaseAt": None,
         "CFTC_AsOf": None,
         "CFTC_ReleaseAt": None,
         "CFTC_MM_Net_Contracts": None,
@@ -1729,6 +1738,32 @@ def fetch_market_data(*, refresh: bool = False) -> Dict[str, Any]:
         # no representa el flujo mundial y por ello no altera el score.
         logging.info("Descargando reservas oficiales de oro (BCE/Tesoro EE. UU./SAFE)...")
         data["GoldOfficialDemand"] = fetch_official_gold_demand(refresh=refresh)
+
+        # ─── 4e. Tenencias físicas de GLD ───
+        # Datos WGTS de uso personal: se guardan solo en data/ y el dato del
+        # día T no se considera conocido hasta T+1 07:00 NYT.
+        logging.info("Descargando tenencias físicas de GLD (WGTS)...")
+        holdings_summary = summarize_gld_holdings(fetch_gld_holdings(refresh=refresh), as_of=captured_at)
+        data["GoldETFHoldings"] = holdings_summary
+        data.update(holdings_data_fields(holdings_summary))
+        holdings_status = str(holdings_summary.get("status") or "MISSING")
+        if holdings_summary.get("source_status") == "STALE" and holdings_status == "OK":
+            holdings_status = "STALE"
+        holdings_detail = (
+            f"sesión {holdings_summary.get('as_of')}; disponible {holdings_summary.get('release_at')}"
+            if holdings_summary.get("as_of") else "sin archivo GLD disponible"
+        )
+        for key in (
+            "GLD_Holdings_Tonnes", "GLD_Holdings_1D_Change_Tonnes", "GLD_Holdings_5D_Change_Tonnes",
+            "GLD_Holdings_21D_Change_Tonnes", "GLD_Holdings_5D_Change_Pct", "GLD_Holdings_21D_Change_Pct",
+            "GLD_Holdings_63D_Change_Pct", "GLD_Holdings_21D_Change_Percentile_3Y",
+        ):
+            _mark_quality(
+                data, key, GLD_SOURCE,
+                holdings_status if data.get(key) is not None else "MISSING",
+                holdings_detail,
+                as_of=holdings_summary.get("as_of"),
+            )
 
         logging.info("Contrastando primeras publicaciones y revisiones ALFRED...")
         data["GoldRevisions"] = fetch_gold_revision_diagnostics(as_of=datetime.fromisoformat(captured_at).date(), refresh=refresh)

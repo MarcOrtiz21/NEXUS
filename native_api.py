@@ -202,6 +202,10 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
     gold_backtest = load_gold_backtest_report()
     positioning_gate = (gold_backtest.get("feature_gates") or {}).get("positioning")
     data["CFTC_Positioning_Model_Eligible"] = positioning_gate == "ENABLED"
+    holdings_gate = (gold_backtest.get("feature_gates") or {}).get("etf_holdings")
+    data["GLD_Holdings_Model_Eligible"] = holdings_gate == "ENABLED"
+    if isinstance(data.get("GoldETFHoldings"), dict):
+        data["GoldETFHoldings"] = {**data["GoldETFHoldings"], "score_enabled": data["GLD_Holdings_Model_Eligible"]}
     gold_outlook = build_gold_outlook(data, gld, uup)
     history_write = None
     if export:
@@ -391,6 +395,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "demand": build_gold_demand(
                 data.get("GoldOfficialDemand") or {},
                 (data.get("PriceSparklines") or {}).get("GLD") or [],
+                data.get("GoldETFHoldings"),
             ),
             "history": gold_history,
             "change": gold_change,

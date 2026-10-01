@@ -252,6 +252,7 @@ def build_gold_outlook(
     uup_metrics: dict[str, Any] | None = None,
     *,
     include_positioning_in_score: bool | None = None,
+    include_etf_holdings_in_score: bool | None = None,
 ) -> dict[str, Any]:
     """Construye una perspectiva agrupada sin tratar ausencias como ceros."""
     data = data or {}
@@ -354,6 +355,22 @@ def build_gold_outlook(
         if include_positioning_in_score is None else include_positioning_in_score
     )
 
+    holdings_5d = _number(data.get("GLD_Holdings_5D_Change_Pct"))
+    holdings_21d = _number(data.get("GLD_Holdings_21D_Change_Pct"))
+    holdings_63d = _number(data.get("GLD_Holdings_63D_Change_Pct"))
+    holdings_short = _mean([
+        _clip(holdings_21d / 3.0) if holdings_21d is not None else None,
+        0.50 * _clip(holdings_5d / 1.5) if holdings_5d is not None else None,
+    ])
+    holdings_medium = _mean([
+        _clip(holdings_63d / 6.0) if holdings_63d is not None else None,
+        0.50 * _clip(holdings_21d / 3.0) if holdings_21d is not None else None,
+    ])
+    holdings_enabled = (
+        bool(data.get("GLD_Holdings_Model_Eligible"))
+        if include_etf_holdings_in_score is None else include_etf_holdings_in_score
+    )
+
     groups = [
         _group(
             "inflation", "Inflación", inflation_short, inflation_medium, 0.14, 0.16,
@@ -444,6 +461,23 @@ def build_gold_outlook(
             score_enabled=positioning_enabled,
         ),
         _group(
+            "etf_holdings", "Tenencias físicas ETF (GLD)", holdings_short, holdings_medium, 0.06, 0.08,
+            [
+                _metric_detail(data, "GLD_Holdings_Tonnes", "Oro en GLD", unit=" t", digits=1),
+                _metric_detail(data, "GLD_Holdings_5D_Change_Tonnes", "Cambio 5 sesiones", unit=" t", digits=1),
+                _metric_detail(data, "GLD_Holdings_21D_Change_Tonnes", "Cambio 21 sesiones", unit=" t", digits=1),
+                _metric_detail(data, "GLD_Holdings_21D_Change_Pct", "Cambio 21 sesiones", unit="%"),
+                _metric_detail(data, "GLD_Holdings_63D_Change_Pct", "Cambio 63 sesiones", unit="%"),
+                _metric_detail(data, "GLD_Holdings_21D_Change_Percentile_3Y", "Percentil cambio 21S · 3 años", unit="%", digits=0),
+            ],
+            (
+                "Diferencia de stock en toneladas de un solo fondo; no representa todos los ETF de oro."
+                if holdings_enabled else
+                "Visible como contexto; no puntúa hasta demostrar mejora estable fuera de muestra."
+            ),
+            score_enabled=holdings_enabled,
+        ),
+        _group(
             "official_demand", "Demanda oficial", official_signal, official_signal, 0.00, 0.12,
             [_detail("Compras netas", central_bank_tonnes, unit=" t", digits=1)],
             "Solo contexto: no existe una serie global de compras netas verificada. Los saldos nacionales no se suman ni puntúan.",
@@ -469,7 +503,12 @@ def build_gold_outlook(
                 if positioning_enabled else
                 "El posicionamiento CFTC se muestra, pero su peso permanece desactivado hasta superar la ablación fuera de muestra."
             ),
-            "Demanda oficial y flujos ETF no aportan score mientras falte una fuente verificable.",
+            (
+                "Las tenencias físicas de GLD han superado la ablación y aportan con peso limitado."
+                if holdings_enabled else
+                "Las tenencias físicas de GLD se muestran, pero no puntúan hasta superar la ablación fuera de muestra."
+            ),
+            "La demanda oficial no aporta score mientras falte una serie global verificable.",
         ],
         "what_changes_signal": [
             "Una caída sostenida de TIPS reales y del dólar mejoraría la lectura.",

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from gld_holdings import release_at_for_session
 from gold_backtest import _decision_dates, _regime_diagnostics, run_gold_backtest
 
 
@@ -48,11 +49,19 @@ class GoldBacktestTests(unittest.TestCase):
             "cpi", "core_cpi", "pce", "core_pce", "energy_cpi", "unemployment", "payrolls", "industrial", "m2"
         )}
         series.update({name: _daily_rows() for name in ("real_yield", "breakeven", "wti")})
+        holdings = [
+            {
+                "date": day.date().isoformat(),
+                "release_at": release_at_for_session(day.date()).isoformat(timespec="seconds"),
+                "tonnes": 500 + (index % 90) * 0.5,
+            }
+            for index, day in enumerate(index)
+        ]
         with tempfile.TemporaryDirectory() as folder:
             report = run_gold_backtest(
                 start=date(2016, 1, 1), end=date(2025, 12, 31),
                 report_path=Path(folder) / "report.json", market_prices=prices, vintage_series=series,
-                cftc_rows=[],
+                cftc_rows=[], gld_holdings_rows=holdings,
             )
         self.assertTrue(report["point_in_time"])
         self.assertGreaterEqual(report["horizons"]["63"]["model"]["sample_size"], 30)
@@ -68,8 +77,11 @@ class GoldBacktestTests(unittest.TestCase):
             report["horizons"]["21"]["ablation"]["inflation"]["interpretation"],
             {"APORTA", "NEUTRAL", "REVISAR"},
         )
+        self.assertIn(report["feature_gates"]["etf_holdings"], {"ENABLED", "CONTEXT_ONLY"})
+        self.assertIn("etf_holdings", report["horizons"]["21"]["ablation"])
         for sample in report["samples"]:
             self.assertLessEqual(sample["latest_release_at"], sample["decision_at"])
+            self.assertLessEqual(sample["latest_gld_holdings_release_at"][:10], sample["decision_at"])
 
 
 if __name__ == "__main__":

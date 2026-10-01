@@ -57,7 +57,19 @@ OBSERVATION_SPECS: dict[str, tuple[str, str | None]] = {
     "CFTC_MM_4W_Change_Contracts": ("contracts", "CFTC_AsOf"),
     "CFTC_MM_Percentile_3Y": ("percentile", "CFTC_AsOf"),
     "CFTC_MM_ZScore_3Y": ("z-score", "CFTC_AsOf"),
+    "GLD_Holdings_Tonnes": ("t", "GLD_Holdings_AsOf"),
+    "GLD_Holdings_5D_Change_Tonnes": ("t", "GLD_Holdings_AsOf"),
+    "GLD_Holdings_21D_Change_Tonnes": ("t", "GLD_Holdings_AsOf"),
+    "GLD_Holdings_21D_Change_Pct": ("%", "GLD_Holdings_AsOf"),
+    "GLD_Holdings_63D_Change_Pct": ("%", "GLD_Holdings_AsOf"),
     "VIX": ("index", None),
+}
+
+# Fuentes con hora de publicación conocida: la observación solo se guarda
+# como point-in-time si ya era pública en la captura.
+PUBLISHED_RELEASE_KEYS = {
+    "CFTC_": "CFTC_ReleaseAt",
+    "GLD_Holdings_": "GLD_Holdings_ReleaseAt",
 }
 
 
@@ -320,9 +332,12 @@ def record_gold_snapshot(
             # Mercado observado en vivo puede fecharse en la captura. Para FRED
             # no se inventa release_at: sus revisiones actuales no son vintage.
             market_live = as_of_key is None and source.lower().startswith("yfinance")
-            cftc_public = metric.startswith("CFTC_") and bool(data.get("CFTC_ReleaseAt"))
-            release_at = str(data.get("CFTC_ReleaseAt")) if cftc_public else (observed_at if market_live else None)
-            if cftc_public:
+            release_key = next(
+                (key for prefix, key in PUBLISHED_RELEASE_KEYS.items() if metric.startswith(prefix)), None
+            )
+            published = bool(release_key and data.get(release_key))
+            release_at = str(data.get(release_key)) if published else (observed_at if market_live else None)
+            if published:
                 released = _release_datetime(release_at)
                 if released is None or released > cutoff_instant:
                     rejected_future += 1
@@ -337,7 +352,7 @@ def record_gold_snapshot(
                 source=source,
                 quality=status,
                 release_at=release_at,
-                point_in_time=market_live or cftc_public,
+                point_in_time=market_live or published,
             )
             inserted += int(did_insert)
             unchanged += int(not did_insert)

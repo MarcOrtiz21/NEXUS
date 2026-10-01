@@ -633,12 +633,16 @@ def build_etf_market_proxy(points: list[dict[str, Any]] | None) -> dict[str, Any
 def build_gold_demand(
     official: dict[str, Any] | None,
     gld_points: list[dict[str, Any]] | None,
+    etf_holdings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    holdings = etf_holdings or {"status": "MISSING", "fund_id": "GLD", "history": [], "score_enabled": False}
     return {
         "status": (official or {}).get("status") or "MISSING",
         "official": official or {"status": "MISSING", "reserves": [], "score_enabled": False},
         "etf_market_proxy": build_etf_market_proxy(gld_points),
-        "actual_etf_flows_status": "STANDBY",
+        "etf_holdings": holdings,
+        # Un solo fondo no equivale al flujo agregado de los ETF de oro.
+        "actual_etf_flows_status": "GLD_ONLY" if holdings.get("status") in {"OK", "STALE"} else "STANDBY",
         "score_enabled": False,
         "methodology": "Contexto separado del score hasta ampliar cobertura y validar valor incremental.",
     }

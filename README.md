@@ -98,6 +98,11 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
   en error probabilístico y precisión equilibrada para los dos horizontes.
 - Ingesta CFTC/COMEX degradable con caché, unidades canónicas, fecha real de
   publicación y tratamiento explícito de retrasos extraordinarios.
+- Tenencias físicas del ETF GLD en toneladas y diferencia de stock a 1, 5, 21 y
+  63 sesiones. El dato de cada sesión se considera conocido desde el día hábil
+  siguiente a las 07:00 NYT; se muestra como contexto y solo puntuaría si supera
+  su propia ablación fuera de muestra. Los datos no se incluyen en el repositorio
+  (ver [Datos de terceros](#datos-de-terceros)).
 
 El informe histórico del oro se puede regenerar con:
 
@@ -118,6 +123,7 @@ flowchart TB
         YF["Yahoo Finance<br/>precios y OHLCV"]
         FRED["FRED / macro<br/>tipos e inflación"]
         CFTC["CFTC / COMEX<br/>posicionamiento semanal"]
+        GLDH["WGTS / GLD<br/>tenencias · solo local"]
         RSS["RSS y proveedores<br/>noticias y calendario"]
     end
 
@@ -153,6 +159,7 @@ flowchart TB
     YF --> ING
     FRED --> ING
     CFTC --> ING
+    GLDH --> ING
     RSS --> ING
     ING --> CACHE --> QUALITY
     CACHE --> SERIES
@@ -179,7 +186,7 @@ flowchart TB
     classDef engine fill:#202a22,stroke:#4caf70,color:#fff;
     classDef gate fill:#30251c,stroke:#ff9f0a,color:#fff;
     classDef app fill:#14273b,stroke:#0a84ff,color:#fff;
-    class YF,FRED,RSS source;
+    class YF,FRED,CFTC,GLDH,RSS source;
     class LOGIC,ROTATION,NEWS,DECISION,EXPLAIN engine;
     class RISK gate;
     class API,UI,VIEWS app;
@@ -279,6 +286,7 @@ NEXUS/
 ├── assets/                 # Icono y recursos de la aplicación
 ├── native_api.py           # Contrato FastAPI para la app nativa
 ├── cftc_positioning.py     # Posicionamiento CFTC/COMEX y política point-in-time
+├── gld_holdings.py         # Tenencias físicas GLD (datos solo locales)
 ├── gold_outlook.py         # Perspectiva agrupada del oro a 21/63 sesiones
 ├── gold_backtest.py        # Validación histórica y ablación por familia
 ├── gold_history.py         # Observaciones y predicciones versionadas
@@ -296,6 +304,20 @@ NEXUS/
 - Los escenarios de cartera son aproximaciones mecánicas, no predicciones.
 - El track record depende del número y frecuencia de snapshots históricos.
 - Las claves y credenciales deben permanecer fuera del repositorio.
+
+### Datos de terceros
+
+El código de NEXUS que descarga y procesa datos externos forma parte del
+proyecto; los datos que obtiene, no. Algunas fuentes tienen condiciones más
+restrictivas que la licencia de NEXUS:
+
+- **Tenencias GLD (SPDR Gold Trust).** El archivo histórico pertenece a World
+  Gold Trust Services, LLC. Sus [condiciones de uso](https://www.spdrgoldshares.com/terms-and-conditions/)
+  permiten guardarlo, mostrarlo o imprimirlo solo para uso personal y no
+  comercial, y prohíben redistribuirlo o crear obras derivadas sin autorización
+  escrita. NEXUS no incluye ni distribuye esos datos: cada usuario los descarga
+  desde la fuente oficial, bajo su responsabilidad, y quedan únicamente en
+  `data/cache/`, que git ignora. Las pruebas usan valores sintéticos.
 
 ## Licencia
 

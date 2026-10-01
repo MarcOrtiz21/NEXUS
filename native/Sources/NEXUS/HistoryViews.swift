@@ -1103,9 +1103,9 @@ struct ForexGoldView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 NexusSectionHeader(
-                    title: "DEMANDA OFICIAL Y PRESIÓN ETF",
+                    title: "DEMANDA OFICIAL Y ETF",
                     detail: "contexto · fuera del score",
-                    help: "Las reservas son saldos oficiales de cobertura parcial. El bloque GLD mide presión negociada por precio y volumen, no flujos ni toneladas del fondo."
+                    help: "Las reservas son saldos oficiales de cobertura parcial. La presión negociada GLD es un proxy de precio y volumen; las tenencias físicas son toneladas publicadas por el fondo, disponibles desde la sesión siguiente."
                 )
                 Spacer(minLength: 8)
                 Text(official?.status == "PARTIAL" ? "COBERTURA PARCIAL" : (official?.status ?? "PENDIENTE"))
@@ -1225,8 +1225,12 @@ struct ForexGoldView: View {
                 .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
 
+            gldHoldingsBlock(demand?.etfHoldings)
+
             Label(
-                "Flujos ETF reales: \(demand?.actualETFFlowsStatus ?? "STANDBY") · pendiente de una fuente con licencia compatible y derecho de almacenamiento.",
+                demand?.actualETFFlowsStatus == "GLD_ONLY"
+                    ? "Flujos ETF: solo GLD. Un fondo no representa la demanda agregada de los ETF de oro."
+                    : "Flujos ETF reales: \(demand?.actualETFFlowsStatus ?? "STANDBY") · sin archivo GLD local disponible.",
                 systemImage: "lock.doc"
             )
             .font(.caption2)
@@ -1236,6 +1240,68 @@ struct ForexGoldView: View {
         .nexusCard()
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
+    }
+
+    private func gldHoldingsBlock(_ holdings: GoldETFHoldings?) -> some View {
+        let gate = store.snapshot?.gold?.backtest?.featureGates?["etf_holdings"]
+        let available = holdings?.status == "OK" || holdings?.status == "STALE"
+        return VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TENENCIAS FÍSICAS · GLD")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(NexusTheme.accent)
+                Spacer()
+                Text(holdings?.status == "STALE" ? "CACHÉ" : (available ? "DATO DEL FONDO" : "SIN DATO"))
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(holdings?.status == "OK" ? NexusTheme.good : NexusTheme.warn)
+            }
+            if available {
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(holdings?.tonnes.map { String(format: "%.1f t", $0) } ?? "—")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                        Text("Sesión \(holdings?.asOf ?? "—") · disponible \(holdings?.releaseAt.map { String($0.prefix(16)).replacingOccurrences(of: "T", with: " ") } ?? "—") UTC")
+                            .font(.caption2)
+                            .foregroundStyle(NexusTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    if let points = holdings?.history, points.count > 2 {
+                        NexusMiniSparkline(points: points, width: 120, height: 36)
+                            .accessibilityLabel("Evolución reciente de toneladas en GLD")
+                    }
+                }
+                NexusResponsiveGrid(wideColumns: 4, mediumColumns: 2, spacing: 8) {
+                    positioningMetric("1 SESIÓN", signedTonnes(holdings?.change1DTonnes), "diferencia de stock")
+                    positioningMetric("5 SESIONES", signedTonnes(holdings?.change5DTonnes), "diferencia de stock")
+                    positioningMetric("21 SESIONES", signedTonnes(holdings?.change21DTonnes), "\(signed(holdings?.change21DPct))% · percentil \(holdings?.change21DPercentile3Y.map { String(format: "%.0f", $0) } ?? "—")")
+                    positioningMetric("EN EL MODELO", gate == "ENABLED" ? "ACTIVO" : "CONTEXTO", gate == "ENABLED" ? "peso limitado" : "pendiente de ablación")
+                }
+                if let shares = holdings?.sharesOutstandingDerived {
+                    Text("Participaciones en circulación (derivadas): \(shares.formatted(.number.precision(.fractionLength(0))))")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(NexusTheme.muted)
+                }
+            } else {
+                NexusEmptyState(
+                    title: "Sin archivo GLD local",
+                    detail: "Las tenencias se descargan en tu equipo; sin ellas no se infiere ningún flujo.",
+                    symbol: "shippingbox"
+                )
+            }
+            Text(holdings?.dataNotice ?? "Datos de World Gold Trust Services para uso personal; NEXUS no los distribuye.")
+                .font(.caption2)
+                .foregroundStyle(NexusTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(NexusTheme.cardInner, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func signedTonnes(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%+.1f t", value)
     }
 
     private func contracts(_ value: Double?) -> String {
@@ -1706,7 +1772,7 @@ struct ForexGoldView: View {
             "inflation": "Inflación", "real_rates": "Tipos reales", "dollar": "Dólar",
             "energy": "Energía", "activity": "Actividad", "liquidity": "Liquidez",
             "risk": "Riesgo", "technical": "Técnica", "official_demand": "Demanda oficial",
-            "positioning": "Posicionamiento CFTC",
+            "positioning": "Posicionamiento CFTC", "etf_holdings": "Tenencias GLD",
         ][key] ?? key
     }
 

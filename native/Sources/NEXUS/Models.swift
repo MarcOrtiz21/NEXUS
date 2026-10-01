@@ -1010,6 +1010,7 @@ struct GoldDemand: Codable {
     let status: String?
     let official: GoldOfficialDemand?
     let etfMarketProxy: GoldETFMarketProxy?
+    let etfHoldings: GoldETFHoldings?
     let actualETFFlowsStatus: String?
     let scoreEnabled: Bool?
     let methodology: String?
@@ -1017,6 +1018,7 @@ struct GoldDemand: Codable {
     enum CodingKeys: String, CodingKey {
         case status, official, methodology
         case etfMarketProxy = "etf_market_proxy"
+        case etfHoldings = "etf_holdings"
         case actualETFFlowsStatus = "actual_etf_flows_status"
         case scoreEnabled = "score_enabled"
     }
@@ -1092,6 +1094,50 @@ struct GoldETFMarketProxy: Codable {
         case signedVolumeBalance = "signed_volume_balance"
         case priceReturn1MPct = "price_return_1m_pct"
         case volumeRatio5D20D = "volume_ratio_5d_20d"
+        case scoreEnabled = "score_enabled"
+    }
+}
+
+struct GoldETFHoldings: Codable {
+    let status: String?
+    let fundID: String?
+    let asOf: String?
+    let releaseAt: String?
+    let ageDays: Int?
+    let tonnes: Double?
+    let sharesOutstandingDerived: Double?
+    let change1DTonnes: Double?
+    let change5DTonnes: Double?
+    let change21DTonnes: Double?
+    let change63DTonnes: Double?
+    let change21DPct: Double?
+    let change63DPct: Double?
+    let change21DPercentile3Y: Double?
+    let sourceStatus: String?
+    let releasePolicy: String?
+    let dataNotice: String?
+    let sharesNote: String?
+    let scoreEnabled: Bool?
+    let history: [SparklinePoint]?
+
+    enum CodingKeys: String, CodingKey {
+        case status, tonnes, history
+        case fundID = "fund_id"
+        case asOf = "as_of"
+        case releaseAt = "release_at"
+        case ageDays = "age_days"
+        case sharesOutstandingDerived = "shares_outstanding_derived"
+        case change1DTonnes = "change_1d_tonnes"
+        case change5DTonnes = "change_5d_tonnes"
+        case change21DTonnes = "change_21d_tonnes"
+        case change63DTonnes = "change_63d_tonnes"
+        case change21DPct = "change_21d_pct"
+        case change63DPct = "change_63d_pct"
+        case change21DPercentile3Y = "change_21d_percentile_3y"
+        case sourceStatus = "source_status"
+        case releasePolicy = "release_policy"
+        case dataNotice = "data_notice"
+        case sharesNote = "shares_note"
         case scoreEnabled = "score_enabled"
     }
 }

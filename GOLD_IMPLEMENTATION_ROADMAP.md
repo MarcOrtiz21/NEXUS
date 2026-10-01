@@ -15,6 +15,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Bloquear cualquier uso de información publicada después de la captura.
 - [x] Versionar datos, reglas, pesos y resultados del modelo.
 
+
+
 ## 1. Contrato y nomenclatura
 
 - [x] Definir horizontes de 21 y 63 sesiones.
@@ -22,6 +24,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Definir contribuciones continuas y límites por grupo.
 - [x] Corregir RBI = India y NBP = Polonia en la referencia importada, preservando el texto original y la celda.
 - [ ] Documentar definitivamente WGC, GMC, RG y FMI/3BC. La hoja ya está contrastada; la expansión de RG y «FMI» y la composición exacta de los tres bancos necesitan confirmación del autor.
+
+
 
 ### Glosario y procedencia · 2026-09-27
 
@@ -31,10 +35,15 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - **FMI/3BC**: el autor lo define como resultados de los tres principales bancos de cada país/zona en un periodo parecido. **No es** un total de reservas ni necesariamente una serie del Fondo Monetario Internacional. En `IMPLEMENTAR` el encabezado «FMI/3BC» precede a tres filas de compras de bancos **centrales** (PBoC, RBI, NBP): se conserva como encabezado histórico ambiguo, pero estas filas se clasifican por separado como existencias oficiales nacionales, nunca como resultados de tres bancos comerciales. Pendientes expansión de FMI, territorios, selección de tres bancos, métrica, calendarios y licencias.
 - **RBI / NBP**: Reserve Bank of India = India; Narodowy Bank Polski = Polonia. El importador muestra la corrección sin sobrescribir «India / NBP» ni «Polonia / RBI» del libro.
 - **Reservas oficiales**: existencias físicas en toneladas por entidad y fecha. Una diferencia entre cortes es cambio de existencias, **no** compras netas intrames ni demanda mundial. El BCE es un área económica, los demás registros son nacionales; no hay total global ni se suman registros como si fueran universales.
+
 - [x] Definir fecha de corte mensual desde el día 15 y recaptura posterior a CPI, PCE, empleo o FOMC.
 - [x] Definir unidades canónicas para porcentajes, puntos, contratos CFTC, toneladas y precios.
 
+
+
 ## 2. Ingesta pública y normalización
+
+
 
 ### Inflación
 
@@ -47,6 +56,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Guardar la primera publicación histórica mediante vintages ALFRED.
 - [x] Incorporar revisiones posteriores como una capa separada de diagnóstico: primera publicación y última revisión conocida por periodo, con retirada explícita de observaciones y caché independiente.
 
+
+
 ### Tipos, dólar y liquidez
 
 - [x] Rendimiento real TIPS a 10 años.
@@ -55,6 +66,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Dólar mediante fuerza y momentum existentes de UUP.
 - [x] Liquidez monetaria mediante M2.
 - [ ] Añadir expectativas implícitas de tipos de fondos federales.
+
+
 
 ### Energía y actividad indirecta
 
@@ -68,10 +81,14 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [ ] Añadir demanda de joyería de China e India.
 - [ ] Añadir comercio y demanda industrial de metales relevantes.
 
+
+
 ### Flujos y demanda específica de oro
 
 - [x] Ingerir posicionamiento CFTC/COMEX con fecha real de publicación y caché degradable.
 - [ ] Ingerir flujos de ETF respaldados por oro.
+  - [x] GLD: tenencias físicas diarias y diferencia de stock, solo como contexto mientras su ablación no apruebe (ver P2 ETF).
+  - [ ] IAU y resto de ETF: bloqueados por condiciones de uso o falta de histórico oficial.
 - [ ] Ingerir reservas y compras oficiales por banco central.
   - [x] Ingerir el saldo mensual de oro monetario del BCE desde su API pública.
   - [x] Ingerir el saldo semanal publicado por el Tesoro de EE. UU.
@@ -81,9 +98,11 @@ elementos se marcarán al completar código, pruebas y revisión visual.
     - [ ] Polonia NBP: comprobar una serie oficial **versionable de volumen físico** con fecha de publicación. Algunas versiones del [informe de balanza de pagos](https://static.nbp.pl/dane/bilans-platniczy/bopa_en.pdf) mencionan toneladas, pero el PDF se reemplaza y la edición consultada el 27-09-2026 no contiene una tabla de existencias físicas. El XLS mensual de reservas en USD/PLN/EUR es valoración monetaria; la API pública de oro es precio. Hasta localizar un archivo físico estable: `MISSING`, sin estimar toneladas por precio.
   - [x] Mantener la cobertura parcial fuera del score hasta validar representatividad.
 - [x] Añadir proxy GLD de presión negociada por precio/volumen, rotulado como proxy y fuera del score.
-- [ ] Sustituir el proxy por flujos/tenencias ETF reales cuando exista una licencia compatible con almacenamiento y redistribución.
+- [x] Mostrar tenencias reales de GLD junto al proxy, sin sustituirlo: el proxy mide presión negociada y las tenencias, stock físico de un solo fondo. Los datos se almacenan solo en local y no se redistribuyen.
 - [ ] Calcular compradores y vendedores líderes móviles a 12 meses.
 - [ ] Sustituir tres votos fijos por una contribución agregada y limitada.
+
+
 
 ### Contrato de procedencia y puertas de fuentes · 2026-09-27
 
@@ -96,9 +115,25 @@ elementos se marcarán al completar código, pruebas y revisión visual.
   - [ ] Registrar la hora de publicación exacta o aplicar una política temporal conservadora para backtest; comparar revisiones y cerrar QA de 12 meses. Hasta entonces RBI es solo contexto descriptivo cuando exista HTML reciente, nunca señal.
 - [ ] **P1 NBP**: localizar archivo mensual histórico de onzas/toneladas físicas, documentar política de revisión y disponibilidad point-in-time; si solo existe valor monetario o PDF sobrescrito, dejar `MISSING` y estudiar IRFCL/IMF con sus condiciones.
 - [ ] **P2 ETF**: evaluar datos oficiales de participaciones/toneladas de GLD e IAU (archivo histórico, hora de publicación, licencia de conservación y redistribución). Cada fondo se etiqueta por `fund_id`, nunca «flujos de todos los ETF»; el proxy de volumen actual permanece separado.
+  - [x] **Revisión GLD · 2026-09-30.** Fuente oficial: [Historical Archive](https://www.spdrgoldshares.com/usa/gld/) → `api.spdrgoldshares.com/api/v1/historical-archive?product=gld&exchange=NYSE&lang=en` (XLSX, hoja «US GLD Historical Archive»). Diario desde 18-11-2004 (~5.700 filas): cierre, onzas por participación, NAV/participación 10:30 NYT, volumen, onzas totales, **toneladas** y NAV total. Participaciones en circulación = onzas totales / onzas por participación (derivado, se rotula así; ambas cifras proceden del mismo cálculo del fondo). Publicación: el fichero se regenera hacia las 06:00–06:30 NYT del día siguiente (`Last-Modified` 10:31 GMT el 30-09-2026 con dato del 29-09): política point-in-time **dato de T disponible desde la sesión T+1**. El archivo se sobrescribe completo; no hay vintages oficiales, así que la reproducibilidad exige guardar localmente cada descarga con su hash y fecha.
+  - [x] **Condiciones GLD.** Los [términos de WGTS](https://www.spdrgoldshares.com/terms-and-conditions/) solo permiten guardar y mostrar la información para **uso personal y no comercial**; copiar, distribuir, publicar o crear obras derivadas exige autorización escrita ([sprdgoldshares@gold.org](mailto:sprdgoldshares@gold.org)), y la hoja *Disclaimer* del XLSX prohíbe expresamente reproducir o redistribuir. Consecuencias para NEXUS (repositorio **público**): los datos y descargas viven solo en `data/cache/` (ignorado por git); nunca se versionan filas reales, ni en fixtures de pruebas (usar valores sintéticos); cualquier uso por terceros o publicación de la serie requiere solicitar permiso antes.
+  - [x] **Revisión IAU.** iShares solo muestra el valor vigente de «Tonnes in Trust» y «Ounces in Trust» con fecha `as of`; no hay descarga oficial del histórico diario. Los espejos de terceros no se aceptan como fuente de producción. Opción viable: registrar desde ahora una observación diaria propia (histórico solo hacia delante, sin backfill) y dejar IAU fuera de backtest hasta acumular muestra.
+  - [x] **Condiciones BlackRock · 2026-10-01.** Los [términos de BlackRock](https://www.blackrock.com/corporate/compliance/terms-and-conditions) limitan el contenido a uso personal y no comercial y, además, prohíben usar «any robot, spider, intelligent agent, other automatic device, or manual process to search, monitor or copy» el sitio o sus datos sin permiso (solo se exceptúan navegadores web generales). La observación diaria automatizada de IAU queda **BLOQUEADA**: no se implementa ni se sustituye por espejos de terceros.
+  - [ ] IAU: solicitar permiso escrito a BlackRock para la observación diaria automatizada. Solo con permiso: ingesta forward-only con `fund_id=IAU`, misma política point-in-time y fuera de backtest hasta reunir muestra suficiente.
+  - [x] **Decisión de publicación · 2026-10-01.** Repositorio único y público: el **código** de ingesta GLD es público; los **datos** GLD son solo locales. Nunca se versionan filas reales, descargas, capturas ni exportaciones de la serie; las pruebas usan XLSX sintéticos generados en memoria. Quien use NEXUS descarga los datos por su cuenta desde la fuente oficial y bajo las condiciones de WGTS. Aviso en el [README](README.md#datos-de-terceros), en la cabecera de `gld_holdings.py` y en el panel de la aplicación.
+  - [x] Implementar ingesta GLD (`gld_holdings.py`): `fund_id=GLD`, toneladas como unidad canónica, onzas y participaciones derivadas (onzas totales / onzas por participación, rotuladas como derivadas), diferencia de stock a 1/5/21/63 sesiones y percentil a 3 años del cambio de 21 sesiones. Filas `US Holiday` descartadas sin convertirlas en cero.
+    - [x] Disponibilidad conservadora: el dato de la sesión T es conocido desde el siguiente día hábil de EE. UU. a las 07:00 NYT. El 01-10-2026 el `Last-Modified` (03:00 GMT) ya incluía la sesión del 30-09, así que la regla no adelanta información.
+    - [x] Reproducibilidad local: cada descarga se registra en `data/cache/gld_holdings_raw/manifest.jsonl` con SHA-256, fecha de captura, `Last-Modified`, rango de fechas y **filas históricas revisadas** frente a la descarga anterior; se conservan los últimos 30 XLSX. Caché degradable `OK → STALE → MISSING`.
+    - [x] Integración: campos `GLD_Holdings_*` con calidad y fecha, historial con `release_at` (rechaza capturas anteriores a la publicación), payload `gold.demand.etf_holdings`, caché lenta (esquema 15) y capacidad `gold_etf_holdings_gld` en la API 1.15.
+    - [x] Panel «Tenencias físicas · GLD» bajo la presión negociada, separado del proxy de volumen: toneladas, sesión y hora de disponibilidad, cambios en toneladas, percentil, participaciones derivadas, estado en el modelo y aviso de datos de terceros. `actual_etf_flows_status = GLD_ONLY`: un fondo no representa los flujos agregados de ETF.
+    - [x] Grupo candidato `etf_holdings` (peso 0,06 / 0,08) que solo puntúa con la puerta `feature_gates.etf_holdings = ENABLED`, misma regla que CFTC. El backtest lo evalúa como candidato y comprueba que ninguna tenencia se use antes de su publicación.
+    - [x] **Ablación real 2016–2026:** `NEUTRAL` en ambos horizontes. Quitar GLD mejora ligeramente el Brier (Δ −0,0001 a 21 sesiones, −0,0004 a 63), por lo que la puerta queda en `CONTEXT_ONLY` y **no entra en el score**. Brier del modelo completo con los candidatos: 0,2576 / 0,2526 (n = 98 / 96). Confirma el riesgo previsto: los flujos siguen al precio y su información ya la recoge el grupo técnico.
+    - [ ] Limitación: el pasado usa la versión actual del archivo, que se sobrescribe; el registro de revisiones solo audita desde la primera descarga local.
 - [x] **P2 ALFRED**: visualizar revisión posterior frente a primera publicación por serie, sin reemplazar el vintage histórico de la captura. Panel de nueve series y tres periodos recientes por serie; diferencias en unidades originales, fechas de difusión con precisión de día y ausencias/caché caducada visibles.
 - [ ] **P3 WGC / consenso / FMI-3BC**: pasar revisión de licencia, definición por territorio y entidad, periodización, comparabilidad y backtest antes de cualquier ingesta puntuable. Fuentes privadas siguen `STANDBY`.
 - [ ] Puerta de activación para una fuente: identidad y unidad física verificadas → periodo y fecha de difusión → historial versionado reproducible → prueba de ausencia/revisión y licencia → valor incremental fuera de muestra. La disponibilidad descriptiva por sí sola **no** autoriza score ni confianza alta.
+
+
 
 ## 3. Fuentes privadas o con licencia · STANDBY
 
@@ -107,6 +142,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [ ] `STANDBY` · Datos WGC sujetos a condiciones de redistribución.
 - [ ] Evaluar proveedor, licencia, coste, estabilidad y derecho de almacenamiento.
 - [ ] Mantener entrada manual auditable como alternativa temporal.
+
+
 
 ## 4. Motor de factores
 
@@ -129,6 +166,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [ ] Demostrar valor incremental del régimen por estratos fuera de muestra antes de usarlo en el score. El backtest expone recuentos y Brier por régimen solo a partir de 30 casos comparables; esto todavía no demuestra mejora causal.
 - [x] Añadir explicación de cambios frente a la captura anterior.
 
+
+
 ## 5. Persistencia histórica
 
 - [x] Crear almacén SQLite de observaciones y revisiones.
@@ -143,6 +182,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Importar la hoja `IMPLEMENTAR` como referencia, no como verdad histórica: `gold_reference.py` lee solo esa pestaña en modo lectura, 153 filas de nueve meses de 2026, conserva celdas y rótulos originales, corrige RBI/NBP para presentación y deja todos los votos `score_eligible=false` y `release_at=null`. No escribe en SQLite ni en el workbook.
 - [x] Reconstruir al menos 10 años sin anticipación temporal.
 
+
+
 ## 6. API de NEXUS
 
 - [x] Exponer `gold.outlook` en el snapshot nativo.
@@ -154,6 +195,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Exponer demanda oficial parcial y su cobertura sin convertir ausencias en cero.
 - [x] Exponer el último informe de validación histórica y la versión evaluada.
 - [x] Exponer posicionamiento CFTC, frescura, concentración e histórico normalizado.
+
+
 
 ## 7. Interfaz y accesibilidad
 
@@ -195,6 +238,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Verificar navegación por teclado y etiquetas de accesibilidad de controles, métricas y gráficas.
 - [x] Completar inspección visual panorámica y del inspector lateral; las rejillas mantienen distribución adaptable y el panel es opaco.
 
+
+
 ## 8. Validación del modelo
 
 - [x] Añadir pruebas unitarias del agrupamiento y datos ausentes.
@@ -214,6 +259,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [ ] Exigir mejora estable fuera de muestra antes de elevar la confianza.
 - [x] Documentar en la interfaz los fallos vencidos de mayor error, su retorno y el impulsor dominante.
 
+
+
 ## 9. Criterios de cierre
 
 - [ ] Cobertura de datos públicos superior al 90% en las capturas mensuales.
@@ -222,6 +269,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] La interfaz explica el porqué de cada dirección sin depender del color.
 - [ ] El modelo supera las referencias simples fuera de muestra.
 - [x] Inspección funcional y visual aprobada antes de publicar la versión 3.9.0.
+
+
 
 ## Verificación de la versión 3.9.0 · 2026-09-20
 
@@ -233,6 +282,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Panel CFTC/COMEX, histórico normalizado, concentración y procedencia visibles.
 - [x] API 1.11, aplicación 3.9.0, compilación de producción y suite automática verificadas.
 
+
+
 ## Avance de la versión 3.10.0 · 2026-09-20
 
 - [x] Reservas oficiales del BCE y del Tesoro de EE. UU. con toneladas, comparativa y caché degradable.
@@ -241,6 +292,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] API 1.12, aplicación 3.10.0, compilación de producción y suite Python verificadas.
 - [x] Contrato real verificado: BCE 508,4 t, Tesoro de EE. UU. 8.133,5 t y proxy GLD disponible.
 - [x] Inspección visual final de la tarjeta en ventana ancha y en la anchura mínima admitida (~900 px): distribución estable, navegación adaptable y contenido legible sin recortes ni transparencias.
+
+
 
 ## Avance de la versión 3.11.0 · 2026-09-22
 
@@ -253,6 +306,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] El corte comprueba también la hora de publicación CFTC con zona horaria: rechaza publicaciones posteriores y bloquea la persistencia de la predicción completa si hay datos rechazados. El estado visual distingue «SIN FUGAS» de «FILTRO APLICADO».
 - [ ] Validar calibración y diagnóstico de fallos con resultados en vivo vencidos: el recuento cambia con cada captura; consultar la API en vez de congelarlo aquí. No se puede declarar calibrado el modelo hasta reunir al menos 30 resultados por horizonte.
 
+
+
 ## Revisión de `IMPLEMENTAR` y secuencia actual · 2026-09-27
 
 1. [x] Separar `FMI/3BC` (definición pendiente de bancos de cada territorio) de reservas oficiales de PBoC, RBI y NBP. Los `+1/-1` de mayo-septiembre y otros meses son juicios manuales no verificables, no etiquetas de entrenamiento ni compras medidas.
@@ -261,6 +316,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 4. [ ] Con el autor, cerrar nomenclatura RG y FMI/3BC y definir un dataset de bancos comerciales individualizado por país/zona; no mezclarlo con PBoC/RBI/NBP ni con WGC.
 5. [ ] Solo después de cobertura, derechos, timestamp y suficiente histórico: contrastar pesos/regímenes con ablación walk-forward contra momentum y dólar+TIPS. La validación histórica actual sigue **preliminar** y no demuestra mejora consistente; mantener sin permiso operativo nuevo.
 
+
+
 ### Ejecución RBI · 2026-09-29
 
 - [x] El HTML oficial de la [edición del 22-05-2026](https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx?Id=24213) devuelve 880,52 t con corte 24-04-2026. Solo se usa como verificación del parser, no como saldo actual.
@@ -268,6 +325,8 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] API: `release_date` separada de `release_at` (hora desconocida); SwiftUI muestra la fecha y advierte que la hora no está verificada. La caché RBI antigua no se promociona a dato vigente.
 - [x] Otro ajuste de presentación: la tarjeta de Oro desglosa fuentes actuales, de archivo, de caché y ausentes. La variación de toneladas usa color neutral y se etiqueta como cambio de saldo, no como compra o señal.
 - [ ] Próxima puerta: conseguir la edición PDF o API oficial de RBI y fixture reproducible, implementar extractor por tabla con pruebas de unidad/fecha/revisión y verificar en pantalla antes de marcar esta fuente como completa.
+
+
 
 ## Avance de la versión 3.12.0 · 2026-09-30
 
@@ -282,3 +341,14 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Nuevo informe 2016–2026: 98 cortes de prueba a 21 sesiones y 96 a 63; Brier 0,2574 / 0,2523, precisión equilibrada 47,6% / 44,5%. **No demuestra mejora estable frente a las cuatro referencias**: `KEEP_PRELIMINARY`. No se elevan confianza ni permisos operativos.
 - [ ] Completar prueba manual con VoiceOver real, contraste aumentado y tamaños de texto del sistema. La navegación por teclado y las etiquetas del árbol de accesibilidad sí se han comprobado; esto no equivale a certificar todo el recorrido con lector de pantalla.
 - [ ] Pendientes de fuentes: RBI vigente/archivo físico de NBP, ETF reales y cierre de nomenclatura RG/FMI-3BC. Fuentes privadas y consensos siguen en `STANDBY`.
+
+
+
+## Avance de la versión 3.13.0 · 2026-10-01
+
+- [x] Tenencias físicas de GLD integradas de extremo a extremo: ingesta, caché y registro de descargas, campos con calidad, historial point-in-time, backtest, API 1.15 y panel nativo. Detalle en «P2 ETF».
+- [x] Decisión documentada: código público, datos GLD solo en local; README, módulo y aplicación lo indican.
+- [x] Ablación real: GLD `NEUTRAL` y fuera del score. El modelo sigue en `KEEP_PRELIMINARY`.
+- [x] IAU revisado y bloqueado por los términos de BlackRock sobre acceso automatizado; pendiente de permiso.
+- [x] Suite automática: 231 pruebas; compilación de producción Swift correcta (SDK 26.5).
+- [ ] Inspección visual del panel GLD en ventana amplia y media pantalla, y prueba con VoiceOver.
