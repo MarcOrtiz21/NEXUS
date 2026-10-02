@@ -15,7 +15,7 @@ import io
 import json
 import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -43,7 +43,18 @@ SAFE_INDEX_CURRENT = "https://www.safe.gov.cn/en/2021/0203/2045.html"
 SAFE_INDEX_PREVIOUS = "https://www.safe.gov.cn/en/2021/0203/2385.html"
 RBI_BULLETIN_INDEX = "https://www.rbi.org.in/Scripts/BS_ViewBulletin.aspx"
 RBI_SOURCE = "RBI Bulletin: Foreign Exchange Reserves, volumen físico"
-RESERVE_SCHEMA_VERSION = 4
+# El índice del informe semestral no es descubrible sin JavaScript; actualizar
+# el identificador cuando RBI publique el siguiente (finales de abril y de año).
+RBI_HALF_YEARLY_URL = "https://www.rbi.org.in/Scripts/PublicationsView.aspx?id=23811"
+RBI_HALF_YEARLY_SOURCE = "RBI: Half Yearly Report on Management of Foreign Exchange Reserves"
+RBI_HALF_YEARLY_MAX_AGE_DAYS = 300
+# Polonia declara al FMI el oro en onzas troy finas (plantilla IRFCL, I.A.5).
+# Uso permitido citando al FMI; una consulta pequeña cacheada, sin descarga masiva.
+IMF_IRFCL_SOURCE = "FMI: International Reserves and Foreign Currency Liquidity (IRFCL), oro en onzas troy"
+IMF_IRFCL_PAGE = "https://data.imf.org/en/datasets/IMF.STA:IRFCL"
+IMF_IRFCL_POLAND_KEY = "POL.IRFCLDT1_IRFCL56V_FTO.S1XS1311.M"
+IMF_IRFCL_DATA_URL = f"https://api.imf.org/external/sdmx/2.1/data/IMF.STA,IRFCL/{IMF_IRFCL_POLAND_KEY}"
+RESERVE_SCHEMA_VERSION = 5
 RESERVE_SCOPES = {
     "ecb": ("economic_area", "euro_area"),
     "us_treasury": ("country", "US"),
@@ -206,6 +217,52 @@ def parse_rbi_gold_html(text: str, source_url: str) -> list[dict[str, Any]]:
     return sorted(result, key=lambda row: row["period"])
 
 
+def parse_rbi_half_yearly_html(text: str, source_url: str) -> list[dict[str, Any]]:
+    """Toneladas al cierre del semestre y fecha de publicación del informe."""
+    if not re.fullmatch(r"https://www\.rbi\.org\.in/Scripts/PublicationsView\.aspx\?id=\d+", source_url):
+        return []
+    plain = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", text)))
+    if "Management of Foreign Exchange Reserves" not in plain:
+        return []
+    holding = re.search(
+        r"As at end-([A-Za-z]+) (\d{4}), the Reserve Bank held ([\d,]+(?:\.\d+)?) metric tonnes of gold",
+        plain,
+    )
+    stamp = re.search(r"Date\s*:\s*([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*(\d{4})", plain)
+    if not holding or not stamp:
+        return []
+    try:
+        month = datetime.strptime(holding.group(1)[:3], "%b").month
+        year = int(holding.group(2))
+        period = date(year, month, calendar.monthrange(year, month)[1])
+        release_date = datetime.strptime(f"{stamp.group(1)} {stamp.group(2)} {stamp.group(3)}", "%b %d %Y").date()
+    except ValueError:
+        return []
+    tonnes = _number(holding.group(3))
+    if tonnes is None or not 0 < tonnes < 10_000 or period >= release_date:
+        return []
+    return [{"period": period.isoformat(), "tonnes": round(tonnes, 3),
+             "release_date": release_date.isoformat(), "url": source_url}]
+
+
+def parse_imf_irfcl_gold_csv(text: str, country: str = "POL") -> list[dict[str, Any]]:
+    """Onzas troy finas mensuales de IRFCL; el valor no viene escalado."""
+    rows = []
+    for raw in csv.DictReader(io.StringIO(text)):
+        if raw.get("COUNTRY") != country or raw.get("INDICATOR") != "IRFCLDT1_IRFCL56V_FTO":
+            continue
+        match = re.fullmatch(r"(\d{4})-M(\d{2})", str(raw.get("TIME_PERIOD") or ""))
+        ounces = _number(raw.get("OBS_VALUE"))
+        if not match or ounces is None or ounces <= 0:
+            continue
+        tonnes = _tonnes(ounces / 1_000_000)
+        if not 0 < tonnes < 10_000:
+            continue
+        rows.append({"period": f"{match.group(1)}-{match.group(2)}",
+                     "million_fine_troy_ounces": round(ounces / 1_000_000, 6), "tonnes": tonnes})
+    return sorted({row["period"]: row for row in rows}.values(), key=lambda row: row["period"])
+
+
 def parse_safe_gold_html(text: str) -> list[dict[str, Any]]:
     """Lee exclusivamente la fila física 万盎司; nunca el valor en USD/SDR."""
     parser = _SafeTable()
@@ -330,15 +387,19 @@ def _read_cache(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _rbi_age_limit(item: dict[str, Any]) -> int:
+    return RBI_HALF_YEARLY_MAX_AGE_DAYS if item.get("cadence") == "semiannual" else 75
+
+
 def _rbi_cache_within_limit(payload: dict[str, Any]) -> bool:
     for item in payload.get("reserves") or []:
         if not isinstance(item, dict) or item.get("id") != "rbi":
             continue
-        if item.get("status") not in {"OK", "ARCHIVED", "STALE"}:
+        if item.get("status") not in {"OK", "ARCHIVED", "STALE", "PERIODIC"}:
             return True
         try:
             age = (date.today() - date.fromisoformat(str(item["as_of"]))).days
-            return 0 <= age <= 75
+            return 0 <= age <= _rbi_age_limit(item)
         except (KeyError, TypeError, ValueError):
             return False
     return True
@@ -423,10 +484,10 @@ def fetch_official_gold_demand(
 
     def degraded_record(identifier: str, label: str, source: str, source_url: str) -> dict[str, Any]:
         previous = cached_records.get(identifier)
-        if previous and previous.get("status") in {"OK", "STALE"} and previous.get("tonnes") is not None:
+        if previous and previous.get("status") in {"OK", "STALE", "PERIODIC"} and previous.get("tonnes") is not None:
             if identifier == "rbi":
                 try:
-                    if (date.today() - date.fromisoformat(str(previous["as_of"]))).days > 75:
+                    if (date.today() - date.fromisoformat(str(previous["as_of"]))).days > _rbi_age_limit(previous):
                         return _reserve_record(identifier, label, source, source_url, [])
                 except (KeyError, TypeError, ValueError):
                     return _reserve_record(identifier, label, source, source_url, [])
@@ -506,7 +567,10 @@ def fetch_official_gold_demand(
 
     # La edición HTML de RBI aporta volumen físico y fecha del boletín. Si la
     # vigente solo enlaza PDF, un archivo anterior puede mostrarse como ARCHIVED
-    # durante 75 días; nunca se presenta como dato vigente ni se puntúa.
+    # durante 75 días; después se usa el informe semestral (PERIODIC). Nunca se
+    # presenta como dato semanal vigente ni se puntúa.
+    rbi_record: dict[str, Any] | None = None
+    rbi_failure: str | None = None
     try:
         index = session.get(RBI_BULLETIN_INDEX, timeout=20)
         index.raise_for_status()
@@ -531,22 +595,68 @@ def fetch_official_gold_demand(
                 raise ValueError("RBI: observación demasiado antigua")
             if (date.today() - date.fromisoformat(latest["release_date"])).days < 0:
                 raise ValueError("RBI: fecha de publicación futura")
-            record = _reserve_record("rbi", "India · RBI", RBI_SOURCE, html_links[0], rbi_rows)
+            rbi_record = _reserve_record("rbi", "India · RBI", RBI_SOURCE, html_links[0], rbi_rows)
             if archived:
-                record["status"] = "ARCHIVED"
-                record["note"] += " Edición anterior verificada; la vigente solo enlaza PDF no validado."
-            records.append(record)
-        else:
-            missing = _reserve_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX, [])
-            missing["note"] = "La edición vigente no ofrece HTML verificable; PDF pendiente de extractor validado."
-            records.append(missing)
+                rbi_record["status"] = "ARCHIVED"
+                rbi_record["note"] += " Edición anterior verificada; la vigente solo enlaza PDF no validado."
     except Exception as exc:
-        errors.append(f"India RBI: {type(exc).__name__}")
-        records.append(degraded_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX))
+        rbi_failure = type(exc).__name__
 
-    # NBP está rastreado, pero no se convierte valor monetario a toneladas.
-    records.append(degraded_record("nbp", "Polonia · NBP", "NBP: balance de pagos, reservas físicas de oro",
-                                   "https://static.nbp.pl/dane/bilans-platniczy/bopa_en.pdf"))
+    if rbi_record is None:
+        try:
+            page = session.get(RBI_HALF_YEARLY_URL, timeout=20)
+            page.raise_for_status()
+            half_rows = parse_rbi_half_yearly_html(page.text, RBI_HALF_YEARLY_URL)
+            if not half_rows:
+                raise ValueError("RBI semestral: sin toneladas y fecha verificables")
+            age = (date.today() - date.fromisoformat(half_rows[-1]["period"])).days
+            if not 0 <= age <= RBI_HALF_YEARLY_MAX_AGE_DAYS:
+                raise ValueError("RBI semestral: informe superado; actualizar RBI_HALF_YEARLY_URL")
+            if date.fromisoformat(half_rows[-1]["release_date"]) > date.today():
+                raise ValueError("RBI semestral: fecha de publicación futura")
+            rbi_record = _reserve_record("rbi", "India · RBI", RBI_HALF_YEARLY_SOURCE, RBI_HALF_YEARLY_URL, half_rows)
+            rbi_record["status"] = "PERIODIC"
+            rbi_record["cadence"] = "semiannual"
+            rbi_record["note"] = (
+                "Informe semestral oficial (cierres de marzo y septiembre); el boletín semanal "
+                "vigente solo ofrece PDF en un servidor que no responde."
+            )
+        except Exception as exc:
+            if rbi_failure:
+                errors.append(f"India RBI: {rbi_failure}; semestral {type(exc).__name__}")
+                rbi_record = degraded_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX)
+            else:
+                rbi_record = degraded_record("rbi", "India · RBI", RBI_SOURCE, RBI_BULLETIN_INDEX)
+                if rbi_record["status"] == "MISSING":
+                    rbi_record["note"] = (
+                        "La edición vigente no ofrece HTML verificable; PDF pendiente de extractor validado "
+                        f"y el informe semestral no está disponible ({type(exc).__name__})."
+                    )
+    records.append(rbi_record)
+
+    # Polonia: volumen declarado al FMI. Nunca se convierte valor monetario a toneladas.
+    try:
+        today = date.today()
+        start = date(today.year - 1, today.month, 1) - timedelta(days=31)
+        response = session.get(
+            IMF_IRFCL_DATA_URL,
+            params={"startPeriod": start.strftime("%Y-%m")},
+            headers={"Accept": "application/vnd.sdmx.data+csv;version=1.0.0"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        poland_rows = parse_imf_irfcl_gold_csv(response.text)
+        if not poland_rows:
+            raise ValueError("FMI IRFCL: sin onzas de oro para Polonia")
+        nbp = _reserve_record("nbp", "Polonia · NBP", IMF_IRFCL_SOURCE, IMF_IRFCL_PAGE, poland_rows)
+        nbp["note"] = (
+            "Saldo físico declarado por Polonia al FMI (fuente: Fondo Monetario Internacional). "
+            "Sin fecha de difusión por observación; una variación mide cambio de existencias."
+        )
+        records.append(nbp)
+    except Exception as exc:
+        errors.append(f"Polonia NBP: {type(exc).__name__}")
+        records.append(degraded_record("nbp", "Polonia · NBP", IMF_IRFCL_SOURCE, IMF_IRFCL_PAGE))
 
     if not records and cached:
         fallback = dict(cached)
@@ -557,7 +667,8 @@ def fetch_official_gold_demand(
     fresh = sum(item.get("status") == "OK" for item in records)
     stale = sum(item.get("status") == "STALE" for item in records)
     archived = sum(item.get("status") == "ARCHIVED" for item in records)
-    available = fresh + stale + archived
+    periodic = sum(item.get("status") == "PERIODIC" for item in records)
+    available = fresh + stale + archived + periodic
     payload = {
         "schema_version": RESERVE_SCHEMA_VERSION,
         "status": "PARTIAL" if available else "MISSING",
@@ -566,6 +677,7 @@ def fetch_official_gold_demand(
             "fresh": fresh,
             "stale": stale,
             "archived": archived,
+            "periodic": periodic,
             "missing": len(records) - available,
             "tracked": len(records),
             "basis": "tracked_sources_not_world",

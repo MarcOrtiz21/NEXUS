@@ -1044,6 +1044,7 @@ struct GoldDemandCoverage: Codable {
     let fresh: Int?
     let stale: Int?
     let archived: Int?
+    let periodic: Int?
     let missing: Int?
     let tracked: Int?
     let scope: String?

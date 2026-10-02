@@ -1140,7 +1140,7 @@ struct ForexGoldView: View {
                        let archived = coverage.archived,
                        let stale = coverage.stale,
                        let missing = coverage.missing {
-                        Text("Fuentes: \(fresh) actuales · \(archived) archivo · \(stale) caché · \(missing) sin dato")
+                        Text("Fuentes: \(fresh) actuales · \(coverage.periodic ?? 0) semestral · \(archived) archivo · \(stale) caché · \(missing) sin dato")
                             .font(.caption2)
                             .foregroundStyle(NexusTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1157,9 +1157,9 @@ struct ForexGoldView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(reserve.label ?? "Autoridad")
                                         .font(.subheadline.weight(.semibold))
-                                    Text("Corte \(reserve.asOf ?? "—") · \(reserve.status == "STALE" ? "CACHÉ" : reserve.status == "ARCHIVED" ? "ARCHIVO" : (reserve.status ?? "—"))")
+                                    Text("Corte \(reserve.asOf ?? "—") · \(reserveStatusLabel(reserve.status))")
                                         .font(.caption2)
-                                        .foregroundStyle(reserve.status == "STALE" || reserve.status == "ARCHIVED" ? NexusTheme.warn : NexusTheme.muted)
+                                        .foregroundStyle(["STALE", "ARCHIVED", "PERIODIC"].contains(reserve.status ?? "") ? NexusTheme.warn : NexusTheme.muted)
                                     if let releaseDate = reserve.releaseDate {
                                         Text("Publicado \(releaseDate) · hora no verificada")
                                             .font(.caption2)
@@ -1169,7 +1169,7 @@ struct ForexGoldView: View {
                                         .font(.caption2)
                                         .foregroundStyle(NexusTheme.muted)
                                         .lineLimit(1)
-                                    if reserve.status == "MISSING" || reserve.status == "ARCHIVED", let note = reserve.note {
+                                    if ["MISSING", "ARCHIVED", "PERIODIC"].contains(reserve.status ?? ""), let note = reserve.note {
                                         Text(note)
                                             .font(.caption2)
                                             .foregroundStyle(NexusTheme.muted)
@@ -2654,5 +2654,14 @@ struct ChartPlotTapOverlay: View {
                         }
                 )
         }
+    }
+}
+
+fileprivate func reserveStatusLabel(_ status: String?) -> String {
+    switch status {
+    case "STALE": return "CACHÉ"
+    case "ARCHIVED": return "ARCHIVO"
+    case "PERIODIC": return "SEMESTRAL"
+    default: return status ?? "—"
     }
 }

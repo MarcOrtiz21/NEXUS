@@ -8,7 +8,11 @@ from gold_demand import (
     SAFE_INDEX_CURRENT,
     SAFE_INDEX_PREVIOUS,
     RBI_BULLETIN_INDEX,
+    RBI_HALF_YEARLY_URL,
+    IMF_IRFCL_DATA_URL,
+    parse_imf_irfcl_gold_csv,
     build_etf_market_proxy,
+    parse_rbi_half_yearly_html,
     fetch_official_gold_demand,
     parse_ecb_gold_csv,
     parse_rbi_bulletin_html_links,
@@ -74,6 +78,21 @@ def rbi_html(release_date=None, latest_date=None):
 <tr><td></td><td>US $ Million</td><td>110000</td><td>120000</td></tr>
 <tr><td></td><td>Volume (Metric Tonnes)</td><td>880.34</td><td>880.52</td></tr>
 </table>'''
+
+
+def rbi_half_yearly_html(month="March", year=2031, release="Apr 29, 2031", tonnes="901.25"):
+    return f'''<tr><td class="tableheader"><b> Date : {release}
+</b></td></tr><tr><td class="tableheader"><b>Half Yearly Report on Management of Foreign Exchange Reserves</b></td></tr>
+<p class="head">I.6. Management of Gold Reserves</p><p>As at end-{month} {year}, the Reserve Bank held
+{tonnes} metric tonnes of gold, of which 700.00 metric tonnes were held domestically.</p>'''
+
+
+IMF_CSV = """DATAFLOW,COUNTRY,INDICATOR,SECTOR,FREQUENCY,TIME_PERIOD,OBS_VALUE,SCALE
+IMF.STA:IRFCL(12.0.0),POL,IRFCLDT1_IRFCL56V_FTO,S1XS1311,M,2030-M07,20000000,6
+IMF.STA:IRFCL(12.0.0),POL,IRFCLDT1_IRFCL56V_FTO,S1XS1311,M,2030-M08,20500000,6
+IMF.STA:IRFCL(12.0.0),POL,IRFCLDT1_IRFCL56_USD,S1XS1311,M,2030-M08,99999,6
+IMF.STA:IRFCL(12.0.0),CZE,IRFCLDT1_IRFCL56V_FTO,S1XS1311,M,2030-M08,1000000,6
+"""
 
 
 def safe_mapping():
@@ -169,6 +188,7 @@ class GoldDemandTests(unittest.TestCase):
         }
         mapping.update(safe_mapping())
         mapping[RBI_BULLETIN_INDEX] = RBI_PDF_ONLY_INDEX
+        mapping[IMF_IRFCL_DATA_URL] = IMF_CSV
         with tempfile.TemporaryDirectory() as directory:
             payload = fetch_official_gold_demand(
                 refresh=True,
@@ -177,11 +197,11 @@ class GoldDemandTests(unittest.TestCase):
             )
         self.assertEqual(payload["status"], "PARTIAL")
         self.assertFalse(payload["score_enabled"])
-        self.assertEqual(payload["coverage"]["available"], 3)
-        self.assertEqual(payload["coverage"]["fresh"], 3)
+        self.assertEqual(payload["coverage"]["available"], 4)
+        self.assertEqual(payload["coverage"]["fresh"], 4)
         self.assertEqual(payload["coverage"]["stale"], 0)
         self.assertEqual(payload["coverage"]["archived"], 0)
-        self.assertEqual(payload["coverage"]["missing"], 2)
+        self.assertEqual(payload["coverage"]["missing"], 1)
         self.assertEqual(payload["coverage"]["tracked"], 5)
         self.assertEqual(payload["coverage"]["basis"], "tracked_sources_not_world")
         self.assertFalse(payload["coverage"]["world_total_available"])
@@ -197,7 +217,14 @@ class GoldDemandTests(unittest.TestCase):
         self.assertIn("PDF", rbi["note"])
         self.assertNotIn("India RBI", " ".join(payload["errors"]))
         self.assertEqual(next(item for item in payload["reserves"] if item["id"] == "rbi")["scope_id"], "IN")
-        self.assertEqual(next(item for item in payload["reserves"] if item["id"] == "nbp")["scope_id"], "PL")
+        poland = next(item for item in payload["reserves"] if item["id"] == "nbp")
+        self.assertEqual(poland["scope_id"], "PL")
+        self.assertEqual(poland["as_of"], "2030-08")
+        self.assertAlmostEqual(poland["tonnes"], 637.621, places=3)
+        self.assertAlmostEqual(poland["change_tonnes"], 15.551, places=3)
+        self.assertIsNone(poland["release_at"])
+        self.assertFalse(poland["score_enabled"])
+        self.assertIn("Fondo Monetario Internacional", poland["note"])
         self.assertEqual(payload["reserves"][1]["change_tonnes"], 0.0)
 
     def test_recent_rbi_html_is_context_not_global_purchase_signal(self):
@@ -257,6 +284,7 @@ class GoldDemandTests(unittest.TestCase):
         }
         healthy.update(safe_mapping())
         healthy[RBI_BULLETIN_INDEX] = RBI_PDF_ONLY_INDEX
+        healthy[IMF_IRFCL_DATA_URL] = IMF_CSV
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "demand.json"
             fetch_official_gold_demand(refresh=True, cache_path=path, session=_Session(healthy))
@@ -266,8 +294,65 @@ class GoldDemandTests(unittest.TestCase):
         ecb = next(item for item in payload["reserves"] if item["id"] == "ecb")
         self.assertEqual(ecb["status"], "STALE")
         self.assertEqual(ecb["tonnes"], 508.417)
-        self.assertEqual(payload["coverage"]["fresh"], 2)
+        self.assertEqual(payload["coverage"]["fresh"], 3)
         self.assertEqual(payload["coverage"]["stale"], 1)
+
+    def test_rbi_half_yearly_report_gives_period_end_and_release_date(self):
+        rows = parse_rbi_half_yearly_html(rbi_half_yearly_html(), RBI_HALF_YEARLY_URL)
+        self.assertEqual(rows, [{"period": "2031-03-31", "tonnes": 901.25,
+                                 "release_date": "2031-04-29", "url": RBI_HALF_YEARLY_URL}])
+        self.assertEqual(parse_rbi_half_yearly_html(rbi_half_yearly_html(), "https://example.com/x"), [])
+        self.assertEqual(parse_rbi_half_yearly_html(rbi_half_yearly_html(release="Mar 15, 2031"), RBI_HALF_YEARLY_URL), [])
+        self.assertEqual(parse_rbi_half_yearly_html("<p>Annual Report</p>", RBI_HALF_YEARLY_URL), [])
+
+    def test_pdf_only_bulletin_falls_back_to_recent_half_yearly_report(self):
+        release = date.today() - timedelta(days=3)
+        period_end = release.replace(day=1) - timedelta(days=1)
+        mapping = {
+            RBI_BULLETIN_INDEX: RBI_PDF_ONLY_INDEX,
+            RBI_HALF_YEARLY_URL: rbi_half_yearly_html(
+                month=period_end.strftime("%B"), year=period_end.year,
+                release=release.strftime("%b %d, %Y"),
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            payload = fetch_official_gold_demand(refresh=True, cache_path=Path(directory) / "demand.json",
+                                                 session=_Session(mapping))
+        india = next(item for item in payload["reserves"] if item["id"] == "rbi")
+        self.assertEqual(india["status"], "PERIODIC")
+        self.assertEqual(india["cadence"], "semiannual")
+        self.assertEqual(india["as_of"], period_end.isoformat())
+        self.assertEqual(india["release_date"], release.isoformat())
+        self.assertIsNone(india["release_at"])
+        self.assertFalse(india["score_enabled"])
+        self.assertEqual(payload["coverage"]["periodic"], 1)
+
+    def test_superseded_half_yearly_report_is_not_shown(self):
+        mapping = {
+            RBI_BULLETIN_INDEX: RBI_PDF_ONLY_INDEX,
+            RBI_HALF_YEARLY_URL: rbi_half_yearly_html(month="March", year=date.today().year - 2,
+                                                      release=f"Apr 29, {date.today().year - 2}"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            payload = fetch_official_gold_demand(refresh=True, cache_path=Path(directory) / "demand.json",
+                                                 session=_Session(mapping))
+        india = next(item for item in payload["reserves"] if item["id"] == "rbi")
+        self.assertEqual(india["status"], "MISSING")
+        self.assertIn("semestral", india["note"])
+
+    def test_half_yearly_cache_uses_semiannual_age_limit(self):
+        cached = {"reserves": [{"id": "rbi", "status": "PERIODIC", "cadence": "semiannual",
+                                "as_of": (date.today() - timedelta(days=200)).isoformat()}]}
+        self.assertTrue(_rbi_cache_within_limit(cached))
+        cached["reserves"][0]["as_of"] = (date.today() - timedelta(days=301)).isoformat()
+        self.assertFalse(_rbi_cache_within_limit(cached))
+
+    def test_imf_irfcl_reads_only_poland_gold_ounces(self):
+        rows = parse_imf_irfcl_gold_csv(IMF_CSV)
+        self.assertEqual([row["period"] for row in rows], ["2030-07", "2030-08"])
+        self.assertAlmostEqual(rows[-1]["million_fine_troy_ounces"], 20.5)
+        self.assertAlmostEqual(rows[-1]["tonnes"], 637.621, places=3)
+        self.assertEqual(parse_imf_irfcl_gold_csv(IMF_CSV.replace("20500000", "-1").replace("20000000", "")), [])
 
     def test_missing_volume_does_not_become_neutral(self):
         proxy = build_etf_market_proxy([{"date": "2026-09-01", "value": 100}] * 30)
