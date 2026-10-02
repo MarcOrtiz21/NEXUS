@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -19,7 +20,15 @@ from cftc_positioning import (
     summarize_gold_positioning,
 )
 from gld_holdings import fetch_gld_holdings, holdings_data_fields, summarize_gld_holdings
-from fred_vintages import fetch_revision_history, first_release_rows, known_rows, lagged_change, latest_value
+from fred_vintages import (
+    backfill_before_first_vintage,
+    fetch_market_close_rows,
+    fetch_revision_history,
+    first_release_rows,
+    known_rows,
+    lagged_change,
+    latest_value,
+)
 from gold_backtest_stats import BASELINES, assign_historical_baseline, overlap_diagnostics, paired_brier_interval, purged_folds
 from gold_calibration import CANDIDATES, live_calibration, walk_forward_candidates
 from gold_outlook import MODEL_VERSION, build_gold_outlook
@@ -44,7 +53,61 @@ DAILY_SERIES = {
     "breakeven": "T10YIE",
     "wti": "DCOILWTICO",
 }
-MARKET_TICKERS = ["GLD", "UUP", "^VIX"]
+MARKET_TICKERS = ["GLD", "UUP", "^VIX", "DX-Y.NYB"]
+# UUP cotiza desde 2007-02; antes se encadena el índice DXY por rendimientos.
+DOLLAR_SPLICE_TICKER = "DX-Y.NYB"
+TREND_DRIFT_SESSIONS = 756
+TREND_VOL_SESSIONS = 63
+
+
+def splice_dollar_proxy(frame: pd.DataFrame) -> pd.DataFrame:
+    """Rellena UUP antes de su inicio con DXY escalado al primer cierre común."""
+    if DOLLAR_SPLICE_TICKER not in frame:
+        return frame
+    dxy = frame[DOLLAR_SPLICE_TICKER].astype(float)
+    uup = frame["UUP"].astype(float) if "UUP" in frame else pd.Series(index=frame.index, dtype=float)
+    first = uup.first_valid_index()
+    result = frame.copy()
+    if first is None:
+        result["UUP"] = dxy
+    else:
+        anchor = dxy.loc[:first].dropna()
+        if not anchor.empty and anchor.iloc[-1] > 0:
+            scaled = dxy * (float(uup.loc[first]) / float(anchor.iloc[-1]))
+            result["UUP"] = uup.where(frame.index >= first, scaled)
+    return result.drop(columns=[DOLLAR_SPLICE_TICKER])
+
+
+def _pct_change(values: pd.Series, sessions: int) -> float | None:
+    if len(values) <= sessions or values.iloc[-1 - sessions] <= 0:
+        return None
+    return float((values.iloc[-1] / values.iloc[-1 - sessions] - 1) * 100)
+
+
+def compact_features(
+    series: dict[str, list[dict[str, Any]]], available: pd.DataFrame, cutoff: date,
+) -> dict[str, float | None]:
+    """Cinco señales en cambios (no niveles) conocidas al cierre del corte."""
+    gld = available["GLD"].dropna().astype(float)
+    dollar = available["UUP"].dropna().astype(float) if "UUP" in available else pd.Series(dtype=float)
+    vix = available["^VIX"].dropna().astype(float) if "^VIX" in available else pd.Series(dtype=float)
+    return {
+        "real_yield_change_3m": lagged_change(series["real_yield"], cutoff, periods=63, percent=False),
+        "breakeven_change_3m": lagged_change(series["breakeven"], cutoff, periods=63, percent=False),
+        "dollar_momentum_3m": _pct_change(dollar, 63),
+        "gold_momentum_12m": _pct_change(gld, 252),
+        "vix_log": float(math.log(vix.iloc[-1])) if not vix.empty and vix.iloc[-1] > 0 else None,
+    }
+
+
+def trend_statistics(prices: pd.Series) -> dict[str, float | None]:
+    """Deriva diaria (media 3 años) y volatilidad diaria (63 sesiones) en log."""
+    log_returns = np.log(prices.dropna().astype(float)).diff().dropna()
+    if len(log_returns) < TREND_VOL_SESSIONS:
+        return {"drift": None, "volatility": None}
+    volatility = float(log_returns.tail(TREND_VOL_SESSIONS).std())
+    drift = float(log_returns.tail(TREND_DRIFT_SESSIONS).mean()) if len(log_returns) >= 200 else None
+    return {"drift": drift, "volatility": volatility if volatility > 0 else None}
 
 
 def _market_metrics(series: pd.Series) -> dict[str, float | None]:
@@ -145,7 +208,7 @@ def download_market_history(start: date, end: date) -> pd.DataFrame:
     )
     frame = pd.DataFrame({ticker: _extract_close(raw, ticker) for ticker in MARKET_TICKERS})
     frame.index = pd.DatetimeIndex(frame.index).tz_localize(None)
-    return frame.sort_index()
+    return splice_dollar_proxy(frame.sort_index())
 
 
 def _evaluation(rows: list[dict[str, Any]], probability_key: str) -> dict[str, Any]:
@@ -219,9 +282,12 @@ def _candidate_report(rows: list[dict[str, Any]], key: str, model_metrics: dict[
         and all(metrics["balanced_accuracy"] >= item["balanced_accuracy"] for item in baselines.values())
         and all(item.get("upper") is not None and item["upper"] < 0 for item in comparisons.values())
     )
+    penalties = sorted(float(row[penalty_key]) for row in usable
+                       if (penalty_key := key.replace("_probability", "_penalty")) in row)
     return {
         "status": "EVALUATED",
         **metrics,
+        "median_penalty": penalties[len(penalties) // 2] if penalties else None,
         "delta_brier_vs_model": round(metrics["brier_score"] - model_metrics["brier_score"], 4)
         if model_metrics.get("brier_score") is not None else None,
         "baseline_brier": {name: item["brier_score"] for name, item in baselines.items()},
@@ -266,7 +332,7 @@ def _ablation_report(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def run_gold_backtest(
     *,
-    start: date = date(2016, 1, 1),
+    start: date = date(2005, 1, 1),
     end: date | None = None,
     refresh: bool = False,
     report_path: Path = GOLD_BACKTEST_REPORT,
@@ -282,6 +348,12 @@ def run_gold_backtest(
         name: fetch_revision_history(series_id, warmup.isoformat(), end.isoformat(), refresh=refresh)
         for name, series_id in {**MONTHLY_SERIES, **DAILY_SERIES}.items()
     }
+    if vintage_series is None:
+        for name, series_id in DAILY_SERIES.items():
+            series[name] = backfill_before_first_vintage(
+                series[name],
+                fetch_market_close_rows(series_id, warmup.isoformat(), end.isoformat(), refresh=refresh),
+            )
     market = market_prices if market_prices is not None else download_market_history(warmup, end)
     positioning_rows = cftc_rows if cftc_rows is not None else fetch_gold_cot_history(
         refresh=refresh,
@@ -299,10 +371,9 @@ def run_gold_backtest(
     samples: list[dict[str, Any]] = []
     dates = _decision_dates(market["GLD"].dropna().index, start, end)
     for decision_at in dates:
-        position = market.index.get_indexer([decision_at])[0]
-        if position < 200:
-            continue
         available = market.loc[:decision_at]
+        if available["GLD"].dropna().size <= 200:
+            continue
         gld = _market_metrics(available["GLD"])
         uup = _market_metrics(available["UUP"]) if "UUP" in available else {}
         macro = _macro_snapshot(series, decision_at.date())
@@ -337,6 +408,8 @@ def run_gold_backtest(
         initial_outlook = build_gold_outlook(initial_macro, gld, uup, **candidates)
         future_prices = market.loc[market.index > decision_at, "GLD"].dropna()
         entry = float(gld["price"] or 0)
+        features = compact_features(series, available, decision_at.date())
+        trend = trend_statistics(available["GLD"])
         for horizon, key in ((21, "short_term"), (63, "medium_term")):
             if entry <= 0 or len(future_prices) < horizon:
                 continue
@@ -360,7 +433,11 @@ def run_gold_backtest(
                 "entry_price": round(entry, 4),
                 "outcome_price": round(outcome, 4),
                 "return_pct": round(return_pct, 4),
+                "log_return": round(math.log(outcome / entry), 6),
                 "direction_up": int(return_pct > 0),
+                "compact_features": features,
+                "trend_drift": trend["drift"],
+                "trend_volatility": trend["volatility"],
                 "model_probability": float(outlook[key]["probability_up"]),
                 "initial_release_probability": float(initial_outlook[key]["probability_up"]),
                 "momentum_probability": round(max(15, min(85, 50 + momentum * 5)), 2),
@@ -471,8 +548,11 @@ def run_gold_backtest(
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "decision_policy": "Primera sesión de mercado desde el día 15 de cada mes",
         "point_in_time": True,
-        "report_schema_version": 3,
-        "vintage_policy": "Última revisión ALFRED conocida en cada corte (output_type=1); primera publicación conservada como diagnóstico paralelo",
+        "report_schema_version": 4,
+        "vintage_policy": (
+            "Última revisión ALFRED conocida en cada corte (output_type=1); primera publicación conservada como diagnóstico paralelo. "
+            "Las series de mercado diarias usan el cierre actual fechado en T+1 antes de su primera vintage (T10YIE hasta 2014-01, DFII10 hasta 2005-10)."
+        ),
         "evaluation_policy": "Ventanas cronológicas con entrenamiento purgado por fecha de vencimiento; cuatro referencias sobre los mismos cortes de prueba",
         "promotion_status": "CANDIDATE" if passes_baselines else "KEEP_PRELIMINARY",
         "passes_baselines": passes_baselines,
@@ -491,14 +571,17 @@ def run_gold_backtest(
         },
         "candidate_policy": (
             "Calibración y pesos aprendidos se ajustan en cada ventana solo con resultados vencidos; "
-            "la variante de régimen separa tipos reales desde 2022-03 y es una hipótesis elegida a posteriori."
+            "la variante de régimen separa tipos reales desde 2022-03 y es una hipótesis elegida a posteriori. "
+            "Tendencia: Φ(deriva de 3 años · √h / volatilidad de 63 sesiones), sin ajuste. "
+            "Señales en cambios, rendimiento y rendimiento sobre tendencia: cinco señales estandarizadas y acotadas a ±3σ, "
+            "λ por validación anidada purgada y al menos 60 cortes de entrenamiento."
         ),
         "samples": samples,
         "limitations": [
             "El modelo usa pesos heurísticos fijos; las ventanas walk-forward evalúan, no entrenan pesos.",
             "El bootstrap de bloques aproxima incertidumbre; los cortes mensuales pueden compartir sesiones futuras.",
             "ALFRED aporta fecha de disponibilidad diaria, no una hora de difusión verificada; los cortes son al cierre.",
-            "GLD y UUP son proxies negociables y no sustituyen al oro spot ni al índice DXY.",
+            "GLD y UUP son proxies negociables y no sustituyen al oro spot ni al índice DXY; antes de 2007-02 UUP se encadena con DXY por rendimientos.",
             "Costes, deslizamiento, flujos de otros ETF y compras oficiales aún no están incluidos.",
             "CFTC usa fecha de publicación point-in-time; su peso en producción depende de la puerta de ablación.",
             "Las tenencias GLD se fechan en T+1 07:00 NYT, pero el archivo se sobrescribe: el pasado usa la versión actual y se asume sin revisiones.",

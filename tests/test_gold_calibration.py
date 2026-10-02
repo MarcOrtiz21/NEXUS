@@ -3,8 +3,15 @@ import unittest
 
 from gold_backtest_stats import purged_folds
 from gold_calibration import (
+    MIN_TRAIN_COMPACT,
+    PENALTY_GRID,
     REGIME_FEATURE,
+    _fit_compact,
     apply_shrinkage,
+    drift_z,
+    return_z,
+    select_penalty,
+    trend_probability,
     calibrate_live_horizon,
     fit_ridge_logistic,
     fit_shrinkage,
@@ -72,6 +79,79 @@ class GoldCalibrationTests(unittest.TestCase):
         self.assertIn("frecuencia histórica", calibrated["calibration"]["note"])
         missing = calibrate_live_horizon(horizon, None, eligible=False)
         self.assertEqual(missing["calibration"]["status"], "UNAVAILABLE")
+
+
+def _return_rows(count=180, *, seed=11, drift=0.0004, beta=0.6):
+    """Rendimientos sintéticos: deriva constante + efecto de un cambio de tipos reales."""
+    rng = random.Random(seed)
+    rows = []
+    for index in range(count):
+        change = rng.gauss(0, 1)
+        volatility = 0.01
+        z = drift * 63 ** 0.5 / volatility - beta * change + rng.gauss(0, 1)
+        month = 1 + index % 12
+        year = 2005 + index // 12
+        rows.append({
+            "decision_at": f"{year}-{month:02d}-15",
+            "evaluated_at": f"{year}-{month:02d}-28",
+            "horizon_days": 63,
+            "direction_up": int(z > 0),
+            "log_return": z * volatility * 63 ** 0.5,
+            "trend_drift": drift,
+            "trend_volatility": volatility,
+            "model_probability": 50.0,
+            "group_signals": {},
+            "compact_features": {
+                "real_yield_change_3m": change, "breakeven_change_3m": rng.gauss(0, 1),
+                "dollar_momentum_3m": None, "gold_momentum_12m": rng.gauss(0, 1), "vix_log": 3.0,
+            },
+        })
+    return rows
+
+
+class CompactCandidateTests(unittest.TestCase):
+    def test_trend_probability_follows_drift_over_volatility(self):
+        row = {"horizon_days": 63, "trend_drift": 0.0004, "trend_volatility": 0.01}
+        self.assertAlmostEqual(drift_z(row), 0.0004 * 63 ** 0.5 / 0.01)
+        self.assertGreater(trend_probability(row), 60)
+        self.assertLess(trend_probability({**row, "trend_drift": -0.0004}), 40)
+        self.assertIsNone(trend_probability({"horizon_days": 63}))
+
+    def test_return_z_scales_by_horizon_volatility(self):
+        row = {"horizon_days": 63, "trend_volatility": 0.01, "log_return": 0.0794}
+        self.assertAlmostEqual(return_z(row), 0.0794 / (0.01 * 63 ** 0.5))
+
+    def test_compact_models_learn_negative_real_rate_effect(self):
+        rows = _return_rows()
+        for kind in ("compact_logistic", "return_compact", "return_trend"):
+            predict = _fit_compact(kind, rows, 2.0)
+            base = rows[0]
+            rising = {**base, "compact_features": {**base["compact_features"], "real_yield_change_3m": 2.0}}
+            falling = {**base, "compact_features": {**base["compact_features"], "real_yield_change_3m": -2.0}}
+            self.assertLess(predict(rising), predict(falling), kind)
+
+    def test_missing_trend_inputs_give_no_return_prediction(self):
+        predict = _fit_compact("return_trend", _return_rows(), 2.0)
+        self.assertIsNone(predict({**_return_rows(1)[0], "trend_drift": None}))
+        self.assertIsNone(_fit_compact("return_compact", _return_rows(10), 2.0))
+
+    def test_penalty_selection_uses_purged_inner_split(self):
+        self.assertIn(select_penalty("return_trend", _return_rows()), PENALTY_GRID)
+        self.assertEqual(select_penalty("return_trend", _return_rows(30)), 4.0)
+
+    def test_walk_forward_adds_all_compact_candidates(self):
+        folds = list(purged_folds(_return_rows()))
+        evaluated = walk_forward_candidates(folds)
+        self.assertTrue(all(row["trend_probability"] is not None for row in evaluated))
+        offset = 0
+        for train, test in folds:
+            fold_rows = evaluated[offset:offset + len(test)]
+            offset += len(test)
+            for key in ("compact_logistic_probability", "return_compact_probability", "return_trend_probability"):
+                expected = len(train) >= MIN_TRAIN_COMPACT
+                self.assertTrue(all((row[key] is not None) == expected for row in fold_rows), key)
+        self.assertTrue(any(row["return_trend_probability"] is not None for row in evaluated))
+        self.assertTrue(all(row["return_trend_penalty"] in PENALTY_GRID + (4.0,) for row in evaluated))
 
 
 if __name__ == "__main__":

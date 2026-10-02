@@ -3,7 +3,18 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from fred_vintages import fetch_initial_releases, fetch_revision_history, first_release_rows, known_rows, lagged_change, parse_initial_releases
+from fred_vintages import (
+    FRED_VINTAGE_DATES_URL,
+    backfill_before_first_vintage,
+    fetch_initial_releases,
+    fetch_market_close_rows,
+    fetch_revision_history,
+    first_release_rows,
+    known_rows,
+    lagged_change,
+    latest_value,
+    parse_initial_releases,
+)
 
 
 class _Response:
@@ -34,8 +45,10 @@ class FredVintageTests(unittest.TestCase):
 
     def test_revision_fetch_paginates_and_preserves_revised_values(self):
         calls = []
-        def get(*args, **kwargs):
+        def get(url, **kwargs):
             params = kwargs["params"]
+            if url == FRED_VINTAGE_DATES_URL:
+                return _Response({"vintage_dates": ["2024-02-01"]})
             calls.append(params)
             return _Response({"count": 2, "observations": [{
                 "date": "2024-01-01", "realtime_start": "2024-02-13" if params["offset"] == 0 else "2024-03-12",
@@ -48,6 +61,32 @@ class FredVintageTests(unittest.TestCase):
         self.assertEqual([row["value"] for row in rows], [100.0, 101.0])
         self.assertEqual([item["offset"] for item in calls], [0, 1])
         self.assertEqual(calls[0]["output_type"], 1)
+        self.assertEqual(calls[0]["realtime_start"], "2024-02-01")
+
+    def test_market_backfill_only_covers_period_before_first_vintage(self):
+        vintage = [{"period": "2024-03-01", "release_at": "2024-03-04", "value": 2.0}]
+        market = [
+            {"period": "2024-02-28", "release_at": "2024-02-29", "value": 1.8, "market_t1": True},
+            {"period": "2024-03-01", "release_at": "2024-03-02", "value": 2.0, "market_t1": True},
+            {"period": "2024-03-05", "release_at": "2024-03-06", "value": 2.1, "market_t1": True},
+        ]
+        rows = backfill_before_first_vintage(vintage, market)
+        self.assertEqual([(row["period"], row["release_at"]) for row in rows], [
+            ("2024-02-28", "2024-02-29"), ("2024-03-01", "2024-03-02"), ("2024-03-01", "2024-03-04"),
+        ])
+        self.assertEqual(latest_value(rows, "2024-02-29")["value"], 1.8)
+        self.assertIsNone(latest_value(rows, "2024-02-28"))
+
+    def test_market_close_rows_are_dated_next_day(self):
+        def get(url, **kwargs):
+            return _Response({"observations": [
+                {"date": "2005-01-03", "value": "1.70"}, {"date": "2005-01-04", "value": "."},
+            ]})
+        with tempfile.TemporaryDirectory() as folder:
+            rows = fetch_market_close_rows("DFII10", "2005-01-01", "2005-01-31", api_key="x",
+                                           cache_dir=Path(folder), request_get=get)
+        self.assertEqual(rows, [{"period": "2005-01-03", "release_at": "2005-01-04",
+                                 "realtime_end": None, "value": 1.7, "market_t1": True}])
 
     def test_parser_keeps_release_date_and_drops_bad_values(self):
         rows = parse_initial_releases({"observations": [

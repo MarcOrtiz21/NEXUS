@@ -21,6 +21,7 @@ from config import FRED_API_KEY, FRED_VINTAGE_CACHE_DIR
 
 
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_VINTAGE_DATES_URL = "https://api.stlouisfed.org/fred/series/vintagedates"
 VINTAGE_CACHE_TTL_SECONDS = 60 * 60 * 24
 
 
@@ -191,7 +192,9 @@ def fetch_revision_history(
         cached = json.loads(path.read_text(encoding="utf-8"))
         return list(cached.get("observations") or [])
     rows = []
-    chunk_start = start
+    # ALFRED rechaza tramos de tiempo real anteriores a su primera vintage.
+    first_vintage = first_vintage_date(series_id, api_key=api_key, request_get=request_get)
+    chunk_start = max(start, first_vintage) if first_vintage else start
     while chunk_start <= end:
         chunk_end = min(end, chunk_start + timedelta(days=1_400))
         offset = 0
@@ -227,6 +230,72 @@ def fetch_revision_history(
                                      "observations": normalized}, ensure_ascii=False), encoding="utf-8")
     temporary.replace(path)
     return normalized
+
+
+def first_vintage_date(
+    series_id: str, *, api_key: str | None = FRED_API_KEY, request_get: Callable[..., Any] = requests.get,
+) -> date | None:
+    response = request_get(FRED_VINTAGE_DATES_URL, params={
+        "series_id": series_id, "api_key": api_key, "file_type": "json", "limit": 1, "sort_order": "asc",
+    }, timeout=30)
+    if not getattr(response, "ok", True):
+        return None
+    try:
+        dates = response.json().get("vintage_dates") or []
+        return _day(dates[0]) if dates else None
+    except (AttributeError, ValueError, TypeError):
+        return None
+
+
+def fetch_market_close_rows(
+    series_id: str, observation_start: str, observation_end: str, *,
+    api_key: str | None = FRED_API_KEY, cache_dir: Path = FRED_VINTAGE_CACHE_DIR,
+    refresh: bool = False, request_get: Callable[..., Any] = requests.get,
+) -> list[dict[str, Any]]:
+    """Cierres diarios de mercado de la vintage actual, fechados en T+1.
+
+    Solo para series de mercado (tipos reales, breakeven, petróleo), que no se
+    revisan en la práctica. Sirven para cubrir el tramo anterior a la primera
+    vintage de ALFRED.
+    """
+    if not api_key:
+        raise RuntimeError("FRED_API_KEY no está configurada")
+    start, end = _day(observation_start), _day(observation_end)
+    path = _cache_path(f"market_t1_v1_{series_id}", start.isoformat(), end.isoformat(), Path(cache_dir))
+    if not refresh and path.exists() and time.time() - path.stat().st_mtime <= VINTAGE_CACHE_TTL_SECONDS:
+        return list(json.loads(path.read_text(encoding="utf-8")).get("observations") or [])
+    response = request_get(FRED_OBSERVATIONS_URL, params={
+        "series_id": series_id, "api_key": api_key, "file_type": "json",
+        "observation_start": start.isoformat(), "observation_end": end.isoformat(), "limit": 100000,
+    }, timeout=30)
+    if not getattr(response, "ok", True):
+        raise RuntimeError(f"FRED rechazó {series_id} ({response.status_code})")
+    response.raise_for_status()
+    rows = []
+    for raw in response.json().get("observations") or []:
+        try:
+            period = _day(raw["date"])
+            value = float(raw["value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            rows.append({"period": period.isoformat(), "release_at": (period + timedelta(days=1)).isoformat(),
+                         "realtime_end": None, "value": value, "market_t1": True})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"series_id": series_id, "source": "FRED actual, cierre fechado T+1",
+                                     "observations": rows}, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+    return rows
+
+
+def backfill_before_first_vintage(
+    vintage_rows: list[dict[str, Any]], market_rows: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Añade cierres T+1 solo donde ALFRED aún no tenía ninguna vintage."""
+    first = min((row["release_at"] for row in vintage_rows), default=None)
+    extra = [row for row in market_rows if first is None or row["release_at"] < first]
+    return sorted([*vintage_rows, *extra], key=lambda item: (item["period"], item["release_at"]))
 
 
 def latest_value(rows: Iterable[dict[str, Any]], as_of: str | date | datetime) -> dict[str, Any] | None:

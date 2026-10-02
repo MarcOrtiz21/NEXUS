@@ -1,3 +1,4 @@
+import math
 import tempfile
 import unittest
 from datetime import date
@@ -6,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from gld_holdings import release_at_for_session
-from gold_backtest import _decision_dates, _regime_diagnostics, run_gold_backtest
+from gold_backtest import _decision_dates, _regime_diagnostics, run_gold_backtest, splice_dollar_proxy, trend_statistics
 
 
 def _monthly_rows(start="2012-01-01", periods=180, base=100.0):
@@ -26,6 +27,23 @@ def _daily_rows(start="2012-01-01", periods=4000, base=2.0):
 
 
 class GoldBacktestTests(unittest.TestCase):
+    def test_dollar_proxy_is_spliced_by_returns_before_uup_inception(self):
+        index = pd.bdate_range("2007-02-15", periods=4)
+        frame = pd.DataFrame({
+            "GLD": [60.0, 61.0, 62.0, 63.0],
+            "UUP": [None, None, 25.0, 25.5],
+            "DX-Y.NYB": [80.0, 84.0, 100.0, 102.0],
+        }, index=index)
+        spliced = splice_dollar_proxy(frame)
+        self.assertNotIn("DX-Y.NYB", spliced)
+        self.assertEqual(list(spliced["UUP"].round(4)), [20.0, 21.0, 25.0, 25.5])
+
+    def test_trend_statistics_need_enough_history(self):
+        prices = pd.Series([100 * 1.001 ** step for step in range(300)])
+        trend = trend_statistics(prices)
+        self.assertAlmostEqual(trend["drift"], math.log(1.001), places=8)
+        self.assertIsNone(trend_statistics(prices.head(30))["drift"])
+
     def test_regime_diagnostics_withhold_small_sample_conclusions(self):
         rows = [{"macro_regime": "EASING", "model_probability": 60.0, "direction_up": 1}] * 3
         diagnostics = _regime_diagnostics(rows)
@@ -66,7 +84,7 @@ class GoldBacktestTests(unittest.TestCase):
         self.assertTrue(report["point_in_time"])
         self.assertGreaterEqual(report["horizons"]["63"]["model"]["sample_size"], 30)
         self.assertIn("inflation", report["horizons"]["21"]["ablation"])
-        self.assertEqual(report["report_schema_version"], 3)
+        self.assertEqual(report["report_schema_version"], 4)
         self.assertEqual(report["horizons"]["21"]["baseline_constant"]["brier_score"], 0.25)
         self.assertLess(report["horizons"]["63"]["overlap"]["non_overlapping_count"], report["horizons"]["63"]["model"]["sample_size"])
         for horizon in report["horizons"].values():

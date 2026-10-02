@@ -378,8 +378,39 @@ Diagnóstico previo con el informe real: la señal heurística no aporta sobre l
   - Coeficientes aprendidos con toda la muestra a 63 sesiones: técnica +0,42, actividad +0,44; inflación −0,68, tipos reales −0,57, energía −0,32 (signo contrario al de la heurística en inflación y energía). Son descriptivos y no autorizan pesos nuevos.
 - [x] En vivo: cada horizonte muestra la probabilidad heurística y, si la calibración mejora al modelo y al 50% fuera de muestra, la probabilidad calibrada con su explicación. La etiqueta direccional sigue siendo la heurística. Hoy k = 0: 56% y 66%, la frecuencia base.
 - [x] Interfaz: «Calibrada con el histórico» en cada horizonte; candidatos con Brier, Δ frente a NEXUS, precisión equilibrada e IC frente a la frecuencia histórica en la tarjeta del backtest.
-- [ ] Repetir la evaluación al acumular cortes nuevos. Promover pesos aprendidos a 63 sesiones solo si el IC frente a las cuatro referencias queda por debajo de cero en dos regeneraciones consecutivas.
+- [x] ~~Promover pesos aprendidos a 63 sesiones si el IC queda por debajo de cero en dos regeneraciones~~: descartado tras ampliar el histórico (ver la sección siguiente); su mejora era propia de 2016–2026.
 - [ ] Incorporar resultados vencidos en vivo a la calibración cuando haya ≥30 por horizonte.
+
+## Histórico 2005–2026 y modelos compactos · 2026-10-01
+
+Motivo: 126 cortes mensuales en 2016–2026, unos 40 independientes a 63 sesiones y casi todos alcistas. Se amplía la muestra para incluir 2008, el máximo de 2011 y el mercado bajista de 2013–2015, y se prueban tres ideas de mejora.
+
+- [x] Backtest desde 2005: primer corte 2005-09-15 (GLD necesita 200 sesiones; el filtro ahora cuenta sesiones de GLD, no filas del conjunto). 228 cortes evaluados a 21 sesiones y 220 a 63 (antes 98 y 96).
+  - ALFRED: las peticiones empiezan en la primera vintage de cada serie (`first_vintage_date`). Las mensuales tienen vintages desde 2003; DFII10 desde 2005-10; T10YIE desde 2014-01.
+  - Series de mercado diarias (tipos reales, breakeven, WTI): antes de su primera vintage se usa el cierre actual de FRED fechado en T+1 (`fetch_market_close_rows`, `backfill_before_first_vintage`). Desde la primera vintage manda ALFRED.
+  - Dólar: UUP cotiza desde 2007-02; antes se encadena DXY por rendimientos (`splice_dollar_proxy`). Momentum y medias son invariantes a la escala.
+  - CFTC desagregado empieza en 2006-06: antes el grupo queda vacío.
+- [x] Candidatos nuevos, fuera del score, ajustados en cada ventana solo con resultados vencidos (`gold_calibration.py`):
+  - Tendencia: Φ(deriva de 3 años · √h / volatilidad de 63 sesiones), sin ajuste.
+  - Señales en cambios: Δ3m de tipos reales y breakeven, momentum 3m del dólar, momentum 12m del oro y log VIX, estandarizadas y acotadas a ±3σ; logística con λ elegido por validación anidada purgada.
+  - Rendimiento esperado: regresión con penalización sobre el rendimiento en unidades de volatilidad; P = Φ(ŷ / dispersión), dispersión ≥ 1.
+  - Rendimiento sobre la tendencia: igual, aprendiendo solo la desviación respecto a la deriva.
+  - Correcciones decididas tras ver probabilidades del 99% en 2008 y 2012 (documentadas, no ajustadas al Brier): acotación ±3σ, mínimo de 60 cortes de entrenamiento y dispersión mínima 1.
+- [x] Resultado fuera de muestra (informe esquema 4, Brier; menor es mejor):
+
+  | Horizonte | 50% constante | Frecuencia histórica | NEXUS | Tendencia | Pesos aprendidos | Señales en cambios | Rendimiento | Rendimiento sobre tendencia |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | 21 sesiones | 0,2500 | 0,2511 | 0,2543 | 0,2489 | 0,2593 | 0,2647 | 0,2673 | 0,2661 |
+  | 63 sesiones | 0,2500 | 0,2525 | 0,2533 | 0,2501 | 0,2506 | 0,2811 | 0,2786 | 0,2876 |
+
+  Los tres últimos se evalúan desde 2011-03 (n = 186 y 184) por el mínimo de cinco años; sus referencias en esos cortes son peores (frecuencia histórica 0,2558 y 0,2614).
+  - Ningún candidato supera las cuatro referencias con intervalo por debajo de cero. Todos los IC frente al 50% cruzan cero.
+  - La mejora de los pesos aprendidos a 63 sesiones en 2016–2026 (0,2205) desaparece con 2005–2026 (0,2506): era propia de un periodo alcista.
+  - La tendencia es el candidato más robusto: el mejor a 21 sesiones y el único que gana a la frecuencia histórica en el mercado bajista de 2012–2016 (0,300 frente a 0,349 a 63). No es concluyente.
+  - Las señales en cambios no predicen: correlación con el resultado entre −0,11 y +0,05. Su peor Brier viene sobre todo de la frecuencia base del entrenamiento (74% de subidas en 2011–2013, seguido de caída), no de las señales.
+- [x] En vivo: la calibración ya no es elegible (no mejora al 50% fuera de muestra); la app deja de mostrar la probabilidad calibrada como principal. Frecuencias base: 56% a 21 sesiones y 62% a 63.
+- [x] Interfaz: los cuatro candidatos nuevos en la tarjeta del backtest, con n e IC frente a la frecuencia histórica y frente al 50%.
+- [ ] Siguiente hipótesis razonable, sin implementar: combinar la tendencia con la frecuencia base (promedio) en lugar de aprender pesos. Evaluarla solo con cortes nuevos para no reutilizar esta muestra.
 
 ## Calendario macro con fuentes oficiales · 2026-10-01
 
