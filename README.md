@@ -242,6 +242,14 @@ También puede construirse e instalarse en Aplicaciones:
 open "/Applications/NEXUS Workstation.app"
 ```
 
+Actualización programada (launchd, lunes a viernes 09:00 y 16:00, también con la app cerrada; si el Mac dormía, se ejecuta al despertar). Guarda una captura en el historial igual que «Actualizar»:
+
+```bash
+./scripts/install_background_refresh.sh              # instalar
+./scripts/install_background_refresh.sh --uninstall  # quitar
+tail ~/Library/Logs/NEXUS/background-refresh.log
+```
+
 ## API nativa
 
 El backend local se sirve en `http://127.0.0.1:8765`.

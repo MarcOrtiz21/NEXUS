@@ -58,7 +58,7 @@ actor NexusAPIClient {
         self.baseURL = baseURL
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 90
-        config.timeoutIntervalForResource = 120
+        config.timeoutIntervalForResource = 330
         self.session = URLSession(configuration: config)
     }
 
@@ -85,7 +85,8 @@ actor NexusAPIClient {
         let path = persist ? "/api/native/refresh" : "/api/native"
         guard let url = URL(string: path, relativeTo: baseURL) else { throw NexusAPIError.badURL }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.timeoutInterval = 90
+        // Tras días sin abrir, la descarga completa de todas las capas ronda 2-3 min.
+        request.timeoutInterval = persist ? 300 : 90
         let (data, response) = try await perform(request, attempts: persist ? 1 : 3)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw NexusAPIError.http(http.statusCode)

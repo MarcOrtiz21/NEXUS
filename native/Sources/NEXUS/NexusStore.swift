@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import AppKit
 
 @MainActor
 final class NexusStore: ObservableObject {
@@ -22,6 +23,7 @@ final class NexusStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pendingPersistentRefresh = false
     private var refreshIntervalSeconds: TimeInterval = 300
+    private var wakeObserver: NSObjectProtocol?
     private let repoRoot: URL
 
     init() {
@@ -57,6 +59,56 @@ final class NexusStore: ObservableObject {
         await ensureEngine()
         await refresh(persist: false)
         startTimer()
+        observeWake()
+        if snapshotIsBehind {
+            await refresh(persist: true)
+        }
+    }
+
+    /// Mercado o macro más antiguos que el intervalo: la caché abierta al
+    /// arrancar o tras dormir no debe esperar al siguiente ciclo del timer.
+    var snapshotIsBehind: Bool {
+        guard let layers = snapshot?.freshness?.layers, !layers.isEmpty else { return snapshot == nil }
+        return layers
+            .filter { $0.key == "market" || $0.key == "macro" }
+            .contains { layer in
+                guard let age = layer.ageSeconds else { return layer.status == "MISSING" }
+                return age > refreshIntervalSeconds
+            }
+    }
+
+    private func observeWake() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.autoRefresh else { return }
+                let elapsed = self.lastRefresh.map { Date().timeIntervalSince($0) } ?? .infinity
+                if elapsed > self.refreshIntervalSeconds || self.snapshotIsBehind {
+                    await self.refresh(persist: true)
+                }
+            }
+        }
+    }
+
+    /// El motor completa la actualización aunque la petición expire; se relee
+    /// el resultado en lugar de dejar la captura anterior hasta el próximo ciclo.
+    private func followUpAfterTimeout() async {
+        for _ in 0..<6 {
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard let next = try? await client.fetchNative(persist: false) else { continue }
+            snapshot = next
+            watchlist = next.watchlist ?? watchlist
+            lastRefresh = Date()
+            NotificationCenter.default.post(name: .nexusSnapshotDidRefresh, object: nil)
+            if !snapshotIsBehind {
+                errorMessage = nil
+                return
+            }
+        }
     }
 
     func ensureEngine() async {
@@ -151,6 +203,9 @@ final class NexusStore: ObservableObject {
             engineStatus = "Motor OK · :8765"
         } catch {
             errorMessage = error.localizedDescription
+            if persist, (error as? URLError)?.code == .timedOut {
+                Task { [weak self] in await self?.followUpAfterTimeout() }
+            }
         }
     }
 
