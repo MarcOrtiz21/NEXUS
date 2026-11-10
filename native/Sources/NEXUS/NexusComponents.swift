@@ -318,6 +318,7 @@ struct NexusSummaryMetricCard: View {
 }
 
 struct NexusStanceCard: View {
+    @Environment(\.nexusContentWidth) private var contentWidth
     let stance: String
     let buy: String
     let verdict: String
@@ -339,7 +340,7 @@ struct NexusStanceCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             NexusSectionHeader(title: "Qué hacer ahora", help: help)
-            HStack(alignment: .top, spacing: 20) {
+            LazyVGrid(columns: stanceColumns(count: 2 + (confidence == nil ? 0 : 1) + (score == nil ? 0 : 1), minimum: 140), alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("ACCIÓN")
                         .font(.caption2.weight(.bold))
@@ -409,7 +410,7 @@ struct NexusStanceCard: View {
                 }
             }
             if !context.isEmpty {
-                HStack(alignment: .top, spacing: 16) {
+                LazyVGrid(columns: stanceColumns(count: context.count, minimum: 150), alignment: .leading, spacing: 12) {
                     ForEach(context) { item in
                         VStack(alignment: .leading, spacing: 2) {
                             Text((item.label ?? "").uppercased())
@@ -440,6 +441,12 @@ struct NexusStanceCard: View {
         .nexusCard()
     }
 
+    private func stanceColumns(count: Int, minimum: CGFloat) -> [GridItem] {
+        let spacing: CGFloat = 8
+        let columns = max(1, min(count, Int((contentWidth + spacing) / (minimum + spacing))))
+        return Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .leading), count: columns)
+    }
+
     private func scoreDriverCard(_ driver: ScoreDriver) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
@@ -462,47 +469,70 @@ struct NexusStanceCard: View {
     }
 
     private var planByAsset: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
+        let isTabular = contentWidth >= 680
+        let chartWidth = max(78, contentWidth * 0.12)
+        let technicalWidth = max(70, contentWidth * 0.11)
+        let actionWidth = max(72, contentWidth * 0.13)
+        let openWidth = max(140, contentWidth * 0.18)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
                 Text("PLAN POR ACTIVO")
-                Spacer()
-                Text("TÉCNICA")
-                    .frame(width: 70, alignment: .trailing)
-                Text("AHORA")
-                    .frame(width: 72, alignment: .trailing)
-                Text("SI SE ABRE")
-                    .frame(width: 92, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isTabular {
+                    Color.clear.frame(width: chartWidth, height: 1)
+                    Text("TÉCNICA")
+                        .frame(width: technicalWidth, alignment: .trailing)
+                    Text("AHORA")
+                        .frame(width: actionWidth, alignment: .trailing)
+                    Text("SI SE ABRE")
+                        .frame(width: openWidth, alignment: .trailing)
+                }
             }
             .font(.caption2.weight(.bold))
             .foregroundStyle(NexusTheme.muted)
             ForEach(legs) { leg in
-                HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(leg.label ?? leg.ticker ?? "Activo")
+                if isTabular {
+                    HStack(alignment: .center, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(leg.label ?? leg.ticker ?? "Activo")
+                                .font(.caption.weight(.semibold))
+                            Text(leg.weightNote ?? leg.verb ?? "")
+                                .font(.caption2)
+                                .foregroundStyle(NexusTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        NexusMiniSparkline(
+                            points: sparkline(for: leg),
+                            width: min(120, chartWidth),
+                            height: 26
+                        )
+                        .frame(width: chartWidth)
+                        Text(technicalLabel(for: leg))
+                            .font(.caption2.monospacedDigit().weight(.bold))
+                            .foregroundStyle(technicalColor(for: leg))
+                            .frame(width: technicalWidth, alignment: .trailing)
+                        Text(leg.now ?? "—")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(NexusTheme.toneColor(leg.now))
+                            .frame(width: actionWidth, alignment: .trailing)
+                        Text(openColumn(leg))
                             .font(.caption.weight(.semibold))
-                        Text(leg.weightNote ?? leg.verb ?? "")
-                            .font(.caption2)
-                            .foregroundStyle(NexusTheme.muted)
-                            .lineLimit(1)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: openWidth, alignment: .trailing)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 8)
-                    NexusMiniSparkline(
-                        points: sparkline(for: leg),
-                        width: 78,
-                        height: 26
-                    )
-                    Text(technicalLabel(for: leg))
-                        .font(.caption2.monospacedDigit().weight(.bold))
-                        .foregroundStyle(technicalColor(for: leg))
-                        .frame(width: 70, alignment: .trailing)
-                    Text(leg.now ?? "—")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(NexusTheme.toneColor(leg.now))
-                        .frame(width: 72, alignment: .trailing)
-                    Text(openColumn(leg))
-                        .font(.caption.weight(.semibold))
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 92, alignment: .trailing)
+                } else {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(leg.label ?? leg.ticker ?? "Activo").font(.caption.weight(.semibold))
+                        Text(leg.weightNote ?? "").font(.caption2).foregroundStyle(NexusTheme.muted)
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("Técnica \(technicalLabel(for: leg))").foregroundStyle(technicalColor(for: leg))
+                            Text(leg.now ?? "—").foregroundStyle(NexusTheme.toneColor(leg.now))
+                            Text(openColumn(leg)).fixedSize(horizontal: false, vertical: true)
+                        }.font(.caption2)
+                    }
+                    Divider().opacity(0.2)
                 }
             }
             if let weightCaption, !weightCaption.isEmpty {

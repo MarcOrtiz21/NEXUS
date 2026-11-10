@@ -2,7 +2,26 @@ import Foundation
 
 /// Arranca `uvicorn web_dashboard` desde el .venv del repo.
 final class EngineProcess {
+    // El intérprete arranca primero sin cwd/PYTHONPATH del proyecto. Las rutas
+    // se incorporan después de Py_Initialize y via argv, nunca interpoladas.
+    static let bootstrapCode = """
+    import os
+    import sys
+    print("[engine] Python inicializado", file=sys.stderr, flush=True)
+    root, packages = sys.argv[1:3]
+    if packages:
+        sys.path.insert(0, packages)
+    print("[engine] Accediendo al proyecto", file=sys.stderr, flush=True)
+    os.chdir(root)
+    print("[engine] Importando API", file=sys.stderr, flush=True)
+    import uvicorn
+    sys.path.insert(0, root)
+    print("[engine] Cargando web_dashboard", file=sys.stderr, flush=True)
+    uvicorn.run("web_dashboard:app", host="127.0.0.1", port=8765, reload=False)
+    """
     private var process: Process?
+    private var outputPipe: Pipe?
+    private let diagnostics = EngineStartupDiagnostics()
     private let repoRoot: URL
 
     init(repoRoot: URL) {
@@ -10,6 +29,7 @@ final class EngineProcess {
     }
 
     var isRunning: Bool { process?.isRunning == true }
+    var startupStage: String { diagnostics.stage }
 
     func start() throws {
         if process?.isRunning == true {
@@ -30,31 +50,18 @@ final class EngineProcess {
         let sitePackages = version.map {
             repoRoot.appendingPathComponent(".venv/lib/python\($0)/site-packages")
         }
-        let pythonHome = basePython.deletingLastPathComponent().deletingLastPathComponent()
-        // LaunchServices puede bloquear tanto la lectura de pyvenv.cfg como la
-        // autodetección de la biblioteca estándar. Se usa el binario real con
-        // PYTHONHOME y PYTHONPATH explícitos: no hay búsquedas de prefijo ni
-        // enumeración del venv durante Py_Initialize.
-        let launchPython = basePython
-
         let process = Process()
-        // No usar currentDirectoryURL aquí: en macOS 27 un proceso GUI puede
-        // quedar esperando indefinidamente dentro de getcwd(). El shell cambia
-        // de carpeta después de inicializarse y recibe las rutas como argumentos.
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // Un cwd neutro evita consultar Documentos durante la inicialización.
+        // El acceso al repo posterior sigue sujeto a los permisos normales del SO.
+        process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
+        let bootstrapArguments = ["-I", "-B", "-u", "-c", Self.bootstrapCode,
+                                  repoRoot.path, sitePackages?.path ?? ""]
         if hasVenv {
-            // El launcher framework de Python 3.14 puede bloquearse intentando
-            // abrir pyvenv.cfg cuando nace de una app GUI. Se usa el intérprete
-            // real y se incorpora únicamente site-packages del entorno local.
-            process.arguments = [
-                "-c", "echo \"[engine] iniciando entorno local · PYTHONPATH=${PYTHONPATH:-ausente}\" >&2; cd \"$1\" || exit 72; exec \"$2\" -m uvicorn web_dashboard:app --host 127.0.0.1 --port 8765",
-                "nexus-engine", repoRoot.path, launchPython.path,
-            ]
+            process.executableURL = basePython
+            process.arguments = bootstrapArguments
         } else {
-            process.arguments = [
-                "-c", "cd \"$1\" && exec /usr/bin/env python3 -m uvicorn web_dashboard:app --host 127.0.0.1 --port 8765",
-                "nexus-engine", repoRoot.path,
-            ]
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3"] + bootstrapArguments
         }
         let inherited = ProcessInfo.processInfo.environment
         // Una app abierta desde un IDE o un agente puede heredar cientos de
@@ -69,19 +76,23 @@ final class EngineProcess {
             "USER": inherited["USER"] ?? NSUserName(),
             "LOGNAME": inherited["LOGNAME"] ?? NSUserName(),
             "NEXUS_ROOT": repoRoot.path,
-            "PYTHONUNBUFFERED": "1",
-            "PYTHONNOUSERSITE": "1",
-            "PYTHONHOME": pythonHome.path,
         ]
-        if let sitePackages {
-            environment["PYTHONPATH"] = [repoRoot.path, sitePackages.path].joined(separator: ":")
-        }
         for key in ["FRED_API_KEY", "NEWSAPI_KEY", "NEXUS_CALENDAR_BLOCK_HOURS", "NO_PROXY"] {
             if let value = inherited[key], !value.isEmpty {
                 environment[key] = value
             }
         }
         process.environment = environment
+        let pipe = Pipe()
+        diagnostics.reset()
+        pipe.fileHandleForReading.readabilityHandler = { [diagnostics] handle in
+            let data = handle.availableData
+            if data.isEmpty { handle.readabilityHandler = nil; return }
+            diagnostics.consume(data)
+        }
+        process.standardOutput = pipe
+        process.standardError = pipe
+        outputPipe = pipe
         try process.run()
         self.process = process
     }
@@ -89,9 +100,30 @@ final class EngineProcess {
     func terminate() {
         process?.terminate()
         process = nil
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        outputPipe = nil
     }
 
     deinit {
         process?.terminate()
+    }
+}
+
+/// Solo retiene las fases estáticas del bootstrap, no URLs ni mensajes de fuentes.
+private final class EngineStartupDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = ""
+    private var lastStage = "Inicializando Python"
+    var stage: String { lock.lock(); defer { lock.unlock() }; return lastStage }
+    func reset() { lock.lock(); defer { lock.unlock() }; buffer = ""; lastStage = "Inicializando Python" }
+    func consume(_ data: Data) {
+        lock.lock(); defer { lock.unlock() }
+        buffer += String(decoding: data, as: UTF8.self)
+        while let newline = buffer.firstIndex(of: "\n") {
+            let line = String(buffer[..<newline])
+            buffer.removeSubrange(...newline)
+            if line.hasPrefix("[engine] ") { lastStage = String(line.dropFirst(9)) }
+        }
+        if buffer.count > 2048 { buffer = "" }
     }
 }

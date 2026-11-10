@@ -255,7 +255,7 @@ CANDIDATES = {
 def walk_forward_candidates(folds: Iterable[tuple[list[dict[str, Any]], list[dict[str, Any]]]]) -> list[dict[str, Any]]:
     """Añade a cada corte de prueba las probabilidades de todos los candidatos."""
     evaluated: list[dict[str, Any]] = []
-    for train, test in folds:
+    for fold_id, (train, test) in enumerate(folds):
         shrink = fit_shrinkage(train)
         learned = fit_ridge_logistic(train, regime=False)
         learned_regime = fit_ridge_logistic(train, regime=True)
@@ -266,6 +266,7 @@ def walk_forward_candidates(folds: Iterable[tuple[list[dict[str, Any]], list[dic
         for row in test:
             item = {
                 **row,
+                "evaluation_fold": fold_id,
                 "calibrated_probability": (
                     apply_shrinkage(float(row["model_probability"]), shrink["base_pct"], shrink["k"])
                     if shrink["status"] == "FITTED" else None

@@ -32,6 +32,28 @@ def _ohlc_frame(tickers=("AAPL", "SPY"), rows=300, freq="B", start="2025-01-01")
 
 
 class ChartSeriesTests(unittest.TestCase):
+    def test_asset_date_does_not_inherit_newer_benchmark(self):
+        asset = {"points": [{"date": "2026-08-27", "close": 100, "value": 100}], "as_of": "2026-10-08"}
+        benchmark = {"points": [{"date": "2026-10-08", "close": 200, "value": 200}], "as_of": "2026-10-08"}
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp))
+            with patch.object(service, "_load", side_effect=lambda ticker, *_: asset if ticker == "SMH" else benchmark), patch.object(service, "_is_fresh", return_value=True):
+                payload = service.get("SMH", range_name="3mo")
+        self.assertEqual(payload["as_of"], "2026-08-27")
+        self.assertEqual(payload["benchmark_as_of"], "2026-10-08")
+        self.assertEqual(payload["benchmark_status"], "fresh")
+
+    def test_stale_benchmark_does_not_mark_fresh_asset_stale(self):
+        asset = {"points": [{"date": "2026-10-08", "value": 100}], "fresh": True}
+        benchmark = {"points": [{"date": "2026-10-07", "value": 200}], "fresh": False}
+        with tempfile.TemporaryDirectory() as tmp:
+            service = ChartSeriesService(cache_dir=Path(tmp))
+            with patch.object(service, "_load", side_effect=lambda ticker, *_: asset if ticker == "SMH" else benchmark), patch.object(service, "_is_fresh", side_effect=lambda p: p["fresh"]), patch.object(service, "_refresh_in_background"):
+                payload = service.get("SMH", range_name="3mo")
+        self.assertEqual(payload["status"], "fresh")
+        self.assertEqual(payload["benchmark_status"], "stale")
+        self.assertEqual(payload["instrument"], "SMH")
+
     def test_ticker_sanitization_and_aliases(self):
         self.assertEqual(normalize_chart_ticker(" eurusd "), ("EURUSD", "EURUSD=X"))
         self.assertEqual(normalize_chart_ticker("usdeur"), ("USDEUR", "EURUSD=X"))

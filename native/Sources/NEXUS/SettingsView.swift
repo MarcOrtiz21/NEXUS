@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var macosNotifications = true
     @AppStorage("newsBlockCookieBanners") private var newsBlockCookieBanners = true
     @AppStorage("nexus.app.language") private var languageRaw = AppLanguage.spanish.rawValue
+    @AppStorage("nexus.visual.liquidGlass") private var liquidGlass = true
     @State private var saving = false
 
     private let intervalOptions = [
@@ -54,6 +55,15 @@ struct SettingsView: View {
                 Text("El cambio se aplica inmediatamente. Los análisis generados por el motor conservan el idioma de origen.")
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
+            }
+            .nexusCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                NexusSectionHeader(title: "Apariencia")
+                Toggle("Liquid Glass en navegación y controles", isOn: $liquidGlass)
+                Text("Aplicación inmediata en macOS 26 o posterior. Datos e inspectores opacos; respeta Reducir transparencia, Reducir movimiento y Aumentar contraste.")
+                    .font(.caption2).foregroundStyle(NexusTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .nexusCard()
 

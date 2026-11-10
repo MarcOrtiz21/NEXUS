@@ -2,12 +2,12 @@
   <img src="assets/AppIcon.png" alt="NEXUS logo" width="144">
   <h1>NEXUS Workstation</h1>
   <p><strong>Market intelligence for disciplined decisions.</strong></p>
-  <p>Workstation 3.9 · Native macOS interface · Python decision engine · Explainable market context</p>
+  <p>Workstation 3.17 · Native macOS interface · Python decision engine · Explainable market context</p>
   <p>
     <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
     <img alt="Swift 5.9+" src="https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white">
     <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
-    <img alt="Release 3.9" src="https://img.shields.io/badge/release-3.9-0A84FF">
+    <img alt="Release 3.17" src="https://img.shields.io/badge/release-3.17-0A84FF">
   </p>
 </div>
 
@@ -29,6 +29,24 @@ La aplicación está diseñada para responder tres preguntas:
 3. ¿Qué acción operativa es razonable y qué debería evitarse?
 
 NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las señales, escenarios y simulaciones son herramientas de análisis.
+
+La documentación visual se prepara con [capturas reales de la aplicación](docs/SCREENSHOTS.md),
+conservando fechas y avisos de calidad. Los originales se revisan localmente antes
+de incluirlos en el repositorio; no se utilizan datos sintéticos para representar
+las capacidades actuales.
+
+### Novedades de la versión 3.17
+
+- Liquid Glass nativo en navegación y controles para macOS 26/27; superficies de
+  datos e inspectores opacos. Puede desactivarse en Ajustes → Apariencia y respeta
+  reducir transparencia/movimiento y aumentar contraste. La base sigue en macOS 14+.
+- Fecha de cada serie separada de SPY y actualización de caché caducada al volver
+  al gráfico, con relecturas acotadas durante esa interacción, sin programar tareas.
+- Calendario libre diferenciado del permiso operativo; HEALTHY no garantiza datos frescos.
+- Tabla compacta de empresas, Resumen adaptable y Oro con contexto más compacto.
+- VIX alineado con sus bandas, fechas extremas legibles, aviso de densidad y
+  etiquetas RSI sin solapamiento; la serie XAUUSD se identifica como futuros COMEX.
+- Aplicación 3.17.0 y API 1.18. No cambia el modelo ni eleva la confianza predictiva.
 
 ### Novedades de la versión 3.9
 
@@ -88,6 +106,15 @@ NEXUS no ejecuta operaciones reales ni sustituye asesoramiento financiero. Las s
 - Estado y calidad de las fuentes de datos.
 - Perspectiva preliminar del oro con cobertura explícita; las fuentes privadas
   y los consensos históricos permanecen en standby hasta evaluar su licencia.
+- Oro separa intensidad del sesgo, calidad de datos y fiabilidad predictiva:
+  la estimación heurística no es una probabilidad validada. La confianza sigue
+  baja mientras no se demuestre mejora estable fuera de muestra.
+- Evaluación de producción separada de candidatos, comparaciones sobre los
+  mismos cortes y trazabilidad de reglas/datos. El seguimiento en vivo no mezcla
+  versiones ni configuraciones; las capturas anteriores se conservan en archivo.
+- Experimento prospectivo [tendencia–frecuencia](GOLD_TREND_FREQUENCY_EXPERIMENT.md)
+  con reglas congeladas, capturas mensuales manuales y datos locales. La vista
+  previa y el seguimiento experimental no activan señales ni elevan confianza.
 - Backtest point-in-time de diez años frente a momentum, dólar + tipos reales,
   probabilidad constante y frecuencia histórica. Entrenamientos purgados de
   resultados no vencidos, diagnóstico de solapamiento e intervalos aproximados
@@ -208,6 +235,10 @@ flowchart TB
 
 - macOS 14 o superior.
 - Python 3.11–3.13 recomendado. En macOS 27, NEXUS prioriza Python 3.12 porque Python 3.14 puede bloquearse al arrancar como proceso gráfico sin terminal.
+- Desde la app 3.16.0, Python se inicializa en modo aislado fuera del proyecto y
+  después carga el entorno local. Esto evita el bloqueo de inicialización al
+  consultar Documentos antes de cargar la biblioteca estándar; no cambia permisos
+  de macOS. El motor iniciado por la app se detiene al cerrar NEXUS.
 - Swift 5.9+.
 - Dependencias Python del proyecto.
 - Opcional: `FRED_API_KEY` para datos macro adicionales.
@@ -278,6 +309,15 @@ Ejecutar toda la suite Python:
 ```bash
 .venv/bin/python -m pytest
 ```
+
+Comprobar las políticas nativas y la renovación de gráficos con Command Line Tools:
+
+```bash
+bash scripts/test_native_presentation.sh
+```
+
+Para inspeccionar tamaños exactos, usa Ventana → Tamaño de ventana (820, 1280,
+1440 o 1800 puntos; limitado al área disponible de la pantalla).
 
 Las pruebas cubren ingestión/cache, calendario, motor de decisión, historial,
 noticias, sentimiento, cartera virtual, track record, contrato del API nativo,

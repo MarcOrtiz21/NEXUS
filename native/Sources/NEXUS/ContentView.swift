@@ -36,8 +36,11 @@ struct ContentView: View {
                     maxInspector
                 )
                 let constrainedInspectorWidth = inspectorWidth(maxWidth: maxInspector)
+                let mainWidth = max(0, proxy.size.width - (store.selectedAssetKey == nil ? 0 : shownWidth + 14))
                 HStack(spacing: 0) {
                     mainDetailColumn
+                        .environment(\.nexusContentWidth, mainWidth)
+                        .environment(\.nexusBreakpoint, NexusBreakpoint.from(width: mainWidth))
                         .frame(minWidth: 0)
                         .frame(maxWidth: .infinity)
                     if let ticker = store.selectedAssetKey {
@@ -48,6 +51,8 @@ struct ContentView: View {
                             label: "Ancho del inspector de activo"
                         )
                         inspectorPane(ticker)
+                            .environment(\.nexusContentWidth, max(0, shownWidth - NexusLayout.inspectorEdgeInset))
+                            .environment(\.nexusBreakpoint, NexusBreakpoint.from(width: shownWidth))
                             .frame(width: max(0, shownWidth - NexusLayout.inspectorEdgeInset))
                             .frame(maxHeight: .infinity)
                             .padding(.vertical, 8)
@@ -186,10 +191,12 @@ struct ContentView: View {
                 .padding(.leading, NexusLayout.trafficLightGutter)
                 .accessibilityLabel("NEXUS")
 
-            ViewThatFits(in: .horizontal) {
-                toolbarNavigationFull
-                toolbarNavigationCompact
-                toolbarNavigationMinimal
+            NexusGlassGroup {
+                ViewThatFits(in: .horizontal) {
+                    toolbarNavigationFull
+                    toolbarNavigationCompact
+                    toolbarNavigationMinimal
+                }
             }
 
             Spacer(minLength: 8)
@@ -268,8 +275,12 @@ struct ContentView: View {
                     .help("Actualizando datos")
                     .accessibilityLabel("Actualizando datos")
             }
-            StatusChipView(chip: store.snapshot?.statusChip)
-                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("MOTOR / SERVICIO").font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(NexusTheme.muted)
+                StatusChipView(chip: store.snapshot?.statusChip).lineLimit(1)
+            }
+            .help("Estado del servicio; no garantiza frescura de mercado, macro o empresas.")
             NexusToolbarButton(
                 systemImage: "gearshape",
                 label: "Ajustes",
@@ -313,7 +324,7 @@ struct ContentView: View {
     }
 
     private func toolbarGroup(_ items: [NavItem]) -> some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 8) {
             ForEach(items) { item in
                 Button {
                     store.selected = item
@@ -335,10 +346,7 @@ struct ContentView: View {
                     .foregroundStyle(store.selected == item ? NexusTheme.text : NexusTheme.muted)
                     .padding(.horizontal, 8)
                     .frame(minHeight: NexusLayout.toolbarButtonSize)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(store.selected == item ? NexusTheme.accent.opacity(0.22) : .clear)
-                    )
+                    .nexusGlass(radius: 10, selected: store.selected == item, interactive: true)
                     .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)

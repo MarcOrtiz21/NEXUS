@@ -25,7 +25,7 @@ from user_settings import (
     save_user_settings,
 )
 
-app = FastAPI(title="NEXUS Dashboard", version="1.15")
+app = FastAPI(title="NEXUS Dashboard", version="1.18")
 
 _STARTED_AT = time.time()
 _CODE_ROOT = Path(__file__).resolve().parent
@@ -296,7 +296,7 @@ def api_health() -> JSONResponse:
     return JSONResponse({
         "ok": True,
         "service": "nexus",
-        "version": "1.15",
+        "version": "1.18",
         "pid": os.getpid(),
         "code_stale": code_changed_since_start(),
         "capabilities": {
@@ -312,6 +312,7 @@ def api_health() -> JSONResponse:
             "gold_live_calibration": True,
             "gold_revision_diagnostics": True,
             "gold_backtest_uncertainty": True,
+            "gold_prospective_experiment": True,
             "native_settings": True,
             "shared_snapshot_cache": True,
         },

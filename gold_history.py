@@ -8,6 +8,7 @@ point-in-time hasta disponer de fecha de publicación o vintage verificable.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import sqlite3
 import threading
@@ -213,6 +214,9 @@ def initialize_gold_history(db_path: Path = GOLD_HISTORY_DB) -> None:
         _ensure_column(connection, "gold_predictions", "cutoff_at", "TEXT")
         _ensure_column(connection, "gold_predictions", "capture_kind", "TEXT NOT NULL DEFAULT 'ROUTINE'")
         _ensure_column(connection, "gold_predictions", "trigger_event", "TEXT")
+        _ensure_column(connection, "gold_predictions", "model_fingerprint", "TEXT")
+        _ensure_column(connection, "gold_predictions", "capture_key", "TEXT")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_gold_prediction_capture_key ON gold_predictions(capture_key) WHERE capture_key IS NOT NULL")
 
 
 def gold_capture_policy(
@@ -360,13 +364,18 @@ def record_gold_snapshot(
         short = outlook.get("short_term") or {}
         medium = outlook.get("medium_term") or {}
         model_version = str(outlook.get("version") or "unknown")
+        fingerprint = str(outlook.get("model_fingerprint") or f"legacy:{model_version}")
+        event = policy["trigger_event"] or ""
+        bucket = f"event:{observed_at[:10]}:{event}" if event else f"daily:{observed_at[:10]}"
+        capture_key = hashlib.sha256(f"{model_version}:{fingerprint}:{bucket}".encode()).hexdigest()
         existing_prediction = connection.execute(
             """
             SELECT id FROM gold_predictions
-            WHERE model_version = ? AND substr(captured_at, 1, 10) = ?
+            WHERE capture_key = ? OR (capture_key IS NULL AND model_version = ?
+                AND substr(captured_at, 1, 10) = ? AND COALESCE(trigger_event, '') = ?)
             LIMIT 1
             """,
-            (model_version, observed_at[:10]),
+            (capture_key, model_version, observed_at[:10], event),
         ).fetchone()
         prediction_id = int(existing_prediction["id"]) if existing_prediction is not None else None
         prediction_inserted = 0
@@ -407,6 +416,8 @@ def record_gold_snapshot(
                 ),
             )
             prediction_id = int(cursor.lastrowid)
+            connection.execute("UPDATE gold_predictions SET model_fingerprint = ?, capture_key = ? WHERE id = ?",
+                               (fingerprint, capture_key, prediction_id))
             prediction_inserted = 1
         if prediction_inserted and prediction_id is not None:
             for group in outlook.get("groups") or []:
@@ -457,7 +468,8 @@ def record_gold_snapshot(
     }
 
 
-def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
+def gold_history_summary(db_path: Path = GOLD_HISTORY_DB, *, model_version: str | None = None,
+                         model_fingerprint: str | None = None) -> dict[str, Any]:
     if not Path(db_path).exists():
         return {"observations": 0, "predictions": 0, "settled_outcomes": 0}
     initialize_gold_history(db_path)
@@ -469,6 +481,10 @@ def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
             connection.execute("SELECT COUNT(*) FROM gold_observations WHERE point_in_time = 1").fetchone()[0]
         )
         latest = connection.execute("SELECT MAX(captured_at) FROM gold_predictions").fetchone()[0]
+        if model_version is None:
+            profile = connection.execute("SELECT model_version, model_fingerprint FROM gold_predictions ORDER BY captured_at DESC LIMIT 1").fetchone()
+            if profile:
+                model_version, model_fingerprint = profile["model_version"], profile["model_fingerprint"]
         latest_audit = connection.execute(
             """
             SELECT cutoff_at, capture_kind, trigger_event, future_observations_rejected
@@ -496,11 +512,15 @@ def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
               ON short.prediction_id = p.id AND short.horizon_days = p.short_horizon_days
             LEFT JOIN gold_prediction_outcomes medium
               ON medium.prediction_id = p.id AND medium.horizon_days = p.medium_horizon_days
+            WHERE p.model_version = ? AND COALESCE(p.model_fingerprint, '') = ?
             ORDER BY p.captured_at DESC
             LIMIT 24
             """
+            , (model_version, model_fingerprint or "")
         ).fetchall()
     return {
+        "active_predictions": len(recent_rows) if len(recent_rows) < 24 else active_prediction_count(db_path, model_version, model_fingerprint),
+        "model_version": model_version,
         "observations": observations,
         "point_in_time_observations": point_in_time,
         "predictions": predictions,
@@ -539,6 +559,12 @@ def gold_history_summary(db_path: Path = GOLD_HISTORY_DB) -> dict[str, Any]:
     }
 
 
+def active_prediction_count(db_path: Path, version: str | None, fingerprint: str | None) -> int:
+    with closing(_connect(db_path)) as connection:
+        return int(connection.execute("SELECT COUNT(*) FROM gold_predictions WHERE model_version = ? AND COALESCE(model_fingerprint, '') = ?",
+                                      (version, fingerprint or "")).fetchone()[0])
+
+
 def gold_change_summary(
     current_outlook: dict[str, Any],
     *,
@@ -555,11 +581,12 @@ def gold_change_summary(
             """
             SELECT captured_at, payload_json
             FROM gold_predictions
-            WHERE date(captured_at) < date(?)
+            WHERE date(captured_at) < date(?) AND model_version = ?
+              AND COALESCE(model_fingerprint, '') = ?
             ORDER BY captured_at DESC
             LIMIT 1
             """,
-            (current_at,),
+            (current_at, current_outlook.get("version"), current_outlook.get("model_fingerprint") or f"legacy:{current_outlook.get('version')}"),
         ).fetchone()
     if row is None:
         return None

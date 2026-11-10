@@ -24,21 +24,23 @@ struct OverviewView: View {
 
     @ViewBuilder
     private var decisionWorkspace: some View {
-        if contentWidth >= 900 {
+        let pageWidth = max(0, contentWidth - NexusLayout.pagePadding * 2)
+        let splitWidth = pageWidth - NexusLayout.spacing
+        if let sidebarWidth = PresentationPolicy.overviewSidebarWidth(availableWidth: splitWidth) {
+            let planWidth = splitWidth - sidebarWidth
             HStack(alignment: .top, spacing: NexusLayout.spacing) {
                 sessionPlanCard
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .layoutPriority(2)
-                VStack(spacing: NexusLayout.spacing) {
+                    .environment(\.nexusContentWidth, max(0, planWidth - NexusLayout.cardPadding * 2))
+                    .frame(width: planWidth, alignment: .topLeading)
+                VStack(spacing: 10) {
                     vixCard
                     macroPulseCard
                     calendarCard
                 }
-                .frame(width: min(400, max(300, (contentWidth - NexusLayout.pagePadding * 2) * 0.32)), alignment: .top)
-                .layoutPriority(1)
+                .frame(width: sidebarWidth, alignment: .top)
             }
         } else {
-            sessionPlanCard
+            sessionPlanCard.environment(\.nexusContentWidth, max(0, pageWidth - NexusLayout.cardPadding * 2))
             NexusResponsiveGrid(wideColumns: 3, mediumColumns: 2) {
                 vixCard
                 macroPulseCard
@@ -116,7 +118,7 @@ struct OverviewView: View {
 
     private var calendarCard: some View {
         let events = store.snapshot?.calendar?.upcoming ?? []
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 6) {
             NexusSectionHeader(
                 title: "Calendario 72h",
                 help: "Eventos US de las próximas 72 horas. Si la hora es RSS o manual, es una ventana aproximada, no un FOMC datado."
@@ -127,7 +129,7 @@ struct OverviewView: View {
                     .foregroundStyle(NexusTheme.muted)
             } else {
                 ForEach(events) { event in
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: 6) {
                         Circle()
                             .fill(event.blocksSignals == true ? NexusTheme.bad : NexusTheme.warn)
                             .frame(width: 7, height: 7)
@@ -148,7 +150,8 @@ struct OverviewView: View {
                 }
             }
         }
-        .nexusCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nexusCard(padding: 10)
     }
 
     private func calendarWhen(_ event: CalendarEventItem) -> String {
@@ -169,14 +172,14 @@ struct OverviewView: View {
 
     private var vixCard: some View {
         let value = market("VIX")
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 6) {
             NexusSectionHeader(
                 title: "VIX",
                 help: "Termómetro de estrés. Calma favorece riesgo; estrés pide liquidez. No es una orden."
             )
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(value.map { String(format: "%.1f", $0) } ?? "—")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(vixColor(value))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(vixLabel(value))
@@ -186,8 +189,8 @@ struct OverviewView: View {
                         .font(.caption2)
                         .foregroundStyle(NexusTheme.muted)
                 }
-                Spacer(minLength: 8)
-                NexusMiniSparkline(points: sparkline(for: "VIX"), width: 120, height: 44)
+                Spacer(minLength: 4)
+                NexusMiniSparkline(points: sparkline(for: "VIX"), width: 84, height: 28)
             }
             vixMeter(value)
             Text(macroInterpretation)
@@ -195,11 +198,11 @@ struct OverviewView: View {
                 .foregroundStyle(NexusTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .nexusCard()
+        .nexusCard(padding: 10)
     }
 
     private func vixMeter(_ value: Double?) -> some View {
-        let position = min(1, max(0, ((value ?? 18) - 10) / 30))
+        let position = PresentationPolicy.vixPosition(value ?? 18)
         return VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -210,14 +213,14 @@ struct OverviewView: View {
                         vixBand("Estrés", NexusTheme.bad)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    Circle()
+                    if value != nil { Circle()
                         .fill(NexusTheme.text)
                         .frame(width: 9, height: 9)
                         .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
-                        .offset(x: max(0, min(geo.size.width - 9, geo.size.width * position - 4.5)))
+                        .offset(x: max(0, min(geo.size.width - 9, geo.size.width * position - 4.5))) }
                 }
             }
-            .frame(height: 22)
+            .frame(height: 18)
             HStack {
                 Text("<15")
                 Spacer()
@@ -276,7 +279,7 @@ struct OverviewView: View {
     }
 
     private var macroPulseCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             NexusSectionHeader(
                 title: "Tipos e inflación",
                 help: "Condicionan valoración y duración. El VIX está en la tarjeta de arriba."
@@ -288,7 +291,7 @@ struct OverviewView: View {
                 .font(.caption)
                 .foregroundStyle(NexusTheme.muted)
         }
-        .nexusCard()
+        .nexusCard(padding: 10)
     }
 
     private var rankingCard: some View {
@@ -484,7 +487,7 @@ struct OverviewView: View {
             .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
             .background(color.opacity(0.12))
     }
 
@@ -557,7 +560,7 @@ struct OverviewView: View {
             return "Volatilidad alta: priorizar liquidez y reducir tamaño."
         }
         if let vix = market("VIX"), vix < 15 {
-            return "Volatilidad baja: el entorno no está en estrés, pero el bloqueo sigue mandando."
+            return "Volatilidad baja: no hay estrés de VIX. Calendario libre y fuerza técnica no bastan para autorizar entradas."
         }
         return "VIX en zona normal. No sustituye al permiso operativo."
     }

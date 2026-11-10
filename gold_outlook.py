@@ -9,11 +9,22 @@ que exista una validación walk-forward suficiente.
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+from pathlib import Path
 from typing import Any, Iterable
 
 
-MODEL_VERSION = "gold-outlook-v2"
+MODEL_VERSION = "gold-outlook-v3"
 PRIVATE_SOURCES_STATUS = "STANDBY"
+
+
+def model_fingerprint() -> str:
+    """Identidad reproducible de reglas y evaluación, sin datos ni credenciales."""
+    digest = hashlib.sha256()
+    for name in ("gold_outlook.py", "gold_backtest.py", "gold_calibration.py", "gold_backtest_stats.py"):
+        digest.update(name.encode())
+        digest.update(Path(__file__).with_name(name).read_bytes())
+    return digest.hexdigest()
 
 
 def _number(value: Any) -> float | None:
@@ -195,7 +206,13 @@ def _horizon(groups: list[dict[str, Any]], horizon: str) -> dict[str, Any]:
 
     total_weight = sum(float(group[weight_key]) for group in groups)
     coverage = round(available_weight / total_weight * 100, 1) if total_weight else 0.0
-    confidence = "MEDIA" if coverage >= 70 and abs(probability - 50) >= 8 else "BAJA"
+    fresh_weight = sum(float(group[weight_key]) * sum(
+        item.get("available") is True and item.get("quality") == "OK"
+        for item in group.get("details", [])
+    ) / max(1, len(group.get("details", []))) for group in available)
+    fresh_coverage = round(fresh_weight / total_weight * 100, 1) if total_weight else 0.0
+    quality = "ALTA" if fresh_coverage >= 90 else "PARCIAL" if fresh_coverage >= 70 else "INSUFICIENTE"
+    strength = "FUERTE" if abs(probability - 50) >= 15 else "MODERADA" if abs(probability - 50) >= 8 else "DÉBIL"
     drivers = sorted(
         (
             {
@@ -215,7 +232,13 @@ def _horizon(groups: list[dict[str, Any]], horizon: str) -> dict[str, Any]:
         "tone": tone,
         "probability_up": probability,
         "score": score,
-        "confidence": confidence,
+        "confidence": "BAJA",
+        "predictive_reliability": "NO_DEMOSTRADA",
+        "confidence_basis": "predictive_validation",
+        "confidence_note": "La intensidad del sesgo y la calidad de datos no demuestran acierto predictivo.",
+        "data_quality": quality,
+        "fresh_coverage_pct": fresh_coverage,
+        "signal_strength": strength,
         "coverage_pct": coverage,
         "drivers": drivers[:5],
     }
@@ -487,6 +510,7 @@ def build_gold_outlook(
 
     return {
         "version": MODEL_VERSION,
+        "model_fingerprint": model_fingerprint(),
         "status": "PRELIMINARY",
         "as_of": _latest_as_of(data),
         "private_sources_status": PRIVATE_SOURCES_STATUS,
@@ -497,7 +521,7 @@ def build_gold_outlook(
         "groups": groups,
         "data_notes": [
             "Los consensos privados permanecen en standby; esta versión usa datos públicos observados.",
-            "El backtest point-in-time está completado, pero aún no supera de forma consistente las referencias; la confianza permanece limitada.",
+            "La evaluación histórica separa producción y candidatos y declara sus supuestos temporales; no demuestra mejora estable frente a las referencias.",
             (
                 "El posicionamiento CFTC ha superado la puerta de ablación y aporta con peso limitado."
                 if positioning_enabled else

@@ -18,6 +18,9 @@ struct ChartSeriesState {
     var interval: String = "1d"
     var range: String = "1y"
     var asOf: String?
+    var benchmarkAsOf: String?
+    var benchmarkStatus: String?
+    var instrument: String?
     var source: String?
     var status: String?
     var revision: String?
@@ -30,18 +33,24 @@ struct ChartSeriesState {
     var loading = false
     var loadedRemote = false
     var errorMessage: String?
+    var loadedAt: Date?
 }
 
 @MainActor
 final class ChartDataStore: ObservableObject {
     @Published private var entries: [String: ChartSeriesState] = [:]
 
-    private let client = NexusAPIClient()
+    typealias Fetcher = (String, NexusChartInterval, NexusChartRange, Bool) async throws -> ChartSeriesPayload
+    private let fetcher: Fetcher
     private var tasks: [String: Task<ChartSeriesPayload, Error>] = [:]
     private var requestIDs: [String: UUID] = [:]
     private var invalidationTask: Task<Void, Never>?
 
-    init() {
+    init(fetcher: Fetcher? = nil) {
+        let client = NexusAPIClient()
+        self.fetcher = fetcher ?? { ticker, interval, range, force in
+            try await client.fetchChart(ticker: ticker, interval: interval, range: range, refresh: force)
+        }
         invalidationTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .nexusSnapshotDidRefresh) {
                 guard !Task.isCancelled else { return }
@@ -96,7 +105,8 @@ final class ChartDataStore: ObservableObject {
                 loading: true
             )
         } else {
-            if entries[key]?.loadedRemote == true, !force { return }
+            if let state = entries[key], state.loadedRemote, !force,
+               !PresentationPolicy.reloadChart(status: state.status, loadedAt: state.loadedAt, now: Date()) { return }
             entries[key]?.loading = true
             entries[key]?.errorMessage = nil
         }
@@ -110,14 +120,17 @@ final class ChartDataStore: ObservableObject {
         } else {
             tasks[key]?.cancel()
             requestID = UUID()
-            task = Task { [client] in
+            task = Task { [fetcher] in
                 try Task.checkCancellation()
-                return try await client.fetchChart(
-                    ticker: normalizedTicker,
-                    interval: interval,
-                    range: range,
-                    refresh: force
-                )
+                var payload = try await fetcher(normalizedTicker, interval, range, force)
+                // Lecturas acotadas dentro de esta interacción para recoger la
+                // renovación del servidor; no se programa ningún refresco periódico.
+                for delay in [300_000_000, 900_000_000] where payload.status == "stale" {
+                    try await Task.sleep(nanoseconds: UInt64(delay))
+                    try Task.checkCancellation()
+                    payload = try await fetcher(normalizedTicker, interval, range, false)
+                }
+                return payload
             }
             tasks[key] = task
             requestIDs[key] = requestID
@@ -133,6 +146,9 @@ final class ChartDataStore: ObservableObject {
                 interval: payload.interval ?? "1d",
                 range: payload.range ?? range.rawValue,
                 asOf: payload.asOf,
+                benchmarkAsOf: payload.benchmarkAsOf,
+                benchmarkStatus: payload.benchmarkStatus,
+                instrument: payload.instrument,
                 source: payload.source,
                 status: payload.status,
                 revision: payload.revision,
@@ -144,7 +160,8 @@ final class ChartDataStore: ObservableObject {
                 dataStatus: payload.dataStatus,
                 loading: false,
                 loadedRemote: true,
-                errorMessage: nil
+                errorMessage: nil,
+                loadedAt: Date()
             )
             let elapsedMS = Date().timeIntervalSince(startedAt) * 1_000
             chartDataLogger.debug(

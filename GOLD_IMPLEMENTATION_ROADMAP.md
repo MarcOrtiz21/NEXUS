@@ -161,7 +161,7 @@ elementos se marcarán al completar código, pruebas y revisión visual.
 - [x] Grupo Posicionamiento especulativo limitado, condicionado por ablación fuera de muestra.
 - [x] Grupo Demanda oficial preparado, sin inventar datos ausentes.
 - [x] Renormalizar pesos solo entre grupos disponibles.
-- [x] Limitar la confianza de la versión heurística a `MEDIA`.
+- [x] Separar intensidad del sesgo, calidad de datos y fiabilidad predictiva. Desde v3 la confianza predictiva es `BAJA / NO_DEMOSTRADA`; la cobertura y la distancia al 50% no la elevan.
 - [ ] Incorporar sorpresas estandarizadas cuando exista consenso fiable.
 - [ ] Añadir pesos aprendidos por horizonte tras el backtest.
 - [x] Añadir clasificación explícita y descriptiva de régimen macroeconómico (TIPS reales y dólar), sin voto ni modificación de pesos.
@@ -412,7 +412,78 @@ Motivo: 126 cortes mensuales en 2016–2026, unos 40 independientes a 63 sesione
   - Las señales en cambios no predicen: correlación con el resultado entre −0,11 y +0,05. Su peor Brier viene sobre todo de la frecuencia base del entrenamiento (74% de subidas en 2011–2013, seguido de caída), no de las señales.
 - [x] En vivo: la calibración ya no es elegible (no mejora al 50% fuera de muestra); la app deja de mostrar la probabilidad calibrada como principal. Frecuencias base: 56% a 21 sesiones y 62% a 63.
 - [x] Interfaz: los cuatro candidatos nuevos en la tarjeta del backtest, con n e IC frente a la frecuencia histórica y frente al 50%.
-- [ ] Siguiente hipótesis razonable, sin implementar: combinar la tendencia con la frecuencia base (promedio) en lugar de aprender pesos. Evaluarla solo con cortes nuevos para no reutilizar esta muestra.
+- [x] Implementar tendencia–frecuencia como promedio fijo, separado de producción y evaluado solo con cortes nuevos. Protocolo prospectivo del 08-10-2026; resultados aún pendientes.
+
+## Fiabilidad de evaluación y seguimiento · 2026-10-06 · aplicación 3.14.0 / API 1.16
+
+- [x] Modelo `gold-outlook-v3`: mismas reglas direccionales de producción, con CFTC/tenencias GLD fuera del score. Se separa el resultado activo del modelo experimental que incluye esas familias; la ablación queda identificada como experimental.
+- [x] Comparar cada candidato frente a NEXUS sobre exactamente sus cortes disponibles; exponer métricas de NEXUS en esos mismos cortes. Corregido `delta_brier_vs_model`.
+- [x] Calibración elegible solo con mejora frente a las cuatro referencias, intervalos aproximados por debajo de cero y estabilidad en al menos cuatro ventanas (≥60% favorables); el histórico reconstruido no habilita calibración en vivo.
+- [x] Huella SHA-256 de reglas/evaluación y de entradas macro, mercado, CFTC y tenencias locales. Un informe de otra versión/configuración no habilita calibración ni factores. Los hashes no contienen filas ni credenciales; datos e informes siguen solo locales.
+- [x] Distinguir cortes auditados mediante vintages y cierres reconstruidos T+1. El histórico real 2005–2026 queda `RECONSTRUCTED_WITH_ASSUMPTIONS`; la procedencia experimental GLD conserva la advertencia de archivo sobrescrito.
+- [x] Confianza predictiva baja y no demostrada, separada de intensidad `FUERTE/MODERADA/DÉBIL`, cobertura disponible y porcentaje ponderado de datos activos con calidad `OK`. `STALE/ERROR/UNKNOWN` no cuentan como actualizados.
+- [x] Migración SQLite aditiva: `model_fingerprint` y clave de captura; conserva las 12 predicciones anteriores. Copia local previa en `data/history/gold_outlook_before_v3.sqlite3` e informe anterior en `data/reports/gold_backtest_before_v3.json`, ambos ignorados por Git.
+- [x] Capturas inmutables por configuración: rutina diaria y recaptura por evento del mismo día coexistentes; actualizaciones repetidas del mismo evento no duplican predicciones.
+- [x] Validación, cambios e histórico visible filtrados por versión/configuración. Recuento de archivo global separado del activo. Publicación de métricas en vivo exige ≥30 resultados y ≥30 cortes vencidos sin solapamiento; este subconjunto no certifica independencia estadística.
+- [x] Backtest recalculado sobre los mismos cortes del informe anterior: producción Brier 0,254601 / 0,253609 (228 / 220 cortes), experimental 0,254328 / 0,253326. Sigue `KEEP_PRELIMINARY`: no se demuestra ganancia predictiva ni se activan candidatos.
+- [x] Verificación: 271 pruebas automáticas, compilación release y bundle 3.14.0, API 1.16 con `code_stale=false` e informe compatible. Inspección visual de confianza, validación y recuentos en ventana amplia y media pantalla; la tarjeta de contexto usa todo el ancho cuando no hay comparación de la configuración activa.
+- [x] Fase de registro: experimento tendencia–frecuencia con protocolo fijado y evaluación futura; no se promueve a producción.
+
+## Experimento prospectivo tendencia–frecuencia · 2026-10-08 · 3.15.0 / API 1.17
+
+- [x] [Protocolo previo a resultados](GOLD_TREND_FREQUENCY_EXPERIMENT.md): promedio 50/50 sin optimización, deriva de 756 rendimientos logarítmicos y volatilidad de 63, frecuencia congelada con resultados ya vencidos al registrar.
+- [x] Registro explícito local de reglas, implementación, producción e informe; si cambian reglas o producción, bloqueo visible en lugar de modificar el experimento silenciosamente.
+- [x] Solo primer corte manual elegible de cada mes desde el día 15, después de 16:15 Nueva York. Se exigen histórico completo, cierre actual GLD, frescura y alineación con el mismo cierre de producción. No se retrofechan meses perdidos.
+- [x] Vista previa diferenciada de predicciones guardadas, con fecha de cierre y estado de caché. Leer la vista no descarga ni persiste datos experimentales.
+- [x] Predicciones, entradas utilizadas, hashes y resultados inmutables en SQLite separada; liquidación a 21/63 sesiones posteriores observadas, deduplicación mensual y separación de horizontes.
+- [x] Comparaciones prospectivas emparejadas contra 50%, frecuencia, tendencia y producción; métricas ocultas hasta suficientes casos separados. El histórico ya explorado no entra en estas métricas.
+- [x] Panel adaptativo dentro de «Validación y seguimiento»; declaración explícita de que no modifica score, confianza ni permiso operativo. Fuentes privadas siguen intactas y no intervienen en esta hipótesis.
+- [x] Registro real el 08-10-2026, 07:20:31 UTC; histórico diario de 1.254 sesiones preparado en caché local. Frecuencias congeladas 55,9524% / 62%; cero emisiones y resultados. Primer corte posible desde el día 15, mediante actualización manual elegible; la vista previa no cuenta como emisión.
+- [x] Verificación: 279 pruebas, compilación release 3.15.0 y API 1.17. Panel inspeccionado en ventana amplia y media pantalla con motor arrancado desde terminal; lectura no crea capturas y el informe de producción conserva su compatibilidad.
+- [x] Arranque automático en macOS 27.0.1, resuelto en 3.16.0: el bloqueo anterior era `Py_InitializeFromConfig → encodings → os_listdir → open` al consultar el proyecto antes de inicializar Python. El intérprete real ahora inicia con `-I -B -u` desde un cwd neutro; añade proyecto/site-packages por argumentos después de inicializarse. No se modifican permisos del sistema.
+
+## Arranque y ciclo de vida · 2026-10-08 · aplicación 3.16.0
+
+- [x] Eliminar shell intermedio y `PYTHONPATH/PYTHONHOME` del arranque GUI; inicialización aislada antes de acceder a Documentos. Se conservan únicamente ajustes explícitos del motor.
+- [x] Rutas con espacios y signos especiales transmitidas como argumentos, sin interpolación; pruebas del bootstrap Python real con API sintética y acceso a un proyecto inexistente.
+- [x] Detener el proceso propio si vence el arranque y al cerrar NEXUS. Un motor externo reutilizado no se detiene al cerrar la interfaz.
+- [x] Verificación: 281 pruebas automáticas, compilación release, dos arranques en frío sin el motor de terminal. API 1.17 con `code_stale=false`, PID hijo de NEXUS y recepción de datos en pantalla.
+- [x] Cierre verificado: el proceso hijo desaparece y el puerto 8765 queda libre. Datos, reglas del modelo y registro experimental no se modifican por esta corrección.
+- [ ] Acumular ≥30 resultados y ≥30 cortes sin solapamiento por horizonte; con periodicidad mensual, especialmente a 63 sesiones, exige seguimiento prolongado y no implica independencia estadística.
+- [ ] Evaluar Brier, precisión equilibrada, curva de calibración e incertidumbre antes de una revisión manual. Nunca hay promoción automática.
+
+## Coherencia y presentación · 2026-10-11 · aplicación 3.17.0 / API 1.18
+
+- [x] Fecha de la serie independiente del benchmark SPY, con fecha/calidad de
+  benchmark separadas y última vela/cierre e instrumento visibles. Regresión con
+  activo antiguo y benchmark reciente.
+- [x] Reapertura de gráficos con política de caducidad y relectura acotada de caché
+  renovada durante la interacción; no se añade programación periódica.
+- [x] Permiso operativo separado del bloqueo de calendario; MANTENER no implica
+  calendario bloqueado. Etiqueta de estado de servicio separada de frescura.
+- [x] XAUUSD rotulado como proxy de futuros COMEX GC=F, nunca oro spot.
+- [x] Liquid Glass nativo con disponibilidad macOS 26+, compatible con macOS 27,
+  solo en navegación/controles. Datos e inspectores sólidos; opción local para
+  desactivarlo, reducción de movimiento/transparencia y contraste incrementado.
+- [x] Tabla compacta de empresas con detalle alternativo, rejillas de Resumen y
+  contexto de Oro compacto; calendario secundario desplegable, no eliminado.
+- [x] Bandas VIX coherentes, aviso de densidad, fechas extremas sin recorte y
+  supresión de etiquetas RSI que colisionan, manteniendo líneas y eventos.
+- [x] Inspección de Resumen/Oro/Rotación a 820, 1280, 1440 y 1800 puntos, con
+  Glass activado/desactivado, foco y advertencias de datos. No equivale a probar
+  cada estado de todas las pestañas a cada anchura.
+- [ ] VoiceOver integral, contraste de cada estado Glass y ejecución en macOS
+  14/15 requieren comprobación específica; no quedan certificados por compilar.
+- [ ] Arranque autónomo intermitente en macOS 27: algunos reintentos levantaron
+  el motor propio y el cierre liberó el puerto, pero la última compilación vuelve
+  a esperar en importación de Uvicorn. Una muestra del proceso registra os_listdir/open.
+  Permiso de Documentos confirmado por el usuario; no se atribuye sin más a TCC.
+  Se cargan dependencias antes del proyecto y se muestran fases durante un máximo
+  de 60 s. Aún no se da por resuelto; el motor funciona desde terminal.
+- [x] Suite final: 284 pruebas Python y comprobaciones nativas de presentación,
+  caducidad y paso STALE → FRESH. API 1.18 comprobada con code_stale=false.
+
+No se modifican pesos, calibración, reglas congeladas ni datos privados del oro.
 
 ## Calendario macro con fuentes oficiales · 2026-10-01
 

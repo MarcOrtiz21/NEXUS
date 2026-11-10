@@ -188,17 +188,16 @@ class ChartSeriesService:
             status, source = ("live", "yahoo_finance") if ticker in live_keys else ("stale", "cache")
         elif stale:
             self._refresh_in_background(stale, interval, range_name)
-            status, source = "stale", "cache"
+            status, source = ("fresh" if self._is_fresh(cached[ticker] or {}) else "stale"), "cache"
         else:
             status, source = "fresh", "cache"
 
         points = list((cached[ticker] or {}).get("points") or [])
         benchmark = list((cached.get("SPY") or {}).get("points") or []) if ticker != "SPY" else []
         points = self._with_relative_spy(points, benchmark)
-        as_of = max(
-            ((cached[name] or {}).get("as_of") or "" for name, _ in wanted),
-            default="",
-        ) or None
+        # La fecha del benchmark no debe rejuvenecer una serie antigua.
+        as_of = points[-1].get("date") if points else None
+        benchmark_as_of = benchmark[-1].get("date") if benchmark else None
         revision_input = json.dumps(
             {
                 "ticker": ticker, "interval": interval, "range": range_name,
@@ -215,6 +214,11 @@ class ChartSeriesService:
             "points": points,
             "benchmark": benchmark,
             "as_of": as_of,
+            "benchmark_as_of": benchmark_as_of,
+            "benchmark_status": (
+                "fresh" if self._is_fresh(cached.get("SPY") or {}) else "stale"
+            ) if benchmark else None,
+            "instrument": yf_ticker,
             "source": source,
             "status": status,
             "timezone": metadata.get("timezone") or "UTC",

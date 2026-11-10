@@ -674,6 +674,9 @@ struct ChartSeriesPayload: Decodable {
     let points: [SparklinePoint]
     let benchmark: [SparklinePoint]?
     let asOf: String?
+    let benchmarkAsOf: String?
+    let benchmarkStatus: String?
+    let instrument: String?
     let source: String?
     let status: String?
     let revision: String?
@@ -687,6 +690,9 @@ struct ChartSeriesPayload: Decodable {
     enum CodingKeys: String, CodingKey {
         case ticker, interval, range, points, benchmark, source, status, revision, timezone, session, adjusted, adjustment
         case asOf = "as_of"
+        case benchmarkAsOf = "benchmark_as_of"
+        case benchmarkStatus = "benchmark_status"
+        case instrument
         case marketState = "market_state"
         case dataStatus = "data_status"
     }
@@ -951,6 +957,7 @@ struct ForexNews: Codable {
 }
 
 struct GoldBlock: Codable {
+    let experiment: GoldExperiment?
     let GLD: AssetMetrics?
     let label: String?
     let signal: GoldSignal?
@@ -961,6 +968,53 @@ struct GoldBlock: Codable {
     let change: GoldChangeSummary?
     let backtest: GoldBacktestReport?
     let revisions: GoldRevisionReport?
+}
+
+struct GoldExperiment: Codable {
+    let priceAsOf: String?
+    let priceStatus: String?
+    let status: String?
+    let registeredAt: String?
+    let methodology: String?
+    let captureNote: String?
+    let horizons: [GoldExperimentHorizon]?
+    let preview: [GoldExperimentPreview]?
+    enum CodingKeys: String, CodingKey {
+        case priceAsOf = "price_as_of"
+        case priceStatus = "price_status"
+        case status, methodology, horizons, preview
+        case registeredAt = "registered_at"
+        case captureNote = "capture_note"
+    }
+}
+
+struct GoldExperimentHorizon: Codable, Identifiable {
+    var id: Int { horizonDays ?? 0 }
+    let horizonDays: Int?
+    let predictions: Int?
+    let settled: Int?
+    let separatedCuts: Int?
+    let baseProbability: Double?
+    let brierScore: Double?
+    let status: String?
+    enum CodingKeys: String, CodingKey {
+        case predictions, settled, status
+        case horizonDays = "horizon_days"
+        case separatedCuts = "separated_cuts"
+        case baseProbability = "base_probability"
+        case brierScore = "brier_score"
+    }
+}
+
+struct GoldExperimentPreview: Codable {
+    let horizonDays: Int?
+    let probability: Double?
+    let trend: Double?
+    let frequency: Double?
+    enum CodingKeys: String, CodingKey {
+        case probability, trend, frequency
+        case horizonDays = "horizon_days"
+    }
 }
 
 struct GoldRevisionReport: Codable {
@@ -1190,6 +1244,8 @@ struct GoldDriverChange: Codable, Identifiable {
 }
 
 struct GoldBacktestReport: Codable {
+    let compatibleWithLive: Bool?
+    let temporalQuality: String?
     let status: String?
     let modelVersion: String?
     let generatedAt: String?
@@ -1203,6 +1259,8 @@ struct GoldBacktestReport: Codable {
     let vintagePolicy: String?
 
     enum CodingKeys: String, CodingKey {
+        case compatibleWithLive = "compatible_with_live"
+        case temporalQuality = "temporal_quality"
         case status, period, horizons, limitations
         case modelVersion = "model_version"
         case generatedAt = "generated_at"
@@ -1339,6 +1397,8 @@ struct GoldBacktestMetrics: Codable {
 }
 
 struct GoldHistorySummary: Codable {
+    let activePredictions: Int?
+    let modelVersion: String?
     let observations: Int?
     let pointInTimeObservations: Int?
     let predictions: Int?
@@ -1350,6 +1410,8 @@ struct GoldHistorySummary: Codable {
     let temporalAudit: GoldTemporalAudit?
 
     enum CodingKeys: String, CodingKey {
+        case activePredictions = "active_predictions"
+        case modelVersion = "model_version"
         case observations, predictions, validation
         case pointInTimeObservations = "point_in_time_observations"
         case settledOutcomes = "settled_outcomes"
@@ -1414,6 +1476,8 @@ struct GoldPredictionPoint: Codable, Identifiable {
 }
 
 struct GoldValidationSummary: Codable {
+    let nonOverlappingCount: Int?
+    let modelVersion: String?
     let horizonDays: Int?
     let sampleSize: Int?
     let minimumSampleSize: Int?
@@ -1433,6 +1497,8 @@ struct GoldValidationSummary: Codable {
     let failures: [GoldValidationFailure]?
 
     enum CodingKeys: String, CodingKey {
+        case nonOverlappingCount = "non_overlapping_count"
+        case modelVersion = "model_version"
         case status
         case horizonDays = "horizon_days"
         case sampleSize = "sample_size"
@@ -1532,6 +1598,10 @@ struct GoldMacroRegime: Codable {
 }
 
 struct GoldHorizon: Codable {
+    let dataQuality: String?
+    let freshCoveragePct: Double?
+    let signalStrength: String?
+    let predictiveReliability: String?
     let horizonDays: Int?
     let label: String?
     let tone: String?
@@ -1544,6 +1614,10 @@ struct GoldHorizon: Codable {
     let calibration: GoldHorizonCalibration?
 
     enum CodingKeys: String, CodingKey {
+        case dataQuality = "data_quality"
+        case freshCoveragePct = "fresh_coverage_pct"
+        case signalStrength = "signal_strength"
+        case predictiveReliability = "predictive_reliability"
         case label, tone, score, confidence, drivers, calibration
         case horizonDays = "horizon_days"
         case probabilityUp = "probability_up"

@@ -29,6 +29,7 @@ struct NexusSparklineCard: View {
     var onSharedSelect: ((Date?) -> Void)? = nil
 
     @EnvironmentObject private var chartData: ChartDataStore
+    @Environment(\.nexusContentWidth) private var contentWidth
     @State private var intervalRaw = NexusChartInterval.oneDay.rawValue
     @State private var rangeRaw = NexusChartRange.threeMonths.rawValue
     @State private var showNews = true
@@ -391,6 +392,7 @@ struct NexusSparklineCard: View {
             style: chartStyle,
             scale: chartScale,
             compareNormalized: compareSPY && windowedBenchmark.count >= 2,
+            timezone: series.timezone ?? "UTC",
             minHeight: minHeight,
             showVolume: showVolume,
             showMA20: showMA20,
@@ -1013,6 +1015,19 @@ struct NexusSparklineCard: View {
             let asOf = series.asOf.map { " · última \($0)" } ?? ""
             items.append(("Datos \(status) · \(source)\(asOf)", NexusTheme.muted))
         }
+        if let last = series.points.last {
+            let close = last.value.map { String(format: "%.*f", valueDigits, $0) } ?? "—"
+            items.append(("Última vela de la serie: \(last.date ?? "—") · cierre \(close)", NexusTheme.muted))
+        }
+        if let instrument = series.instrument {
+            items.append(("Instrumento: \(instrument)", NexusTheme.muted))
+        }
+        if compareSPY, let benchmarkAsOf = series.benchmarkAsOf {
+            items.append(("SPY: \(benchmarkAsOf) · \(series.benchmarkStatus ?? "unknown")", NexusTheme.muted))
+        }
+        if PresentationPolicy.denseChart(pointCount: windowedPoints.count, width: Double(contentWidth)) {
+            items.append(("Alta densidad: amplía con zoom o reduce el rango para leer velas e indicadores. No se han modificado los datos.", NexusTheme.warn))
+        }
         if let state = [series.marketState, series.dataStatus]
             .compactMap({ $0 })
             .first(where: { $0.lowercased() != "unknown" }) {
@@ -1228,6 +1243,7 @@ struct NexusCandlePlot: View {
     let style: NexusChartStyle
     let scale: NexusChartScale
     let compareNormalized: Bool
+    var timezone: String = "UTC"
     var minHeight: CGFloat = 180
     let showVolume: Bool
     let showMA20: Bool
@@ -1685,13 +1701,16 @@ struct NexusCandlePlot: View {
         for step in 0..<dateCount {
             let index = Int(round(Double(step) / Double(dateCount - 1) * Double(layout.rows.count - 1)))
             let row = layout.rows[index]
-            let format: Date.FormatStyle = interval == .oneDay || interval == .oneWeek
-                ? .dateTime.day().month(.abbreviated)
-                : .dateTime.day().hour().minute()
+            let endpoint = step == 0 || step == dateCount - 1
+            var format: Date.FormatStyle = interval == .oneDay || interval == .oneWeek
+                ? (endpoint ? .dateTime.day().month(.abbreviated).year() : .dateTime.day().month(.abbreviated))
+                : (endpoint ? .dateTime.day().month(.abbreviated).hour().minute() : .dateTime.day().hour().minute())
+            format.timeZone = TimeZone(identifier: timezone) ?? .gmt
             let label = Text(row.date, format: format)
                 .font(.caption2)
                 .foregroundColor(NexusTheme.muted)
-            context.draw(label, at: CGPoint(x: layout.x(for: index), y: layout.size.height - 7), anchor: .center)
+            context.draw(label, at: CGPoint(x: layout.x(for: index), y: layout.size.height - 7),
+                         anchor: step == 0 ? .leading : (step == dateCount - 1 ? .trailing : .center))
         }
     }
 
@@ -1778,7 +1797,8 @@ private struct NexusIndicatorPlot: View {
         }
         context.stroke(line, with: .color(.white.opacity(0.92)), lineWidth: 1.3)
 
-        for divergence in rsiDivergences() {
+        var labelRects: [CGRect] = []
+        for divergence in rsiDivergences().reversed() {
             guard let fromRSI = rows[divergence.from].rsi14,
                   let toRSI = rows[divergence.to].rsi14 else { continue }
             let tone = divergence.bullish ? NexusTheme.good : NexusTheme.bad
@@ -1789,11 +1809,17 @@ private struct NexusIndicatorPlot: View {
             path.addLine(to: end)
             context.stroke(path, with: .color(tone), lineWidth: 1.7)
             context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)), with: .color(tone))
+            let labelPoint = CGPoint(x: min(plot.maxX - 14, max(plot.minX + 14, end.x)),
+                                     y: min(plot.maxY - 8, max(plot.minY + 8, end.y + (divergence.bullish ? -8 : 8))))
+            let labelRect = CGRect(x: labelPoint.x - 17, y: labelPoint.y - 9, width: 34, height: 18)
+            // Se conservan líneas y eventos; solo se omiten rótulos que colisionan.
+            guard !labelRects.contains(where: { $0.intersects(labelRect) }) else { continue }
+            labelRects.append(labelRect)
             context.draw(
                 Text(divergence.bullish ? "ALC" : "BAJ")
                     .font(.caption2.weight(.bold))
                     .foregroundColor(tone),
-                at: CGPoint(x: end.x, y: end.y + (divergence.bullish ? -8 : 8)),
+                at: labelPoint,
                 anchor: .center
             )
         }
@@ -1923,7 +1949,12 @@ private struct NexusIndicatorPlot: View {
         guard let last = rows.last else { return "Sin datos" }
         switch kind {
         case .rsi:
-            return last.rsi14.map { String(format: "%.1f", $0) } ?? "Sin datos suficientes"
+            let value = last.rsi14.map { String(format: "%.1f", $0) } ?? "Sin datos suficientes"
+            let divergences = rsiDivergences()
+            let lastEvent = divergences.last.map { event in
+                "Última divergencia \(event.bullish ? "alcista" : "bajista") · \(rows[event.to].date.formatted(date: .abbreviated, time: .shortened))"
+            } ?? "Sin divergencias"
+            return "\(value). \(divergences.count) divergencias; algunas etiquetas pueden ocultarse para evitar solapamientos. \(lastEvent)"
         case .macd:
             guard let macd = last.macd else { return "Sin datos suficientes" }
             return "MACD \(String(format: "%.3f", macd)), señal \(last.macdSignal.map { String(format: "%.3f", $0) } ?? "no disponible")"

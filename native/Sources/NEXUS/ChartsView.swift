@@ -753,7 +753,7 @@ struct ChartsView: View {
         return NexusSparklineCard(
             title: title,
             help: ticker == "XAUUSD"
-                ? "Oro spot (XAUUSD), no el ETF GLD. Pulsa para ponerla en el panel grande."
+                ? "Proxy de oro: futuros COMEX GC=F, no cotización spot ni ETF GLD. Pulsa para ponerlo en el panel grande."
                 : "Pulsa para poner \(ticker) en el panel grande. Arrastra para alinear el cursor en todas las gráficas.",
             points: snapshot?.sparklines?[ticker] ?? [],
             showRelative: !isFXTicker(ticker) && !["SPY", "VIX", "XAUUSD"].contains(ticker),
@@ -782,7 +782,7 @@ struct ChartsView: View {
         case "QQQ": return "Nasdaq 100 · QQQ"
         case "VIX": return "Volatilidad · VIX"
         case "TLT": return "Treasuries · TLT"
-        case "XAUUSD": return "Oro · XAUUSD"
+        case "XAUUSD": return "Oro · COMEX"
         case "GLD": return "Oro ETF · GLD"
         case "USDEUR": return "Dólar / euro · USD/EUR"
         case "EURUSD": return "Euro / dólar · EUR/USD"

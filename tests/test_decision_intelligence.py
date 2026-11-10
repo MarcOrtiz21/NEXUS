@@ -268,6 +268,18 @@ class DecisionIntelligenceTests(unittest.TestCase):
         self.assertEqual(labels["FX"], "Comprar euro / vender dólar")
         self.assertIn("Activo", labels["BLOQUEO"])
 
+    def test_hold_without_calendar_block_does_not_claim_block(self):
+        plan = build_session_plan(
+            {"operational_action": "MANTENER POSICIONES", "allocation": {"SPY": 20, "CASH": 80}, "macro_allocation": {"SPY": 20, "CASH": 80}},
+            {"should_block": False}, {}, {},
+        )
+        labels = {item["label"]: item["value"] for item in plan["context"]}
+        self.assertEqual(labels["BLOQUEO"], "Libre")
+        self.assertIn("Sin entradas nuevas", labels["PERMISO"])
+        self.assertNotIn("levantara el bloqueo", plan["verdict"])
+        self.assertNotIn("levante el bloqueo", plan["changes"])
+        self.assertTrue(all("por el bloqueo" not in leg["weight_note"] for leg in plan["legs"]))
+
     def test_session_plan_is_buy_when_operativa_allows(self):
         plan = build_session_plan(
             {

@@ -35,11 +35,12 @@ from forex_engine import (
     gold_signal,
 )
 from gold_calibration import calibrate_live_horizon
-from gold_outlook import build_gold_outlook
+from gold_outlook import build_gold_outlook, MODEL_VERSION, model_fingerprint
 from gold_backtest import load_gold_backtest_report
 from gold_history import gold_change_summary, gold_history_summary, record_gold_snapshot
 from gold_demand import build_gold_demand
 from gold_validation import settle_predictions_from_prices, validation_summary
+from gold_experiment import update_experiment
 from history_view import (
     compare_to_prior,
     filter_history_period,
@@ -236,17 +237,22 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             # la estación de trabajo.
             logging.exception("No se pudo persistir la perspectiva del oro: %s", exc)
             history_write = {"error": str(exc)}
-    gold_history = gold_history_summary()
+    gold_history = gold_history_summary(model_version=MODEL_VERSION, model_fingerprint=model_fingerprint())
     gold_change = gold_change_summary(
         gold_outlook,
         captured_at=raw.get("captured_at_utc"),
     )
     gold_history["validation"] = {
-        "short": validation_summary(horizon_days=21),
-        "medium": validation_summary(horizon_days=63),
+        "short": validation_summary(horizon_days=21, model_version=MODEL_VERSION, model_fingerprint=model_fingerprint()),
+        "medium": validation_summary(horizon_days=63, model_version=MODEL_VERSION, model_fingerprint=model_fingerprint()),
     }
     if history_write is not None:
         gold_history["last_write"] = history_write
+    try:
+        gold_experiment = update_experiment(gold_outlook, persist=export)
+    except Exception:
+        logging.exception("No se pudo consultar el experimento de oro")
+        gold_experiment = {"status": "UNAVAILABLE", "score_enabled": False, "horizons": []}
 
     history_rows = load_history_jsonl(limit=120)
     history = summarize_history(limit=120)
@@ -408,6 +414,7 @@ def build_native_snapshot(*, export: bool = False) -> Dict[str, Any]:
             "change": gold_change,
             "backtest": gold_backtest,
             "revisions": data.get("GoldRevisions") or {},
+            "experiment": gold_experiment,
         },
         "news": {
             "items": news_items[:40],

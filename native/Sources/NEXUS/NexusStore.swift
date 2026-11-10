@@ -13,6 +13,7 @@ final class NexusStore: ObservableObject {
     @Published var autoRefresh = true
     @Published var lastRefresh: Date?
     @Published var selectedAssetKey: String?
+    @Published var selectedAssetThemeKey: String?
     @Published var selectedNewsID: String?
     @Published var watchlist: [String] = []
     @Published var showSettings = false
@@ -56,7 +57,6 @@ final class NexusStore: ObservableObject {
 
     func bootstrap() async {
         NexusNotificationCenter.shared.configure()
-        await ensureEngine()
         await refresh(persist: false)
         startTimer()
         observeWake()
@@ -129,8 +129,10 @@ final class NexusStore: ObservableObject {
         do {
             try process.start()
             engine = process
-            for _ in 0..<80 {
+            let startupDeadline = Date().addingTimeInterval(60)
+            while Date() < startupDeadline {
                 try? await Task.sleep(nanoseconds: 250_000_000)
+                engineStatus = "Arrancando motor · \(process.startupStage)…"
                 if await client.health() {
                     engineStatus = "Motor OK · :8765"
                     return
@@ -139,8 +141,11 @@ final class NexusStore: ObservableObject {
                     break
                 }
             }
+            let stage = process.startupStage
+            process.terminate()
+            engine = nil
             engineStatus = "Motor no responde en :8765"
-            errorMessage = "No se pudo iniciar el motor local. Si el proyecto está en Documentos, comprueba que NEXUS tenga permiso en Ajustes del Sistema › Privacidad y seguridad › Archivos y carpetas, o ejecuta scripts/run_native.command."
+            errorMessage = "No se pudo iniciar el motor local (última fase: \(stage)). Comprueba el acceso a Documentos si falta; si ya está concedido, puede ser una espera de lectura/importación. Puedes reintentar o ejecutar scripts/run_native.command sin cambiar permisos."
         } catch {
             engineStatus = "Error al arrancar motor"
             errorMessage = error.localizedDescription
@@ -157,6 +162,18 @@ final class NexusStore: ObservableObject {
             if await client.engineHealth() == nil { return }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
+    }
+
+    func shutdownOwnedEngine() {
+        timer?.invalidate()
+        timer = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+        refreshTask?.cancel()
+        engine?.terminate()
+        engine = nil
     }
 
     func refresh(persist: Bool) async {
@@ -186,6 +203,7 @@ final class NexusStore: ObservableObject {
             let health = await client.engineHealth()
             if health == nil || health?.codeStale == true {
                 await ensureEngine()
+                guard engineStatus == "Motor OK · :8765" else { return }
             }
             let previous = snapshot
             let nextSnapshot = try await client.fetchNative(persist: persist)
@@ -209,12 +227,14 @@ final class NexusStore: ObservableObject {
         }
     }
 
-    func showAsset(_ ticker: String) {
+    func showAsset(_ ticker: String, themeTicker: String? = nil) {
+        selectedAssetThemeKey = themeTicker
         selectedAssetKey = ticker
     }
 
     func closeAssetInspector() {
         selectedAssetKey = nil
+        selectedAssetThemeKey = nil
     }
 
     var hasDismissiblePanel: Bool {

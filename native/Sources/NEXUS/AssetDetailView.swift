@@ -4,6 +4,8 @@ struct AssetDetailView: View {
     @EnvironmentObject private var store: NexusStore
     let ticker: String
     @State private var inspectorTab = "resumen"
+    @AppStorage("nexus.rotation.companyLayout") private var companyLayout = "tabla"
+    @State private var selectedCompanyIDs: Set<String> = []
 
     private var score: AssetScore? {
         store.snapshot?.decision?.assetScores?[ticker]
@@ -54,6 +56,11 @@ struct AssetDetailView: View {
     /// Empresa individual si el ticker pertenece a algún cesto temático.
     private var companyMatch: (theme: RotationTheme, company: RotationCompany)? {
         guard let themes = store.snapshot?.rotation?.themes else { return nil }
+        if let origin = store.selectedAssetThemeKey,
+           let theme = themes.first(where: { $0.ticker == origin }),
+           let company = theme.companies?.first(where: { $0.ticker == ticker }) {
+            return (theme, company)
+        }
         for theme in themes {
             if let company = theme.companies?.first(where: { $0.ticker == ticker }) {
                 return (theme, company)
@@ -367,6 +374,8 @@ struct AssetDetailView: View {
 
     private var compactInspectorSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
+            NexusSectionHeader(title: "Métricas del snapshot")
+            snapshotMetricsCaption
             if isFxPair {
                 dualFxStrengthCard
             } else {
@@ -434,6 +443,13 @@ struct AssetDetailView: View {
         .nexusCard()
     }
 
+    private var snapshotMetricsCaption: some View {
+        let layer = store.snapshot?.freshness?.layers?.first { $0.key == (company == nil ? "market" : "companies") }
+        return Text("Capa \(layer?.label ?? "Mercado") · referencia \(layer?.asOf ?? "sin fecha") · \(layer?.status ?? "UNKNOWN") · \(layer?.ageLabel ?? "sin edad"). El gráfico se descarga por separado y puede tener otra fecha; sus velas no recalculan este score.")
+            .font(.caption2).foregroundStyle(NexusTheme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private var fxActionBadge: String {
         store.snapshot?.forex?.plan?.stance ?? store.snapshot?.forex?.signal?.action ?? actionValue
     }
@@ -488,6 +504,9 @@ struct AssetDetailView: View {
                     .font(.caption)
                     .foregroundStyle(NexusTheme.muted)
             }
+            let companyLayer = store.snapshot?.freshness?.layers?.first { $0.key == "companies" }
+            Text("Datos del cesto: \(companyLayer?.status ?? "UNKNOWN") · \(companyLayer?.ageLabel ?? "sin fecha"). No es una cotización en tiempo real.")
+                .font(.caption2).foregroundStyle(NexusTheme.muted)
 
             HStack(spacing: 8) {
                 basketStat("Fuertes", "\(basketCount("FUERTE"))", NexusTheme.good)
@@ -496,6 +515,15 @@ struct AssetDetailView: View {
                 basketStat("Score medio", basketAvgScore, NexusTheme.accent)
             }
 
+            Picker("Vista de empresas", selection: $companyLayout) {
+                Text("Tabla compacta").tag("tabla")
+                Text("Detalle").tag("detalle")
+            }.pickerStyle(.segmented)
+            if companyLayout == "tabla" {
+                companyTable(companies)
+                Text("Lectura técnica, no orden operativa. Pulsa el nombre para abrir el detalle completo.")
+                    .font(.caption2).foregroundStyle(NexusTheme.muted)
+            } else {
             HStack {
                 Text("EMPRESA")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -509,7 +537,7 @@ struct AssetDetailView: View {
             ForEach(companies) { company in
                 Button {
                     if let companyTicker = company.ticker {
-                        store.showAsset(companyTicker)
+                        store.showAsset(companyTicker, themeTicker: parentTheme?.ticker)
                     }
                 } label: {
                     NexusCompanyRow(
@@ -524,8 +552,53 @@ struct AssetDetailView: View {
                     Divider().opacity(0.10)
                 }
             }
+            }
         }
         .nexusCard()
+    }
+
+    private func companyTable(_ companies: [RotationCompany]) -> some View {
+        Table(companies, selection: $selectedCompanyIDs) {
+            TableColumn("Empresa") { company in
+                Button { if let ticker = company.ticker { store.showAsset(ticker, themeTicker: parentTheme?.ticker) } } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(company.name ?? company.ticker ?? "—").lineLimit(1)
+                        Text(company.ticker ?? "—").font(.caption2).foregroundStyle(NexusTheme.muted)
+                    }
+                }.buttonStyle(.plain).foregroundStyle(NexusTheme.accent)
+                    .help(companyAccessibilityLabel(company))
+                    .accessibilityLabel(companyAccessibilityLabel(company))
+            }.width(min: 100, ideal: 160, max: 240)
+            TableColumn("Precio") { company in
+                Text(number(company.price, digits: 2)).monospacedDigit()
+            }.width(65)
+            TableColumn("1M") { company in
+                Text(formatPct(company.momentum1m)).monospacedDigit()
+                    .foregroundStyle((company.momentum1m ?? 0) >= 0 ? NexusTheme.good : NexusTheme.bad)
+            }.width(65)
+            TableColumn("Score / lectura") { company in
+                HStack(spacing: 4) {
+                    Text(company.score.map(String.init) ?? "—").monospacedDigit().bold()
+                    Text(company.action ?? "SIN DATOS").font(.caption2)
+                }
+                .help(companyTechnicalLabel(company.action, allowsEntry: store.snapshot?.sessionPlan?.allowsEntry == true))
+            }.width(min: 95, ideal: 120, max: 150)
+        }
+        .contextMenu(forSelectionType: String.self) { ids in
+            Button("Abrir empresa") { openCompany(ids, in: companies) }
+                .disabled(ids.count != 1)
+        } primaryAction: { ids in
+            openCompany(ids, in: companies)
+        }
+        .font(.caption)
+        .frame(height: min(640, CGFloat(companies.count) * 36 + 38))
+        .background(NexusTheme.card)
+    }
+
+    private func openCompany(_ ids: Set<String>, in companies: [RotationCompany]) {
+        guard ids.count == 1, let id = ids.first,
+              let ticker = companies.first(where: { $0.id == id })?.ticker else { return }
+        store.showAsset(ticker, themeTicker: parentTheme?.ticker)
     }
 
     private func companyAccessibilityLabel(_ company: RotationCompany) -> String {
@@ -659,7 +732,7 @@ struct AssetDetailView: View {
         case "QQQ": return "Nasdaq 100"
         case "TLT": return "Bonos largos"
         case "GLD": return "Oro ETF"
-        case "XAUUSD": return "Oro spot"
+        case "XAUUSD": return "Oro · futuros COMEX"
         case "UUP": return "Dólar"
         case "EURUSD": return "Euro / dólar"
         case "USDEUR": return "Dólar / euro"

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct NEXUSApp: App {
@@ -19,6 +20,9 @@ struct NEXUSApp: App {
                 .frame(minWidth: 820, minHeight: 680)
                 .preferredColorScheme(.dark)
                 .background(WindowConfigurator())
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    store.shutdownOwnedEngine()
+                }
         }
         .defaultSize(width: 1280, height: 860)
         .commands {
@@ -28,6 +32,20 @@ struct NEXUSApp: App {
                     .keyboardShortcut(",", modifiers: [.command])
             }
             CommandGroup(after: .windowArrangement) {
+                Menu(language == .spanish ? "Tamaño de ventana" : "Window size") {
+                    ForEach([820, 1280, 1440, 1800], id: \.self) { width in
+                        Button("\(width) pt") {
+                            guard let window = NSApplication.shared.mainWindow else { return }
+                            let visible = window.screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: width, height: 1028)
+                            window.setContentSize(NSSize(width: min(CGFloat(width), visible.width), height: min(1000, visible.height - 28)))
+                            let frame = window.frame
+                            window.setFrameOrigin(NSPoint(
+                                x: min(max(visible.minX, frame.minX), max(visible.minX, visible.maxX - frame.width)),
+                                y: min(max(visible.minY, frame.minY), max(visible.minY, visible.maxY - frame.height))
+                            ))
+                        }
+                    }
+                }
                 Button(L10n.string("Cerrar panel", language: language)) { store.dismissFrontPanel() }
                     .keyboardShortcut(.escape, modifiers: [])
                     .disabled(!store.hasDismissiblePanel)
@@ -41,6 +59,10 @@ struct NEXUSApp: App {
                 )) {
                     store.autoRefresh.toggle()
                 }
+                Button(language == .spanish ? "Guardar vista visible como PNG…" : "Save visible view as PNG…") {
+                    WindowCapture.save(page: store.selected.rawValue, english: language != .spanish)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
                 ForEach([NavItem.overview, .report, .news, .forex, .gold, .rotation, .global, .charts, .watchlist, .history], id: \.self) { item in
                     Button {

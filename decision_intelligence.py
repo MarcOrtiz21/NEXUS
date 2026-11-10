@@ -814,7 +814,7 @@ def _session_legs(
             now = "MANTENER"
             verb = f"Mantener {label} solo si ya está en cartera"
             note = (
-                f"{now_w}% ahora por el bloqueo"
+                f"{now_w}% asignación actual · sin entradas nuevas"
                 + (f" · {open_w}% de cartera si se abre" if open_w else "")
             )
         else:
@@ -916,7 +916,7 @@ def build_session_plan(
         if fx_line or open_line:
             verdict = (
                 f"ESPERAR. No abrir S&P 500, Nasdaq ni el par. "
-                f"Si se levantara el bloqueo, el modelo usaría "
+                f"Si la operativa autorizara nuevas entradas, el modelo usaría "
                 f"{open_line or 'la asignación macro'}"
                 f"{f' y {fx_line.lower()}' if fx_line else ''}. "
                 f"Hoy no: operativa en {operational} ({reason})."
@@ -928,20 +928,23 @@ def build_session_plan(
             "Los % de «si se abre» no son una orden de hoy."
         )
         avoiding = "No interpretar el sesgo de divisas, oro o ranking como permiso de compra."
-        changes = "Que se levante el bloqueo y la reevaluación mantenga el sesgo convertiría esto en una orden."
+        changes = (
+            "Que termine el bloqueo de calendario y una reevaluación autorice entradas nuevas."
+            if blocked else
+            "Una reevaluación con permiso operativo para entradas nuevas y datos suficientes. El calendario libre no basta."
+        )
 
     block_value = "Libre"
     if blocked:
         hours = calendar.get("block_hours")
         block_value = f"Activo · {hours}h" if hours is not None else "Activo"
-    elif pause:
-        block_value = str(pause)
 
     context = [
         {"label": "MACRO", "value": macro},
         {"label": "FX", "value": fx_line or "Sin ventaja en el par"},
         {"label": "ORO", "value": gold_line},
         {"label": "BLOQUEO", "value": block_value},
+        {"label": "PERMISO", "value": "Entradas autorizadas" if allows_entry else f"Sin entradas nuevas · {reason}"},
     ]
 
     drivers = compact_score_drivers(decision)

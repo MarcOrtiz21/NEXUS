@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -31,7 +32,7 @@ from fred_vintages import (
 )
 from gold_backtest_stats import BASELINES, assign_historical_baseline, overlap_diagnostics, paired_brier_interval, purged_folds
 from gold_calibration import CANDIDATES, live_calibration, walk_forward_candidates
-from gold_outlook import MODEL_VERSION, build_gold_outlook
+from gold_outlook import MODEL_VERSION, build_gold_outlook, model_fingerprint
 from gold_validation import balanced_accuracy, brier_score, calibration_bins
 
 
@@ -260,6 +261,7 @@ def _calibration_eligible(result: dict[str, Any]) -> bool:
     brier = calibrated.get("brier_score")
     return (
         calibrated.get("status") == "EVALUATED"
+        and calibrated.get("passes_baselines") is True
         and brier is not None
         and brier < float(result["model"]["brier_score"])
         and brier < float(result["baseline_constant"]["brier_score"])
@@ -277,9 +279,18 @@ def _candidate_report(rows: list[dict[str, Any]], key: str, model_metrics: dict[
         name: paired_brier_interval(usable, baseline_key, model_key=key)
         for name, baseline_key in BASELINES.items()
     }
+    fold_ids = sorted({row.get("evaluation_fold", 0) for row in usable})
+    wins = 0
+    for fold_id in fold_ids:
+        fold = [row for row in usable if row.get("evaluation_fold", 0) == fold_id]
+        score = _evaluation(fold, key)["brier_score"]
+        wins += int(all(score < _evaluation(fold, baseline)["brier_score"] for baseline in BASELINES.values()))
+    stable = len(fold_ids) >= 4 and wins / len(fold_ids) >= 0.6
     passes = (
-        all(metrics["brier_score"] < item["brier_score"] for item in baselines.values())
-        and all(metrics["balanced_accuracy"] >= item["balanced_accuracy"] for item in baselines.values())
+        stable
+        and metrics["balanced_accuracy"] is not None
+        and all(metrics["brier_score"] < item["brier_score"] for item in baselines.values())
+        and all(item["balanced_accuracy"] is not None and metrics["balanced_accuracy"] >= item["balanced_accuracy"] for item in baselines.values())
         and all(item.get("upper") is not None and item["upper"] < 0 for item in comparisons.values())
     )
     penalties = sorted(float(row[penalty_key]) for row in usable
@@ -288,8 +299,9 @@ def _candidate_report(rows: list[dict[str, Any]], key: str, model_metrics: dict[
         "status": "EVALUATED",
         **metrics,
         "median_penalty": penalties[len(penalties) // 2] if penalties else None,
-        "delta_brier_vs_model": round(metrics["brier_score"] - model_metrics["brier_score"], 4)
-        if model_metrics.get("brier_score") is not None else None,
+        "model_same_cuts": _evaluation(usable, "model_probability"),
+        "delta_brier_vs_model": round(metrics["brier_score"] - _evaluation(usable, "model_probability")["brier_score"], 6),
+        "stability": {"folds": len(fold_ids), "winning_folds": wins},
         "baseline_brier": {name: item["brier_score"] for name, item in baselines.items()},
         "comparisons": comparisons,
         "passes_baselines": passes,
@@ -399,13 +411,14 @@ def run_gold_backtest(
         # El backtest evalúa los candidatos CFTC y GLD aunque la puerta de
         # producción siga cerrada. La ablación decide si pueden puntuar en vivo.
         candidates = {"include_positioning_in_score": True, "include_etf_holdings_in_score": True}
-        outlook = build_gold_outlook(macro, gld, uup, **candidates)
+        experimental = build_gold_outlook(macro, gld, uup, **candidates)
+        outlook = build_gold_outlook(macro, gld, uup, include_positioning_in_score=False, include_etf_holdings_in_score=False)
         initial_macro = _macro_snapshot(initial_series, decision_at.date())
         initial_macro.update(positioning_data_fields(positioning))
         initial_macro.update(holdings_data_fields(holdings))
         if "VIX" in macro:
             initial_macro["VIX"] = macro["VIX"]
-        initial_outlook = build_gold_outlook(initial_macro, gld, uup, **candidates)
+        initial_outlook = build_gold_outlook(initial_macro, gld, uup, include_positioning_in_score=False, include_etf_holdings_in_score=False)
         future_prices = market.loc[market.index > decision_at, "GLD"].dropna()
         entry = float(gld["price"] or 0)
         features = compact_features(series, available, decision_at.date())
@@ -421,10 +434,10 @@ def run_gold_backtest(
             horizon_key = "short" if horizon == 21 else "medium"
             ablation_probabilities = {
                 group["id"]: probability
-                for group in outlook["groups"]
+                for group in experimental["groups"]
                 if float(group.get(f"{horizon_key}_weight") or 0) > 0
                 and group.get(f"{horizon_key}_signal") is not None
-                and (probability := _probability_without_group(outlook["groups"], horizon_key, group["id"])) is not None
+                and (probability := _probability_without_group(experimental["groups"], horizon_key, group["id"])) is not None
             }
             samples.append({
                 "decision_at": decision_at.date().isoformat(),
@@ -439,6 +452,7 @@ def run_gold_backtest(
                 "trend_drift": trend["drift"],
                 "trend_volatility": trend["volatility"],
                 "model_probability": float(outlook[key]["probability_up"]),
+                "experimental_probability": float(experimental[key]["probability_up"]),
                 "initial_release_probability": float(initial_outlook[key]["probability_up"]),
                 "momentum_probability": round(max(15, min(85, 50 + momentum * 5)), 2),
                 "macro_probability": round(max(15, min(85, 50 - dollar_momentum * 5 - real_change * 35)), 2),
@@ -497,7 +511,8 @@ def run_gold_backtest(
                 "direction_changes": sum((row["model_probability"] >= 50) != (row["initial_release_probability"] >= 50)
                                          for row in evaluation_rows),
             },
-            "ablation": _ablation_report(evaluation_rows),
+            "ablation": _ablation_report([{**row, "model_probability": row["experimental_probability"]} for row in evaluation_rows]),
+            "experimental_model": _evaluation(evaluation_rows, "experimental_probability"),
             "macro_regimes": _regime_diagnostics(evaluation_rows),
         }
 
@@ -539,16 +554,29 @@ def run_gold_backtest(
                 and float(item.get("delta_brier_vs_full") or 0) >= 0.002
                 and float(item.get("delta_balanced_accuracy_vs_full") or 0) >= -0.02
             )
-        return "ENABLED" if checks and all(checks) else "CONTEXT_ONLY"
+        # Activar un candidato exige evaluar primero su configuración exacta;
+        # este informe congela la producción sin CFTC ni tenencias GLD.
+        return "CONTEXT_ONLY"
 
     report = {
         "status": "READY" if all(horizons[str(h)]["model"]["sample_size"] >= 30 for h in (21, 63)) else "INSUFFICIENT_DATA",
         "model_version": MODEL_VERSION,
+        "model_fingerprint": model_fingerprint(),
+        "input_fingerprints": {
+            "macro_vintages": hashlib.sha256(json.dumps(series, sort_keys=True, default=str).encode()).hexdigest(),
+            "market_prices": hashlib.sha256(market.to_json(date_format="iso").encode()).hexdigest(),
+            "cftc": hashlib.sha256(json.dumps(positioning_rows, sort_keys=True, default=str).encode()).hexdigest(),
+            "gld_holdings_local": hashlib.sha256(json.dumps(holdings_rows, sort_keys=True, default=str).encode()).hexdigest(),
+        },
+        "production_configuration": {"positioning": False, "etf_holdings": False},
+        "ablation_basis": "EXPERIMENTAL_FULL_MODEL",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "period": {"start": start.isoformat(), "end": end.isoformat()},
         "decision_policy": "Primera sesión de mercado desde el día 15 de cada mes",
-        "point_in_time": True,
-        "report_schema_version": 4,
+        "point_in_time": not any(row.get("market_t1") for rows in series.values() for row in rows),
+        "temporal_quality": "RECONSTRUCTED_WITH_ASSUMPTIONS" if any(row.get("market_t1") for rows in series.values() for row in rows) else "VINTAGE_CUTOFF_AUDITED",
+        "experimental_temporal_quality": "CURRENT_GLD_ARCHIVE_WITH_T1_ASSUMPTION",
+        "report_schema_version": 5,
         "vintage_policy": (
             "Última revisión ALFRED conocida en cada corte (output_type=1); primera publicación conservada como diagnóstico paralelo. "
             "Las series de mercado diarias usan el cierre actual fechado en T+1 antes de su primera vintage (T10YIE hasta 2014-01, DFII10 hasta 2005-10)."
@@ -565,7 +593,7 @@ def run_gold_backtest(
         "live_calibration": {
             horizon: {
                 **params,
-                "eligible": _calibration_eligible(horizons[horizon]),
+                "eligible": _calibration_eligible(horizons[horizon]) and not any(row.get("market_t1") for rows in series.values() for row in rows),
             }
             for horizon, params in live_calibrations.items()
         },
@@ -597,7 +625,15 @@ def run_gold_backtest(
 
 def load_gold_backtest_report(path: Path = GOLD_BACKTEST_REPORT) -> dict[str, Any]:
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        report = json.loads(Path(path).read_text(encoding="utf-8"))
+        compatible = (report.get("model_version") == MODEL_VERSION and report.get("model_fingerprint") == model_fingerprint()
+                      and report.get("report_schema_version") == 5
+                      and report.get("production_configuration") == {"positioning": False, "etf_holdings": False})
+        report["compatible_with_live"] = compatible
+        if not compatible:
+            report["live_calibration"] = {}
+            report["feature_gates"] = {"positioning": "CONTEXT_ONLY", "etf_holdings": "CONTEXT_ONLY"}
+        return report
     except (OSError, json.JSONDecodeError):
         return {"status": "NOT_RUN", "point_in_time": False, "horizons": {}}
 

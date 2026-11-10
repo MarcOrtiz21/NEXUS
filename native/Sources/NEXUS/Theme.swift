@@ -215,9 +215,11 @@ enum NexusChartScale: String, CaseIterable, Identifiable {
 }
 
 struct CardModifier: ViewModifier {
+    var padding: CGFloat = NexusLayout.cardPadding
+
     func body(content: Content) -> some View {
         content
-            .padding(NexusLayout.cardPadding)
+            .padding(padding)
             .background(NexusTheme.card)
             .overlay(
                 RoundedRectangle(cornerRadius: NexusLayout.cardRadius, style: .continuous)
@@ -228,8 +230,8 @@ struct CardModifier: ViewModifier {
 }
 
 extension View {
-    func nexusCard() -> some View {
-        modifier(CardModifier())
+    func nexusCard(padding: CGFloat = NexusLayout.cardPadding) -> some View {
+        modifier(CardModifier(padding: padding))
     }
 
     func nexusSizedCard(_ height: CGFloat, alignment: Alignment = .topLeading) -> some View {
@@ -258,8 +260,7 @@ struct MacVibrancyView: NSViewRepresentable {
     }
 }
 
-/// Superficie "liquid glass" oscura: blur nativo más una tinta para preservar
-/// contraste; no es transparencia plana contra el escritorio.
+/// Vibrancy antigua para usos compatibles. No es la API Liquid Glass nativa.
 struct GlassBackground: View {
     let material: NSVisualEffectView.Material
     let tintOpacity: Double
@@ -327,13 +328,8 @@ struct NexusToolbarButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(NexusControlStyle.fill(prominent ? .prominent : role))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(NexusControlStyle.stroke(prominent ? .prominent : role), lineWidth: 1)
-        }
-        .foregroundStyle(NexusControlStyle.foreground(prominent ? .prominent : role))
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .nexusGlass(radius: 9, selected: prominent, interactive: true)
+        .foregroundStyle(role == .onAccent ? Color.white : NexusTheme.text)
         .disabled(disabled)
         .opacity(disabled ? 0.45 : 1)
         .help(helpText ?? label)

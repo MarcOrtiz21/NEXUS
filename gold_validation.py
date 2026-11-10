@@ -16,6 +16,7 @@ from typing import Any, Iterable, Sequence
 
 from config import GOLD_HISTORY_DB
 from gold_history import initialize_gold_history
+from gold_backtest_stats import overlap_diagnostics
 
 
 def brier_score(probabilities: Iterable[float], outcomes: Iterable[int]) -> float | None:
@@ -171,6 +172,8 @@ def validation_summary(
     *,
     horizon_days: int,
     db_path: Path = GOLD_HISTORY_DB,
+    model_version: str | None = None,
+    model_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     if not Path(db_path).exists():
         return {"horizon_days": horizon_days, "sample_size": 0, "minimum_sample_size": 30,
@@ -180,20 +183,28 @@ def validation_summary(
     probability_column = "short_probability" if horizon_days == 21 else "medium_probability"
     with closing(sqlite3.connect(Path(db_path), timeout=10)) as connection:
         connection.row_factory = sqlite3.Row
+        if model_version is None:
+            latest = connection.execute("SELECT model_version, model_fingerprint FROM gold_predictions ORDER BY captured_at DESC LIMIT 1").fetchone()
+            if latest:
+                model_version, model_fingerprint = latest["model_version"], latest["model_fingerprint"]
         rows = connection.execute(
             f"""
             SELECT p.{probability_column} AS probability, o.direction_up, o.return_pct,
                    p.captured_at, o.evaluated_at, p.payload_json
             FROM gold_prediction_outcomes o
             JOIN gold_predictions p ON p.id = o.prediction_id
-            WHERE o.horizon_days = ?
+            WHERE o.horizon_days = ? AND p.model_version = ?
+              AND COALESCE(p.model_fingerprint, '') = ?
             ORDER BY p.captured_at
             """,
-            (horizon_days,),
+            (horizon_days, model_version, model_fingerprint or ""),
         ).fetchall()
     probabilities = [float(row["probability"]) / 100 for row in rows]
     outcomes = [int(row["direction_up"]) for row in rows]
     sample_size = len(rows)
+    overlap = overlap_diagnostics([{"decision_at": row["captured_at"][:10], "evaluated_at": row["evaluated_at"][:10]} for row in rows])
+    independent_cuts = overlap["non_overlapping_count"]
+    publishable = sample_size >= 30 and independent_cuts >= 30
     bins = calibration_bins(probabilities, outcomes)
     misses = []
     for row, probability, outcome in zip(rows, probabilities, outcomes):
@@ -213,10 +224,14 @@ def validation_summary(
         "horizon_days": horizon_days,
         "sample_size": sample_size,
         "minimum_sample_size": 30,
-        "remaining_results": max(0, 30 - sample_size),
-        "progress_pct": round(min(sample_size / 30, 1) * 100, 1),
-        "metrics_publishable": sample_size >= 30,
-        "status": "READY" if sample_size >= 30 else "INSUFFICIENT_DATA",
+        "model_version": model_version,
+        "model_fingerprint": model_fingerprint,
+        "non_overlapping_count": independent_cuts,
+        "overlap": overlap,
+        "remaining_results": max(0, 30 - independent_cuts),
+        "progress_pct": round(min(independent_cuts / 30, 1) * 100, 1),
+        "metrics_publishable": publishable,
+        "status": "READY" if publishable else "INSUFFICIENT_DATA",
         "brier_score": brier_score(probabilities, outcomes),
         "balanced_accuracy": balanced_accuracy(probabilities, outcomes),
         "mean_return_pct": round(sum(float(row["return_pct"]) for row in rows) / sample_size, 4)

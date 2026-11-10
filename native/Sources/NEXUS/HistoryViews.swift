@@ -320,6 +320,7 @@ struct ForexGoldView: View {
 
     @EnvironmentObject private var store: NexusStore
     @Environment(\.nexusBreakpoint) private var breakpoint
+    @Environment(\.nexusContentWidth) private var contentWidth
     @State private var selectedHeadline: NewsItem?
     @State private var showAllGoldFactors = false
     @State private var showGoldValidation = false
@@ -374,15 +375,25 @@ struct ForexGoldView: View {
         NexusPage {
             goldOutlookHeader
             goldDriverStrip
-            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                goldMacroRegimeCard
-                if store.snapshot?.gold?.change != nil {
-                    goldChangeCard
+            if contentWidth >= 1100 {
+                HStack(alignment: .top, spacing: NexusLayout.spacing) {
+                    VStack(spacing: NexusLayout.spacing) {
+                        goldMacroRegimeCard
+                        fxHeadlinesCard
+                    }.frame(maxWidth: .infinity)
+                    VStack(spacing: NexusLayout.spacing) {
+                        if store.snapshot?.gold?.change != nil { goldChangeCard }
+                        DisclosureGroup("Calendario del oro · próximos eventos") { fxCalendarCard }
+                            .font(.subheadline.weight(.semibold)).nexusCard()
+                    }.frame(maxWidth: .infinity)
                 }
-            }
-            NexusResponsiveGrid(wideColumns: 2, mediumColumns: 1) {
-                fxCalendarCard
-                fxHeadlinesCard
+            } else {
+                goldMacroRegimeCard
+                if store.snapshot?.gold?.change != nil { goldChangeCard }
+                DisclosureGroup("Calendario y titulares del oro") {
+                    fxCalendarCard
+                    fxHeadlinesCard
+                }.font(.subheadline.weight(.semibold)).nexusCard()
             }
             goldSparkline
             goldFactorSummary
@@ -404,6 +415,7 @@ struct ForexGoldView: View {
                     goldTemporalAuditCard
                     goldProbabilityHistoryCard
                     goldCalibrationCard
+                    GoldExperimentCard(experiment: store.snapshot?.gold?.experiment)
                 }
                 .padding(.top, 12)
             }
@@ -559,8 +571,8 @@ struct ForexGoldView: View {
 
     private var goldSparkline: some View {
         NexusSparklineCard(
-            title: "Oro spot · XAU/USD",
-            help: "Precio spot del oro frente al dólar. GLD se muestra más abajo como proxy negociable y no debe confundirse con esta cotización.",
+            title: "Oro · futuros COMEX (GC=F)",
+            help: "La serie XAUUSD de NEXUS usa futuros COMEX GC=F, no oro spot. Puede diferir por vencimiento y rollover. GLD es un ETF distinto; no comparar sus precios nominales.",
             points: store.snapshot?.sparklines?["XAUUSD"] ?? [],
             showRelative: false,
             minHeight: 260,
@@ -742,7 +754,7 @@ struct ForexGoldView: View {
             }
             ProgressView(value: horizon?.probabilityUp ?? 0, total: 100)
                 .tint(tone)
-                .accessibilityLabel("Probabilidad alcista")
+                .accessibilityLabel("Estimación heurística alcista, no probabilidad validada")
                 .accessibilityValue(horizon?.probabilityUp.map { String(format: "%.0f por ciento", $0) } ?? "sin datos")
             if let calibrated = horizon?.probabilityCalibrated,
                let calibration = horizon?.calibration,
@@ -762,12 +774,17 @@ struct ForexGoldView: View {
                     .foregroundStyle(NexusTheme.muted)
             }
             HStack {
-                Text("Confianza \(horizon?.confidence ?? "—")")
+                Text("Intensidad \(horizon?.signalStrength ?? "—")")
                 Spacer()
                 Text("Cobertura \(horizon?.coveragePct.map { String(format: "%.0f%%", $0) } ?? "—")")
             }
             .font(.caption)
             .foregroundStyle(NexusTheme.muted)
+            NexusKVRow(label: "Calidad de datos", value: "\(horizon?.dataQuality ?? "—") · \(horizon?.freshCoveragePct.map { String(format: "%.0f%%", $0) } ?? "—") actualizados")
+                .font(.caption)
+            Text("Fiabilidad predictiva: no demostrada · confianza baja")
+                .font(.caption)
+                .foregroundStyle(NexusTheme.warn)
         }
         .nexusCard()
         .accessibilityElement(children: .combine)
@@ -1404,9 +1421,10 @@ struct ForexGoldView: View {
             .font(.caption)
             Divider().opacity(0.12)
             NexusKVRow(
-                label: "Predicciones en vivo guardadas",
+                label: "Archivo · todas las versiones",
                 value: history?.predictions.map { String($0) } ?? "0"
             )
+            NexusKVRow(label: "Configuración activa · \(history?.modelVersion ?? "—")", value: "\(history?.activePredictions ?? 0)")
             NexusKVRow(
                 label: "Observaciones versionadas",
                 value: history?.observations.map { String($0) } ?? "0"
@@ -1426,14 +1444,14 @@ struct ForexGoldView: View {
 
     private var goldBacktestCard: some View {
         let report = store.snapshot?.gold?.backtest
-        let ready = report?.status == "READY"
+        let ready = report?.status == "READY" && report?.compatibleWithLive == true
         let promoted = report?.passesBaselines == true
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 NexusSectionHeader(
-                    title: "VALIDACIÓN HISTÓRICA POINT-IN-TIME",
+                    title: "VALIDACIÓN HISTÓRICA · MODELO ACTIVO",
                     detail: backtestPeriod(report),
-                    help: "Cada corte solo usa datos que ya se habían publicado. Brier menor es mejor; precisión equilibrada mayor es mejor."
+                    help: "Configuración activa separada de candidatos. Consulta los supuestos temporales del histórico. Brier menor es mejor."
                 )
                 Spacer(minLength: 8)
                 Text(promoted ? "CANDIDATO" : ready ? "PRELIMINAR" : "PENDIENTE")
@@ -1444,6 +1462,14 @@ struct ForexGoldView: View {
                     .background((promoted ? NexusTheme.good : NexusTheme.warn).opacity(0.14), in: Capsule())
             }
 
+            if report?.compatibleWithLive == false {
+                Text("Informe archivado: no corresponde a las reglas activas. No habilita pesos ni calibración; hay que recalcularlo.")
+                    .font(.caption).foregroundStyle(NexusTheme.warn)
+            }
+            if report?.temporalQuality == "RECONSTRUCTED_WITH_ASSUMPTIONS" {
+                Text("Histórico reconstruido con supuestos: parte de los cierres previos a ALFRED se fechan en T+1. No equivale a vintages íntegramente verificados.")
+                    .font(.caption).foregroundStyle(NexusTheme.muted)
+            }
             if ready {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 12) {
@@ -1647,7 +1673,7 @@ struct ForexGoldView: View {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(NexusTheme.accent)
                 Spacer()
-                Text("\(summary?.sampleSize ?? 0)/\(summary?.minimumSampleSize ?? 30) resultados")
+                Text("\(summary?.sampleSize ?? 0) resultados · \(summary?.nonOverlappingCount ?? 0)/30 cortes separados")
                     .font(.caption2)
                     .foregroundStyle(NexusTheme.muted)
             }
@@ -1658,7 +1684,7 @@ struct ForexGoldView: View {
                     .accessibilityValue("\(summary?.sampleSize ?? 0) de \(summary?.minimumSampleSize ?? 30) resultados vencidos")
                 NexusEmptyState(
                     title: "Muestra aún insuficiente",
-                    detail: "Faltan \(summary?.remainingResults ?? 30) resultados vencidos. Los porcentajes y fallos todavía no permiten concluir fiabilidad.",
+                    detail: "Versión \(summary?.modelVersion ?? "—"). Faltan \(summary?.remainingResults ?? 30) cortes vencidos sin solapamiento. Tampoco se presume independencia estadística entre ellos.",
                     symbol: "scope"
                 )
             } else if bins.isEmpty {
@@ -1721,6 +1747,7 @@ struct ForexGoldView: View {
     }
 
     private var hasGoldAblation: Bool {
+        guard store.snapshot?.gold?.backtest?.compatibleWithLive == true else { return false }
         let horizons = store.snapshot?.gold?.backtest?.horizons
         return !(horizons?["21"]?.ablation?.isEmpty ?? true) || !(horizons?["63"]?.ablation?.isEmpty ?? true)
     }
@@ -1730,7 +1757,7 @@ struct ForexGoldView: View {
         return VStack(alignment: .leading, spacing: 12) {
             NexusSectionHeader(
                 title: "APORTE REAL POR FAMILIA",
-                detail: "prueba de ablación",
+                detail: "modelo experimental, no configuración activa",
                 help: "Recalcula el histórico retirando una familia cada vez. Un Brier positivo significa que retirarla empeora el modelo; uno negativo señala posible redundancia."
             )
             ViewThatFits(in: .horizontal) {
