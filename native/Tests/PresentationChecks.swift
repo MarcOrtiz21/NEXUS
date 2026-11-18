@@ -3,6 +3,12 @@ import Foundation
 /// Smoke test del código de producción sin XCTest (Command Line Tools no lo incluyen).
 @main struct PresentationChecks {
     @MainActor static func main() async throws {
+        do {
+            try NativeSnapshotContractChecks.run(fixturePath: CommandLine.arguments[1])
+        } catch {
+            FileHandle.standardError.write(Data("Contrato nativo: \(error.localizedDescription)\n".utf8))
+            exit(1)
+        }
         precondition(PresentationPolicy.overviewSidebarWidth(availableWidth: 766) == nil)
         precondition(PresentationPolicy.overviewSidebarWidth(availableWidth: 1039) == nil)
         precondition(PresentationPolicy.overviewSidebarWidth(availableWidth: 1040) == 300)

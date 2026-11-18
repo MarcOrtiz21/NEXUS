@@ -1,0 +1,2119 @@
+{
+  "alerts": [
+    "Alerta sintética"
+  ],
+  "asset_ranking": [],
+  "assets": {
+    "GLD": {
+      "price": 45.6
+    },
+    "SPY": {
+      "momentum_1m": 1.25,
+      "price": 123.45
+    }
+  },
+  "audit": {
+    "cache_age_seconds": null,
+    "captured_at_utc": "2026-01-08T14:00:00+00:00",
+    "exported": false,
+    "snapshot_hash": "a6902dc041243603dda081e4f0618c49139bb03a1848f111028bbd7a1ac51d3f"
+  },
+  "block_banner": {
+    "action_hint": "ESPERAR",
+    "block_hours": 6,
+    "countdown_seconds": 7200,
+    "estimated": false,
+    "event_at": "2026-01-08T16:00:00+00:00",
+    "event_title": "CPI · evento de prueba",
+    "guidance": "Calendario activo (6h). Pausa de prueba Espera al evento «CPI · evento de prueba» y reevalúa.",
+    "severity": "BLOCK",
+    "source": "fixture",
+    "status": "BLOCKED",
+    "time_quality": "oficial",
+    "title": "Riesgo activo — no forzar entradas"
+  },
+  "calendar": {
+    "block_hours": 6,
+    "confidence": null,
+    "context": {
+      "affects_assets": [
+        "SPY",
+        "TLT",
+        "UUP"
+      ],
+      "confidence": null,
+      "guidance": "Riesgo de sorpresa de inflación y reacción de tipos."
+    },
+    "estimated_window": false,
+    "fx_upcoming": [],
+    "gold_upcoming": [],
+    "next_event": {
+      "blocks_signals": true,
+      "hours_until": 2.0,
+      "source": "fixture",
+      "title": "CPI · evento de prueba",
+      "when_utc": "2026-01-08T16:00:00+00:00"
+    },
+    "should_block": true,
+    "source": "fixture",
+    "time_quality": "oficial",
+    "upcoming": [
+      {
+        "blocks_signals": true,
+        "hours_until": 2.0,
+        "source": "fixture",
+        "title": "CPI · evento de prueba",
+        "when_utc": "2026-01-08T16:00:00+00:00"
+      }
+    ]
+  },
+  "captured_at_utc": "2026-01-08T14:00:00+00:00",
+  "change_attribution": {
+    "action": {
+      "changed": true,
+      "from": "COMPRAR",
+      "to": "ESPERAR"
+    },
+    "market_status": {
+      "changed": false,
+      "from": null,
+      "to": null
+    },
+    "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+    "rationale": {
+      "changed": false,
+      "from": null,
+      "to": null
+    },
+    "score": {
+      "delta": -3.0,
+      "from": 61,
+      "to": 58
+    },
+    "top_asset_movers": []
+  },
+  "comparison": {
+    "asset_ranking": [],
+    "attribution": {
+      "action": {
+        "changed": true,
+        "from": "COMPRAR",
+        "to": "ESPERAR"
+      },
+      "market_status": {
+        "changed": false,
+        "from": null,
+        "to": null
+      },
+      "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+      "rationale": {
+        "changed": false,
+        "from": null,
+        "to": null
+      },
+      "score": {
+        "delta": -3.0,
+        "from": 61,
+        "to": 58
+      },
+      "top_asset_movers": []
+    },
+    "has_prior": true,
+    "latest_captured_at": "2026-01-08T14:00:00+00:00",
+    "prior_captured_at": "2026-01-07T14:00:00+00:00",
+    "vs_previous": {
+      "action_changed": true,
+      "action_from": "COMPRAR",
+      "action_to": "ESPERAR",
+      "asset_ranking": [],
+      "attribution": {
+        "action": {
+          "changed": true,
+          "from": "COMPRAR",
+          "to": "ESPERAR"
+        },
+        "market_status": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+        "rationale": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "score": {
+          "delta": -3.0,
+          "from": 61,
+          "to": 58
+        },
+        "top_asset_movers": []
+      },
+      "eurusd_pct": null,
+      "gld_pct": null,
+      "market_status_from": null,
+      "market_status_to": null,
+      "previous_captured_at": "2026-01-07T14:00:00+00:00",
+      "score_delta": -3.0,
+      "spy_pct": 2.875,
+      "top_asset_movers": [],
+      "uup_pct": null
+    },
+    "vs_yesterday": {
+      "action_changed": true,
+      "action_from": "COMPRAR",
+      "action_to": "ESPERAR",
+      "asset_ranking": [],
+      "attribution": {
+        "action": {
+          "changed": true,
+          "from": "COMPRAR",
+          "to": "ESPERAR"
+        },
+        "market_status": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+        "rationale": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "score": {
+          "delta": -3.0,
+          "from": 61,
+          "to": 58
+        },
+        "top_asset_movers": []
+      },
+      "eurusd_pct": null,
+      "gld_pct": null,
+      "market_status_from": null,
+      "market_status_to": null,
+      "previous_captured_at": "2026-01-07T14:00:00+00:00",
+      "score_delta": -3.0,
+      "spy_pct": 2.875,
+      "top_asset_movers": [],
+      "uup_pct": null
+    },
+    "yesterday_captured_at": "2026-01-07T14:00:00+00:00"
+  },
+  "decision": {
+    "action": "ESPERAR",
+    "allocation": {
+      "CASH": 100
+    },
+    "confidence": "BAJA",
+    "confidence_basis": "data_quality",
+    "confidence_note": "Calidad de datos reducida: calendario estimado, no oficial",
+    "confidence_reasons": [
+      "calendario estimado, no oficial"
+    ],
+    "macro_action": "COMPRAR",
+    "macro_allocation": {
+      "CASH": 75,
+      "SPY": 25
+    },
+    "operational_action": "ESPERAR",
+    "operational_pause_reason": "Pausa de prueba",
+    "score": 58
+  },
+  "forex": {
+    "EURUSD": {
+      "price": 1.125
+    },
+    "dual": {
+      "eur_view": "MANTENER / ESPERAR",
+      "usd_view": "MANTENER / ESPERAR"
+    },
+    "headlines": [
+      {
+        "linked_assets": [
+          "GLD"
+        ],
+        "source": "Fuente de prueba",
+        "title": "Oro · titular sintético",
+        "url": "https://example.invalid/oro"
+      },
+      {
+        "linked_assets": [
+          "EURUSD"
+        ],
+        "source": "Fuente de prueba",
+        "title": "Divisas · titular sintético",
+        "url": "https://example.invalid/divisas"
+      }
+    ],
+    "plan": {
+      "allows_entry": false,
+      "avoiding": "No operar por un dato aislado de momentum ni contradecir el bloqueo de Resumen. Confirmar con MA20/50 y el relativo 1M/3M.",
+      "buy": "Nada ahora",
+      "changes": "Un cruce sostenido de medias, un giro del relativo 1M o que Resumen autorice entradas cambiarían el veredicto.",
+      "doing": "Sin ventaja clara en el par. Esperar una ruptura de medias o del relativo 1M. Mientras Resumen no autorice, esto es vigilancia.",
+      "sell": "Cualquier entrada nueva",
+      "stance": "ESPERAR",
+      "verdict": "ESPERAR. No hay permiso operativo (Pausa de prueba). No comprar EUR, USD ni oro."
+    },
+    "rates": {
+      "eur_label": "1 EUR = 1.1250 USD",
+      "eur_usd": 1.125,
+      "usd_eur": 0.8889,
+      "usd_label": "1 USD = 0.8889 EUR"
+    },
+    "signal": {
+      "action": "MANTENER / ESPERAR",
+      "confidence": "BAJA",
+      "eur_trend": "n/d",
+      "evolution": "estable",
+      "news": {
+        "eur_score": 0,
+        "expectation": "Sesgo noticias mixto; esperar lateralidad y volatilidad.",
+        "net_eur_minus_usd": 0,
+        "usd_score": 0
+      },
+      "rel_1m": null,
+      "rel_3m": null,
+      "rel_change": null,
+      "score": 0,
+      "usd_trend": "n/d"
+    },
+    "strength": {
+      "eur": 50,
+      "usd": null
+    }
+  },
+  "freshness": {
+    "headline": "Mercado ahora · Macro 2 min · obs. 7 ene · Empresas 1/2 · 4 min",
+    "layers": [
+      {
+        "age_label": "ahora",
+        "age_seconds": 15,
+        "as_of": null,
+        "available": null,
+        "coverage_pct": null,
+        "id": "market",
+        "label": "Mercado",
+        "status": "OK",
+        "total": null
+      },
+      {
+        "age_label": "2 min · obs. 7 ene",
+        "age_seconds": 120,
+        "as_of": "2026-01-07",
+        "available": null,
+        "coverage_pct": null,
+        "id": "macro",
+        "label": "Macro",
+        "status": "OK",
+        "total": null
+      },
+      {
+        "age_label": "1/2 · 4 min",
+        "age_seconds": 240,
+        "as_of": null,
+        "available": 1,
+        "coverage_pct": null,
+        "id": "companies",
+        "label": "Empresas",
+        "status": "PARTIAL",
+        "total": 2
+      }
+    ],
+    "tone": "warn"
+  },
+  "fx_alignment": {
+    "conflict": false,
+    "detail": null,
+    "operational_action": "ESPERAR",
+    "pause_reason": "Pausa de prueba",
+    "severity": null,
+    "stance": "idle",
+    "title": null
+  },
+  "fx_digest": {
+    "baseline_captured_at": "2026-01-08T14:00:00+00:00",
+    "eurusd": {
+      "changed": false,
+      "delta": null,
+      "from": null,
+      "label": "sin base previa",
+      "pips": null,
+      "to": 1.125
+    },
+    "forex_action": {
+      "changed": false,
+      "from": null,
+      "label": "MANTENER / ESPERAR",
+      "to": "MANTENER / ESPERAR"
+    },
+    "gld": {
+      "changed": false,
+      "delta": null,
+      "from": null,
+      "label": "sin base previa",
+      "to": 45.6
+    },
+    "gold_bias": {
+      "changed": false,
+      "from": null,
+      "label": "MIXTO",
+      "to": "MIXTO"
+    },
+    "has_prior": true,
+    "headline": "Sin cambios relevantes en divisas y oro",
+    "summary": "La señal FX se comparará tras la próxima captura persistida. · El sesgo de oro se comparará tras la próxima captura persistida."
+  },
+  "global_markets": {},
+  "gold": {
+    "GLD": {
+      "price": 45.6
+    },
+    "backtest": {
+      "horizons": {},
+      "status": "NOT_RUN"
+    },
+    "change": null,
+    "demand": {
+      "actual_etf_flows_status": "STANDBY",
+      "etf_holdings": {
+        "fund_id": "GLD",
+        "history": [],
+        "score_enabled": false,
+        "status": "MISSING"
+      },
+      "etf_market_proxy": {
+        "instrument": "GLD",
+        "method": "volumen direccional de mercado",
+        "note": "No hay 21 sesiones con volumen; no se infiere un flujo ETF.",
+        "score_enabled": false,
+        "status": "MISSING"
+      },
+      "methodology": "Contexto separado del score hasta ampliar cobertura y validar valor incremental.",
+      "official": {
+        "reserves": [
+          {
+            "as_of": "2026-01-07",
+            "id": "fixture-reserve",
+            "tonnes": 12.5
+          }
+        ],
+        "score_enabled": false,
+        "status": "PARTIAL"
+      },
+      "score_enabled": false,
+      "status": "PARTIAL"
+    },
+    "experiment": {
+      "score_enabled": false,
+      "status": "NOT_REGISTERED"
+    },
+    "history": {
+      "observations": 0,
+      "predictions": 0,
+      "settled_outcomes": 0,
+      "validation": {
+        "medium": {
+          "sample_size": 0,
+          "status": "INSUFFICIENT_DATA"
+        },
+        "short": {
+          "sample_size": 0,
+          "status": "INSUFFICIENT_DATA"
+        }
+      }
+    },
+    "label": "Oro (GLD)",
+    "outlook": {
+      "as_of": null,
+      "data_notes": [
+        "Los consensos privados permanecen en standby; esta versión usa datos públicos observados.",
+        "La evaluación histórica separa producción y candidatos y declara sus supuestos temporales; no demuestra mejora estable frente a las referencias.",
+        "El posicionamiento CFTC se muestra, pero su peso permanece desactivado hasta superar la ablación fuera de muestra.",
+        "Las tenencias físicas de GLD se muestran, pero no puntúan hasta superar la ablación fuera de muestra.",
+        "La demanda oficial no aporta score mientras falte una serie global verificable."
+      ],
+      "groups": [
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI mensual",
+              "metric_key": "CPI_MoM_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI 3M anualizado",
+              "metric_key": "CPI_3M_Annualized_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI interanual",
+              "metric_key": "CPI_YoY_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI subyacente mensual",
+              "metric_key": "Core_CPI_MoM_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI subyacente 3M anualizado",
+              "metric_key": "Core_CPI_3M_Annualized_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI subyacente interanual",
+              "metric_key": "Core_CPI_YoY_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE mensual",
+              "metric_key": "PCE_MoM_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE 3M anualizado",
+              "metric_key": "PCE_3M_Annualized_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE interanual",
+              "metric_key": "PCE_YoY_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE subyacente mensual",
+              "metric_key": "Core_PCE_MoM_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE subyacente 3M anualizado",
+              "metric_key": "Core_PCE_3M_Annualized_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "PCE subyacente interanual",
+              "metric_key": "Core_PCE_YoY_Pct",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "inflation",
+          "label": "Inflación",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.16,
+          "note": "Una sola familia: mensual, aceleración 3M e interanual describen el mismo impulso y no cuentan como votos separados.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.14
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "TIPS real 10Y",
+              "metric_key": "Real_Yield_10Y_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio TIPS 1M",
+              "metric_key": "Real_Yield_10Y_1M_Change_Pp",
+              "unit": " pp",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Breakeven 10Y",
+              "metric_key": "Breakeven_10Y_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio breakeven 1M",
+              "metric_key": "Breakeven_10Y_1M_Change_Pp",
+              "unit": " pp",
+              "value": null
+            }
+          ],
+          "id": "real_rates",
+          "label": "Tipos reales y expectativas",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.18,
+          "note": "La señal usa TIPS reales; el breakeven se muestra como contexto para no duplicar inflación.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.22
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Momentum UUP 1M",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "dollar",
+          "label": "Dólar",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.12,
+          "note": "El dólar se contabiliza una sola vez aunque también afecte a tipos y materias primas.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.18
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "WTI 1M",
+              "metric_key": "WTI_1M_Change_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI energía mensual",
+              "metric_key": "Energy_CPI_MoM_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "CPI energía interanual",
+              "metric_key": "Energy_CPI_YoY_Pct",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "energy",
+          "label": "Energía",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.08,
+          "note": "Canal indirecto y limitado: energía influye en inflación, expectativas y política monetaria.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.06
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio desempleo",
+              "metric_key": "Unemployment_1M_Change_Pp",
+              "unit": " pp",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Nóminas mensuales",
+              "metric_key": "Payrolls_1M_Change_Thousands",
+              "unit": " mil",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Producción industrial mensual",
+              "metric_key": "Industrial_Production_MoM_Pct",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "activity",
+          "label": "Actividad económica",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.1,
+          "note": "Debilidad de empleo o industria puede favorecer refugio; la familia tiene un único límite.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.1
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Variación M2",
+              "metric_key": "M2_Change_Pct",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "liquidity",
+          "label": "Liquidez",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.1,
+          "note": "La expansión monetaria se trata como contexto, no como señal aislada.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.06
+        },
+        {
+          "available": true,
+          "coverage_pct": 100.0,
+          "details": [
+            {
+              "available": true,
+              "display": "19.5",
+              "label": "VIX",
+              "unit": "",
+              "value": 19.5
+            }
+          ],
+          "id": "risk",
+          "label": "Riesgo",
+          "medium_contribution": 0.33,
+          "medium_signal": 0.065,
+          "medium_weight": 0.05,
+          "note": "El estrés favorece demanda defensiva principalmente en el horizonte corto.",
+          "score_enabled": true,
+          "short_contribution": 1.0,
+          "short_signal": 0.1,
+          "short_weight": 0.1
+        },
+        {
+          "available": true,
+          "coverage_pct": 50.0,
+          "details": [
+            {
+              "available": true,
+              "display": "45.60",
+              "label": "Precio GLD",
+              "unit": "",
+              "value": 45.6
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Momentum GLD 1M",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "technical",
+          "label": "Técnica del oro",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.09,
+          "note": "Solo usa información disponible en la captura; nunca el resultado futuro del propio oro.",
+          "score_enabled": true,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.14
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Managed Money neto",
+              "metric_key": "CFTC_MM_Net_Contracts",
+              "unit": " contratos",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Neto / interés abierto",
+              "metric_key": "CFTC_MM_Net_Pct_OI",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio semanal",
+              "metric_key": "CFTC_MM_Weekly_Change_Contracts",
+              "unit": " contratos",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio 4 semanas",
+              "metric_key": "CFTC_MM_4W_Change_Contracts",
+              "unit": " contratos",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Percentil 3 años",
+              "metric_key": "CFTC_MM_Percentile_3Y",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Z-score 3 años",
+              "metric_key": "CFTC_MM_ZScore_3Y",
+              "unit": "",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Concentración 4 mayores · largo",
+              "metric_key": "CFTC_Concentration_4_Long_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Concentración 4 mayores · corto",
+              "metric_key": "CFTC_Concentration_4_Short_Pct",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "positioning",
+          "label": "Posicionamiento especulativo",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.0,
+          "note": "Visible como contexto; no puntúa hasta demostrar mejora estable fuera de muestra.",
+          "score_enabled": false,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.0
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Oro en GLD",
+              "metric_key": "GLD_Holdings_Tonnes",
+              "unit": " t",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio 5 sesiones",
+              "metric_key": "GLD_Holdings_5D_Change_Tonnes",
+              "unit": " t",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio 21 sesiones",
+              "metric_key": "GLD_Holdings_21D_Change_Tonnes",
+              "unit": " t",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio 21 sesiones",
+              "metric_key": "GLD_Holdings_21D_Change_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Cambio 63 sesiones",
+              "metric_key": "GLD_Holdings_63D_Change_Pct",
+              "unit": "%",
+              "value": null
+            },
+            {
+              "available": false,
+              "display": "—",
+              "label": "Percentil cambio 21S · 3 años",
+              "metric_key": "GLD_Holdings_21D_Change_Percentile_3Y",
+              "unit": "%",
+              "value": null
+            }
+          ],
+          "id": "etf_holdings",
+          "label": "Tenencias físicas ETF (GLD)",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.0,
+          "note": "Visible como contexto; no puntúa hasta demostrar mejora estable fuera de muestra.",
+          "score_enabled": false,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.0
+        },
+        {
+          "available": false,
+          "coverage_pct": 0.0,
+          "details": [
+            {
+              "available": false,
+              "display": "—",
+              "label": "Compras netas",
+              "unit": " t",
+              "value": null
+            }
+          ],
+          "id": "official_demand",
+          "label": "Demanda oficial",
+          "medium_contribution": null,
+          "medium_signal": null,
+          "medium_weight": 0.0,
+          "note": "Solo contexto: no existe una serie global de compras netas verificada. Los saldos nacionales no se suman ni puntúan.",
+          "score_enabled": false,
+          "short_contribution": null,
+          "short_signal": null,
+          "short_weight": 0.0
+        }
+      ],
+      "macro_regime": {
+        "id": "UNDETERMINED",
+        "label": "Régimen indeterminado",
+        "note": "Faltan cambios observados de TIPS reales o del dólar.",
+        "score_enabled": false,
+        "status": "INSUFFICIENT_DATA"
+      },
+      "medium_term": {
+        "calibration": {
+          "eligible": false,
+          "status": "UNAVAILABLE"
+        },
+        "confidence": "BAJA",
+        "confidence_basis": "predictive_validation",
+        "confidence_note": "La intensidad del sesgo y la calidad de datos no demuestran acierto predictivo.",
+        "coverage_pct": 5.7,
+        "data_quality": "INSUFICIENTE",
+        "drivers": [
+          {
+            "contribution": 0.33,
+            "id": "risk",
+            "label": "Riesgo",
+            "note": "El estrés favorece demanda defensiva principalmente en el horizonte corto."
+          }
+        ],
+        "fresh_coverage_pct": 0.0,
+        "horizon_days": 63,
+        "label": "NEUTRAL",
+        "predictive_reliability": "NO_DEMOSTRADA",
+        "probability_up": 52.3,
+        "score": 6.5,
+        "signal_strength": "DÉBIL",
+        "tone": "WARN"
+      },
+      "methodology": "Perspectiva heurística agrupada; no es una orden y el modelo sigue en fase preliminar.",
+      "model_fingerprint": "synthetic-fixture",
+      "private_sources_status": "STANDBY",
+      "short_term": {
+        "calibration": {
+          "eligible": false,
+          "status": "UNAVAILABLE"
+        },
+        "confidence": "BAJA",
+        "confidence_basis": "predictive_validation",
+        "confidence_note": "La intensidad del sesgo y la calidad de datos no demuestran acierto predictivo.",
+        "coverage_pct": 10.0,
+        "data_quality": "INSUFICIENTE",
+        "drivers": [
+          {
+            "contribution": 1.0,
+            "id": "risk",
+            "label": "Riesgo",
+            "note": "El estrés favorece demanda defensiva principalmente en el horizonte corto."
+          }
+        ],
+        "fresh_coverage_pct": 0.0,
+        "horizon_days": 21,
+        "label": "NEUTRAL",
+        "predictive_reliability": "NO_DEMOSTRADA",
+        "probability_up": 53.5,
+        "score": 10.0,
+        "signal_strength": "DÉBIL",
+        "tone": "WARN"
+      },
+      "status": "PRELIMINARY",
+      "version": "gold-outlook-v3",
+      "what_changes_signal": [
+        "Una caída sostenida de TIPS reales y del dólar mejoraría la lectura.",
+        "Una subida conjunta de tipos reales y dólar deterioraría ambos horizontes.",
+        "La inflación mensual se reevalúa junto a tipos: nunca funciona como voto independiente.",
+        "Un giro del posicionamiento CFTC, especialmente desde un extremo, puede confirmar o debilitar la lectura."
+      ]
+    },
+    "positioning": {},
+    "revisions": {},
+    "signal": {
+      "bias": "MIXTO",
+      "confidence": "BAJA",
+      "drivers": [],
+      "gld_trend": "n/d",
+      "real_rate": null,
+      "real_rate_source": null,
+      "score": 0,
+      "summary": "Lectura mixta: el oro no tiene una ventaja clara frente al dólar y los tipos.",
+      "tone": "WARN",
+      "usd_trend": "n/d",
+      "vix": 19.5,
+      "vs_dollar_1m": null,
+      "vs_dollar_note": "Falta el momentum 1M de GLD o UUP para comparar con el dólar."
+    }
+  },
+  "history": {
+    "action_changes": [
+      {
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "from": "COMPRAR",
+        "score": 58,
+        "to": "ESPERAR"
+      }
+    ],
+    "action_counts": {
+      "COMPRAR": 1,
+      "ESPERAR": 1
+    },
+    "asset_ranking": [],
+    "avg_score": 59.5,
+    "comparison": {
+      "asset_ranking": [],
+      "attribution": {
+        "action": {
+          "changed": true,
+          "from": "COMPRAR",
+          "to": "ESPERAR"
+        },
+        "market_status": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+        "rationale": {
+          "changed": false,
+          "from": null,
+          "to": null
+        },
+        "score": {
+          "delta": -3.0,
+          "from": 61,
+          "to": 58
+        },
+        "top_asset_movers": []
+      },
+      "has_prior": true,
+      "latest_captured_at": "2026-01-08T14:00:00+00:00",
+      "prior_captured_at": "2026-01-07T14:00:00+00:00",
+      "vs_previous": {
+        "action_changed": true,
+        "action_from": "COMPRAR",
+        "action_to": "ESPERAR",
+        "asset_ranking": [],
+        "attribution": {
+          "action": {
+            "changed": true,
+            "from": "COMPRAR",
+            "to": "ESPERAR"
+          },
+          "market_status": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+          "rationale": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "score": {
+            "delta": -3.0,
+            "from": 61,
+            "to": 58
+          },
+          "top_asset_movers": []
+        },
+        "eurusd_pct": null,
+        "gld_pct": null,
+        "market_status_from": null,
+        "market_status_to": null,
+        "previous_captured_at": "2026-01-07T14:00:00+00:00",
+        "score_delta": -3.0,
+        "spy_pct": 2.875,
+        "top_asset_movers": [],
+        "uup_pct": null
+      },
+      "vs_yesterday": {
+        "action_changed": true,
+        "action_from": "COMPRAR",
+        "action_to": "ESPERAR",
+        "asset_ranking": [],
+        "attribution": {
+          "action": {
+            "changed": true,
+            "from": "COMPRAR",
+            "to": "ESPERAR"
+          },
+          "market_status": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+          "rationale": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "score": {
+            "delta": -3.0,
+            "from": 61,
+            "to": 58
+          },
+          "top_asset_movers": []
+        },
+        "eurusd_pct": null,
+        "gld_pct": null,
+        "market_status_from": null,
+        "market_status_to": null,
+        "previous_captured_at": "2026-01-07T14:00:00+00:00",
+        "score_delta": -3.0,
+        "spy_pct": 2.875,
+        "top_asset_movers": [],
+        "uup_pct": null
+      },
+      "yesterday_captured_at": "2026-01-07T14:00:00+00:00"
+    },
+    "count": 2,
+    "downsampled": false,
+    "events": [
+      {
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "from": "COMPRAR",
+        "score": 58,
+        "to": "ESPERAR"
+      }
+    ],
+    "latest": {
+      "action": "ESPERAR",
+      "captured_at": "2026-01-08T14:00:00+00:00",
+      "prices": {
+        "SPY": 123.45
+      },
+      "score": 58
+    },
+    "max_points": 120,
+    "max_score": 61,
+    "min_score": 58,
+    "period": null,
+    "price_series": {
+      "EURUSD": [],
+      "GLD": [],
+      "QQQ": [],
+      "SPY": [
+        {
+          "captured_at": "2026-01-07T14:00:00+00:00",
+          "value": 120.0
+        },
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "value": 123.45
+        }
+      ],
+      "TLT": [],
+      "UUP": [],
+      "score": [
+        {
+          "captured_at": "2026-01-07T14:00:00+00:00",
+          "value": 61.0
+        },
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "value": 58.0
+        }
+      ]
+    },
+    "score_timeline": [
+      {
+        "action": "COMPRAR",
+        "captured_at": "2026-01-07T14:00:00+00:00",
+        "macro_action": "COMPRAR",
+        "operational_action": "COMPRAR",
+        "score": 61
+      },
+      {
+        "action": "ESPERAR",
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "macro_action": "ESPERAR",
+        "operational_action": "ESPERAR",
+        "score": 58
+      }
+    ],
+    "source_count": 2
+  },
+  "history_periods": {
+    "30d": {
+      "action_changes": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "action_counts": {
+        "COMPRAR": 1,
+        "ESPERAR": 1
+      },
+      "asset_ranking": [],
+      "avg_score": 59.5,
+      "comparison": {
+        "asset_ranking": [],
+        "attribution": {
+          "action": {
+            "changed": true,
+            "from": "COMPRAR",
+            "to": "ESPERAR"
+          },
+          "market_status": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+          "rationale": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "score": {
+            "delta": -3.0,
+            "from": 61,
+            "to": 58
+          },
+          "top_asset_movers": []
+        },
+        "has_prior": true,
+        "latest_captured_at": "2026-01-08T14:00:00+00:00",
+        "prior_captured_at": "2026-01-07T14:00:00+00:00",
+        "vs_previous": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "vs_yesterday": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "yesterday_captured_at": "2026-01-07T14:00:00+00:00"
+      },
+      "count": 2,
+      "downsampled": false,
+      "events": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "latest": {
+        "action": "ESPERAR",
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "prices": {
+          "SPY": 123.45
+        },
+        "score": 58
+      },
+      "max_points": 120,
+      "max_score": 61,
+      "min_score": 58,
+      "period": "30d",
+      "price_series": {
+        "EURUSD": [],
+        "GLD": [],
+        "QQQ": [],
+        "SPY": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 120.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 123.45
+          }
+        ],
+        "TLT": [],
+        "UUP": [],
+        "score": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 61.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 58.0
+          }
+        ]
+      },
+      "score_timeline": [
+        {
+          "action": "COMPRAR",
+          "captured_at": "2026-01-07T14:00:00+00:00",
+          "macro_action": "COMPRAR",
+          "operational_action": "COMPRAR",
+          "score": 61
+        },
+        {
+          "action": "ESPERAR",
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "macro_action": "ESPERAR",
+          "operational_action": "ESPERAR",
+          "score": 58
+        }
+      ],
+      "source_count": 2
+    },
+    "7d": {
+      "action_changes": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "action_counts": {
+        "COMPRAR": 1,
+        "ESPERAR": 1
+      },
+      "asset_ranking": [],
+      "avg_score": 59.5,
+      "comparison": {
+        "asset_ranking": [],
+        "attribution": {
+          "action": {
+            "changed": true,
+            "from": "COMPRAR",
+            "to": "ESPERAR"
+          },
+          "market_status": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+          "rationale": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "score": {
+            "delta": -3.0,
+            "from": 61,
+            "to": 58
+          },
+          "top_asset_movers": []
+        },
+        "has_prior": true,
+        "latest_captured_at": "2026-01-08T14:00:00+00:00",
+        "prior_captured_at": "2026-01-07T14:00:00+00:00",
+        "vs_previous": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "vs_yesterday": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "yesterday_captured_at": "2026-01-07T14:00:00+00:00"
+      },
+      "count": 2,
+      "downsampled": false,
+      "events": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "latest": {
+        "action": "ESPERAR",
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "prices": {
+          "SPY": 123.45
+        },
+        "score": 58
+      },
+      "max_points": 120,
+      "max_score": 61,
+      "min_score": 58,
+      "period": "7d",
+      "price_series": {
+        "EURUSD": [],
+        "GLD": [],
+        "QQQ": [],
+        "SPY": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 120.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 123.45
+          }
+        ],
+        "TLT": [],
+        "UUP": [],
+        "score": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 61.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 58.0
+          }
+        ]
+      },
+      "score_timeline": [
+        {
+          "action": "COMPRAR",
+          "captured_at": "2026-01-07T14:00:00+00:00",
+          "macro_action": "COMPRAR",
+          "operational_action": "COMPRAR",
+          "score": 61
+        },
+        {
+          "action": "ESPERAR",
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "macro_action": "ESPERAR",
+          "operational_action": "ESPERAR",
+          "score": 58
+        }
+      ],
+      "source_count": 2
+    },
+    "90d": {
+      "action_changes": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "action_counts": {
+        "COMPRAR": 1,
+        "ESPERAR": 1
+      },
+      "asset_ranking": [],
+      "avg_score": 59.5,
+      "comparison": {
+        "asset_ranking": [],
+        "attribution": {
+          "action": {
+            "changed": true,
+            "from": "COMPRAR",
+            "to": "ESPERAR"
+          },
+          "market_status": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+          "rationale": {
+            "changed": false,
+            "from": null,
+            "to": null
+          },
+          "score": {
+            "delta": -3.0,
+            "from": 61,
+            "to": 58
+          },
+          "top_asset_movers": []
+        },
+        "has_prior": true,
+        "latest_captured_at": "2026-01-08T14:00:00+00:00",
+        "prior_captured_at": "2026-01-07T14:00:00+00:00",
+        "vs_previous": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "vs_yesterday": {
+          "action_changed": true,
+          "action_from": "COMPRAR",
+          "action_to": "ESPERAR",
+          "asset_ranking": [],
+          "attribution": {
+            "action": {
+              "changed": true,
+              "from": "COMPRAR",
+              "to": "ESPERAR"
+            },
+            "market_status": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "note": "Atribución descriptiva entre snapshots; no implica causalidad.",
+            "rationale": {
+              "changed": false,
+              "from": null,
+              "to": null
+            },
+            "score": {
+              "delta": -3.0,
+              "from": 61,
+              "to": 58
+            },
+            "top_asset_movers": []
+          },
+          "eurusd_pct": null,
+          "gld_pct": null,
+          "market_status_from": null,
+          "market_status_to": null,
+          "previous_captured_at": "2026-01-07T14:00:00+00:00",
+          "score_delta": -3.0,
+          "spy_pct": 2.875,
+          "top_asset_movers": [],
+          "uup_pct": null
+        },
+        "yesterday_captured_at": "2026-01-07T14:00:00+00:00"
+      },
+      "count": 2,
+      "downsampled": false,
+      "events": [
+        {
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "from": "COMPRAR",
+          "score": 58,
+          "to": "ESPERAR"
+        }
+      ],
+      "latest": {
+        "action": "ESPERAR",
+        "captured_at": "2026-01-08T14:00:00+00:00",
+        "prices": {
+          "SPY": 123.45
+        },
+        "score": 58
+      },
+      "max_points": 120,
+      "max_score": 61,
+      "min_score": 58,
+      "period": "90d",
+      "price_series": {
+        "EURUSD": [],
+        "GLD": [],
+        "QQQ": [],
+        "SPY": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 120.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 123.45
+          }
+        ],
+        "TLT": [],
+        "UUP": [],
+        "score": [
+          {
+            "captured_at": "2026-01-07T14:00:00+00:00",
+            "value": 61.0
+          },
+          {
+            "captured_at": "2026-01-08T14:00:00+00:00",
+            "value": 58.0
+          }
+        ]
+      },
+      "score_timeline": [
+        {
+          "action": "COMPRAR",
+          "captured_at": "2026-01-07T14:00:00+00:00",
+          "macro_action": "COMPRAR",
+          "operational_action": "COMPRAR",
+          "score": 61
+        },
+        {
+          "action": "ESPERAR",
+          "captured_at": "2026-01-08T14:00:00+00:00",
+          "macro_action": "ESPERAR",
+          "operational_action": "ESPERAR",
+          "score": 58
+        }
+      ],
+      "source_count": 2
+    }
+  },
+  "intelligence": {
+    "anomalies": [],
+    "data_quality": {
+      "captured_at_utc": "2026-01-08T14:00:00+00:00",
+      "critical": [],
+      "observations": {},
+      "status_counts": {},
+      "total": 0,
+      "unhealthy": 0
+    },
+    "freshness": {
+      "headline": "Mercado ahora · Macro 2 min · obs. 7 ene · Empresas 1/2 · 4 min",
+      "layers": [
+        {
+          "age_label": "ahora",
+          "age_seconds": 15,
+          "as_of": null,
+          "available": null,
+          "coverage_pct": null,
+          "id": "market",
+          "label": "Mercado",
+          "status": "OK",
+          "total": null
+        },
+        {
+          "age_label": "2 min · obs. 7 ene",
+          "age_seconds": 120,
+          "as_of": "2026-01-07",
+          "available": null,
+          "coverage_pct": null,
+          "id": "macro",
+          "label": "Macro",
+          "status": "OK",
+          "total": null
+        },
+        {
+          "age_label": "1/2 · 4 min",
+          "age_seconds": 240,
+          "as_of": null,
+          "available": 1,
+          "coverage_pct": null,
+          "id": "companies",
+          "label": "Empresas",
+          "status": "PARTIAL",
+          "total": 2
+        }
+      ],
+      "tone": "warn"
+    },
+    "regime": {
+      "label": "TRANSICIÓN",
+      "spy_momentum_1m": 1.25,
+      "summary": "Contexto descriptivo basado en volatilidad y tendencia; no sustituye la decisión operativa.",
+      "tone": "neutral",
+      "vix": 19.5
+    },
+    "score_attribution": {
+      "factors": [
+        {
+          "label": "Tendencia SPY",
+          "unit": "% 1M",
+          "value": 1.25
+        },
+        {
+          "label": "Volatilidad (VIX)",
+          "unit": "nivel",
+          "value": 19.5
+        }
+      ],
+      "note": "Muestra los factores observables disponibles; el score final incorpora reglas del motor.",
+      "score": 58
+    },
+    "track_thesis": {
+      "detail": "Se rellenará tras varias capturas persistidas.",
+      "forward_days": 5,
+      "headline": "Aún no hay muestra para contrastar la tesis",
+      "ready": false,
+      "sample_size": 0,
+      "tone": "neutral"
+    }
+  },
+  "market": {
+    "Breakeven_10Y_Pct": null,
+    "CPI_3M_Annualized_Pct": null,
+    "CPI_MoM_Pct": null,
+    "CPI_YoY_Pct": null,
+    "China_M2_YoY_Pct": null,
+    "Core_CPI_3M_Annualized_Pct": null,
+    "Core_CPI_MoM_Pct": null,
+    "Core_CPI_YoY_Pct": null,
+    "Core_PCE_3M_Annualized_Pct": null,
+    "Core_PCE_MoM_Pct": null,
+    "Core_PCE_YoY_Pct": null,
+    "Correlation_Proxy": null,
+    "Energy_CPI_MoM_Pct": null,
+    "Energy_CPI_YoY_Pct": null,
+    "Industrial_Production_MoM_Pct": null,
+    "M2_Change_Pct": null,
+    "PCE_3M_Annualized_Pct": null,
+    "PCE_MoM_Pct": null,
+    "PCE_YoY_Pct": null,
+    "PE_Forward": null,
+    "PE_Forward_Percentile": null,
+    "PE_Trailing": null,
+    "Payrolls_1M_Change_Thousands": null,
+    "Real_Yield_10Y_1M_Change_Pp": null,
+    "Real_Yield_10Y_Pct": null,
+    "US10Y": null,
+    "US2Y": null,
+    "Unemployment_1M_Change_Pp": null,
+    "Unemployment_Rate_Pct": null,
+    "VIX": 19.5,
+    "VIX_MA10": null,
+    "VIX_MA20": null,
+    "VIX_MA5": null,
+    "WTI_1M_Change_Pct": null,
+    "WTI_Price": null,
+    "Yield_Curve_Spread": null
+  },
+  "news": {
+    "count": 2,
+    "items": [
+      {
+        "linked_assets": [
+          "GLD"
+        ],
+        "source": "Fuente de prueba",
+        "title": "Oro · titular sintético",
+        "url": "https://example.invalid/oro"
+      },
+      {
+        "linked_assets": [
+          "EURUSD"
+        ],
+        "source": "Fuente de prueba",
+        "title": "Divisas · titular sintético",
+        "url": "https://example.invalid/divisas"
+      }
+    ],
+    "linkage": {
+      "causal": false,
+      "method": "explicit_keyword_heuristic",
+      "note": "Empresa por nombre o ticker. Fed/CPI/NFP son eventos. Resultados o IA no cuelgan un titular de un cesto."
+    },
+    "narratives": {
+      "method": "topic_keyword_cluster",
+      "narratives": [
+        {
+          "dominant_tone": "NEUTRAL",
+          "headline_count": 2,
+          "linked_assets": [
+            "GLD",
+            "EURUSD"
+          ],
+          "sample_titles": [
+            "Oro · titular sintético",
+            "Divisas · titular sintético"
+          ],
+          "topic": "Otros"
+        }
+      ],
+      "note": "Agrupación descriptiva de titulares; no implica causalidad ni una señal operativa."
+    },
+    "sentiment": {
+      "details": "No se detectaron palabras clave financieras en 2 titulares.",
+      "dominant": "NEUTRAL",
+      "panic_score": 0.0
+    },
+    "sources": [
+      "Fuente de prueba"
+    ]
+  },
+  "paper": {
+    "trade_count": 0
+  },
+  "rotation": {
+    "themes": [
+      {
+        "companies": [
+          {
+            "name": "Empresa de prueba",
+            "price": 23.4,
+            "ticker": "TEST"
+          }
+        ],
+        "score": 62,
+        "theme": "Sector de prueba",
+        "ticker": "XLK"
+      }
+    ]
+  },
+  "rotation_alignment": {
+    "conflict": false,
+    "detail": null,
+    "operational_action": "ESPERAR",
+    "pause_reason": "Pausa de prueba",
+    "receiving_count": 0,
+    "severity": null,
+    "stance": "idle",
+    "title": null
+  },
+  "schema": "nexus.native.v1",
+  "session_digest": {
+    "action": {
+      "changed": false,
+      "from": "ESPERAR",
+      "to": "ESPERAR"
+    },
+    "baseline_captured_at": "2026-01-08T14:00:00+00:00",
+    "has_prior": true,
+    "headline": "Sin cambios relevantes desde la última evaluación",
+    "rotation_crossings": [],
+    "rotation_note": "Los cruces de rotación aparecerán tras la próxima captura persistida.",
+    "score": {
+      "changed": false,
+      "delta": 0.0,
+      "from": 58.0,
+      "to": 58.0
+    },
+    "summary": "Score +0.0 · Los cruces de rotación aparecerán tras la próxima captura persistida.",
+    "vix": {
+      "changed": false,
+      "delta": null,
+      "from": null,
+      "to": 19.5
+    }
+  },
+  "session_plan": {
+    "allows_entry": false,
+    "avoiding": "No interpretar el sesgo de divisas, oro o ranking como permiso de compra.",
+    "buy": "Nada ahora",
+    "buy_label": "AHORA",
+    "changes": "Que termine el bloqueo de calendario y una reevaluación autorice entradas nuevas.",
+    "confidence": "BAJA",
+    "confidence_basis": "data_quality",
+    "confidence_note": "Calidad de datos reducida: calendario estimado, no oficial",
+    "context": [
+      {
+        "label": "MACRO",
+        "value": "COMPRAR"
+      },
+      {
+        "label": "FX",
+        "value": "Sin ventaja en el par"
+      },
+      {
+        "label": "ORO",
+        "value": "MIXTO"
+      },
+      {
+        "label": "BLOQUEO",
+        "value": "Activo · 6h"
+      },
+      {
+        "label": "PERMISO",
+        "value": "Sin entradas nuevas · Pausa de prueba"
+      }
+    ],
+    "doing": "Vigilancia. Mantener la liquidez de la tabla. Los % de «si se abre» no son una orden de hoy.",
+    "legs": [
+      {
+        "kind": "asset",
+        "label": "S&P 500",
+        "now": "NO ABRIR",
+        "now_weight": null,
+        "open_weight": 25,
+        "ticker": "SPY",
+        "verb": "Comprar S&P 500 solo si se abre",
+        "weight_note": "0% ahora · 25% de la cartera si se abre"
+      },
+      {
+        "kind": "cash",
+        "label": "Liquidez",
+        "now": "MANTENER",
+        "now_weight": 100,
+        "open_weight": 75,
+        "ticker": "CASH",
+        "verb": "Liquidez",
+        "weight_note": "100% ahora · 75% de cartera si se abre"
+      }
+    ],
+    "score": 58,
+    "score_drivers": [],
+    "sell": "Cualquier entrada nueva",
+    "stance": "ESPERAR",
+    "verdict": "ESPERAR. No abrir S&P 500, Nasdaq ni el par. Si la operativa autorizara nuevas entradas, el modelo usaría S&P 500 25%. Hoy no: operativa en ESPERAR (Pausa de prueba).",
+    "weight_caption": "El porcentaje es el peso sobre 100 de cartera, no un precio ni un número de contratos. Euro/dólar es sesgo del par, no un %."
+  },
+  "settings": {
+    "calendar_block_hours": 6,
+    "calendar_blocks_signals": true,
+    "macos_notifications": false,
+    "refresh_interval_seconds": 600,
+    "sentiment_blocks_signals": true
+  },
+  "sparklines": {
+    "SPY": [
+      {
+        "date": "2026-01-08",
+        "value": 123.45
+      }
+    ]
+  },
+  "status": "BLOCKED",
+  "status_chip": {
+    "label": "BLOCKED · Bloqueo 6h",
+    "macro_block": true,
+    "status": "BLOCKED",
+    "tone": "bad"
+  },
+  "track_record": {},
+  "watchlist": [
+    "SPY",
+    "GLD"
+  ]
+}

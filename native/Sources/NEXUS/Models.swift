@@ -65,6 +65,60 @@ enum NavItem: String, CaseIterable, Identifiable {
     }
 }
 
+/// Diagnóstico local de una decodificación; no conserva el contenido de las filas.
+final class SnapshotDecodingDiagnostics: @unchecked Sendable {
+    static let key = CodingUserInfoKey(rawValue: "nexus.snapshotDecodingDiagnostics")!
+    private let lock = NSLock()
+    private var count = 0
+
+    var discardedRows: Int { lock.withLock { count } }
+    func discardRow() { lock.withLock { count += 1 } }
+}
+
+/// Solo para listas descriptivas. El contenedor sigue siendo estricto; el
+/// decodificador hijo avanza aunque la fila no se pueda interpretar.
+@propertyWrapper
+struct LossySnapshotRows<Row: Codable>: Codable {
+    var wrappedValue: [Row]?
+
+    init(wrappedValue: [Row]? = nil) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        let diagnostics = decoder.userInfo[SnapshotDecodingDiagnostics.key] as? SnapshotDecodingDiagnostics
+        var rows: [Row] = []
+        rows.reserveCapacity(container.count ?? 0)
+        while !container.isAtEnd {
+            let row = try container.superDecoder()
+            do {
+                rows.append(try Row(from: row))
+            } catch is DecodingError {
+                diagnostics?.discardRow()
+            }
+        }
+        wrappedValue = rows
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
+    }
+}
+
+extension KeyedDecodingContainer {
+    func decode<Row>(_ type: LossySnapshotRows<Row>.Type, forKey key: Key) throws -> LossySnapshotRows<Row> {
+        try decodeIfPresent(type, forKey: key) ?? LossySnapshotRows()
+    }
+}
+
+extension KeyedEncodingContainer {
+    mutating func encode<Row>(_ rows: LossySnapshotRows<Row>, forKey key: Key) throws {
+        try encodeIfPresent(rows.wrappedValue, forKey: key)
+    }
+}
+
 struct NativeSnapshot: Codable {
     let schema: String?
     let capturedAtUtc: String?
@@ -524,7 +578,7 @@ struct Rotation: Codable {
     let summary: String?
     let leadersAvg1m: Double?
     let receiversAvg1m: Double?
-    let themes: [RotationTheme]?
+    @LossySnapshotRows var themes: [RotationTheme]?
 
     enum CodingKeys: String, CodingKey {
         case state, summary, themes
@@ -552,7 +606,7 @@ struct RotationTheme: Codable, Identifiable {
     let volatility20d: Double?
     let names: [String]?
     let newsTopics: [String]?
-    let companies: [RotationCompany]?
+    @LossySnapshotRows var companies: [RotationCompany]?
     let leadership: String?
 
     enum CodingKeys: String, CodingKey {
@@ -852,7 +906,7 @@ struct ForexBlock: Codable {
     let rates: ForexRates?
     let strength: ForexPairStrength?
     let plan: ForexPlan?
-    let headlines: [NewsItem]?
+    @LossySnapshotRows var headlines: [NewsItem]?
 }
 
 struct ForexPairStrength: Codable {
@@ -1081,7 +1135,7 @@ struct GoldDemand: Codable {
 struct GoldOfficialDemand: Codable {
     let status: String?
     let coverage: GoldDemandCoverage?
-    let reserves: [GoldReserveRecord]?
+    @LossySnapshotRows var reserves: [GoldReserveRecord]?
     let scoreEnabled: Bool?
     let capturedAt: String?
     let errors: [String]?
@@ -1836,7 +1890,7 @@ struct GoldSignal: Codable {
 }
 
 struct NewsBlock: Codable {
-    let items: [NewsItem]?
+    @LossySnapshotRows var items: [NewsItem]?
     let count: Int?
     let sources: [String]?
     let sentiment: NewsSentiment?
@@ -1919,6 +1973,19 @@ struct HistoryBlock: Codable {
         case events
         case priceSeries = "price_series"
     }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        count = try c.decodeIfPresent(Int.self, forKey: .count)
+        avgScore = try c.decodeIfPresent(Double.self, forKey: .avgScore)
+        minScore = try c.decodeIfPresent(Int.self, forKey: .minScore)
+        maxScore = try c.decodeIfPresent(Int.self, forKey: .maxScore)
+        scoreTimeline = try c.decodeIfPresent([ScorePoint].self, forKey: .scoreTimeline)
+        actionChanges = try c.decodeIfPresent([ActionChange].self, forKey: .actionChanges)
+        events = try c.decodeIfPresent([ActionChange].self, forKey: .events)
+        priceSeries = try c.decodeIfPresent([String: LossySnapshotRows<PricePoint>].self, forKey: .priceSeries)?
+            .compactMapValues(\.wrappedValue)
+    }
 }
 
 struct ScorePoint: Codable, Identifiable {
@@ -1954,6 +2021,11 @@ struct PricePoint: Codable, Identifiable {
     var id: String { (capturedAt ?? "") + String(value) }
     let capturedAt: String?
     let value: Double
+
+    enum CodingKeys: String, CodingKey {
+        case capturedAt = "captured_at"
+        case value
+    }
 }
 
 struct ComparisonBlock: Codable {

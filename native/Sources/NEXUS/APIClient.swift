@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let nativeAPILogger = Logger(subsystem: "com.nexus.workstation", category: "NativeAPI")
 
 struct EngineHealth: Decodable {
     let version: String?
@@ -16,6 +19,7 @@ enum NexusAPIError: LocalizedError {
     case http(Int)
     case empty
     case decoding(Error)
+    case invalidSnapshot(field: String, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +27,7 @@ enum NexusAPIError: LocalizedError {
         case .http(let code): return "API HTTP \(code)"
         case .empty: return "Respuesta vacía"
         case .decoding(let err): return "JSON: \(Self.describeDecodingError(err))"
+        case .invalidSnapshot(let field, let reason): return "JSON: contrato nativo inválido en \(field) (\(reason))"
         }
     }
 
@@ -92,11 +97,60 @@ actor NexusAPIClient {
             throw NexusAPIError.http(http.statusCode)
         }
         guard !data.isEmpty else { throw NexusAPIError.empty }
+        return try Self.decodeNativeSnapshot(data)
+    }
+
+    static func decodeNativeSnapshot(_ data: Data) throws -> NativeSnapshot {
+        let decoder = JSONDecoder()
+        let diagnostics = SnapshotDecodingDiagnostics()
+        decoder.userInfo[SnapshotDecodingDiagnostics.key] = diagnostics
+        let snapshot: NativeSnapshot
         do {
-            let decoder = JSONDecoder()
-            return try decoder.decode(NativeSnapshot.self, from: data)
+            snapshot = try decoder.decode(NativeSnapshot.self, from: data)
         } catch {
             throw NexusAPIError.decoding(error)
+        }
+        try validateOperationalSnapshot(snapshot)
+        let discardedRows = diagnostics.discardedRows
+        if discardedRows > 0 {
+            nativeAPILogger.warning("Snapshot parcial: \(discardedRows, privacy: .public) filas descriptivas descartadas.")
+        }
+        return snapshot
+    }
+
+    private static func validateOperationalSnapshot(_ snapshot: NativeSnapshot) throws {
+        func invalid(_ field: String, _ reason: String = "campo requerido ausente") -> NexusAPIError {
+            .invalidSnapshot(field: field, reason: reason)
+        }
+        guard snapshot.schema == "nexus.native.v1" else {
+            throw invalid("schema", "versión no compatible")
+        }
+        guard let captured = snapshot.capturedAtUtc,
+              ISO8601DateFormatter.nexus.date(from: captured) != nil
+                || ISO8601DateFormatter.nexusFractional.date(from: captured) != nil else {
+            throw invalid("captured_at_utc", "fecha de captura no válida")
+        }
+        guard let status = snapshot.status, !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw invalid("status")
+        }
+        guard let action = snapshot.decision?.operationalAction, !action.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw invalid("decision.operational_action")
+        }
+        guard let calendarBlocks = snapshot.calendar?.shouldBlock else {
+            throw invalid("calendar.should_block")
+        }
+        guard let allowsEntry = snapshot.sessionPlan?.allowsEntry else {
+            throw invalid("session_plan.allows_entry")
+        }
+        // Nunca inferir permiso a partir del texto ni ocultar un bloqueo
+        // conocido porque falte la tarjeta que lo explica.
+        let isBlocked = calendarBlocks || status.uppercased() == "BLOCKED"
+            || snapshot.decision?.operationalPauseReason?.isEmpty == false
+        if allowsEntry && (isBlocked || snapshot.blockBanner != nil) {
+            throw invalid("session_plan.allows_entry", "contradice un bloqueo activo")
+        }
+        if isBlocked && snapshot.blockBanner == nil {
+            throw invalid("block_banner", "falta el aviso de bloqueo activo")
         }
     }
 

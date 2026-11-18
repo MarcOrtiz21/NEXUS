@@ -5,13 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -24,9 +29,15 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   native-build:
-    runs-on: macos-14
+    # El SDK debe incluir Liquid Glass; el deployment target sigue en macOS 14.
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Build Swift native app
-        run: swift build --package-path native
+        run: swift build --package-path native -c release
+
+      - name: Check native snapshot contract and presentation
+        run: bash scripts/test_native_presentation.sh

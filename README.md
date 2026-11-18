@@ -310,10 +310,24 @@ Ejecutar toda la suite Python:
 .venv/bin/python -m pytest
 ```
 
-Comprobar las políticas nativas y la renovación de gráficos con Command Line Tools:
+Comprobar el contrato Python–Swift, las políticas nativas y la renovación de gráficos:
 
 ```bash
 bash scripts/test_native_presentation.sh
+```
+
+El script usa `SDKROOT` si apunta a un SDK instalado o detecta el SDK de Xcode/CLT
+con `xcrun`. Para compilar Liquid Glass, el SDK debe ser macOS 26 o posterior;
+el mínimo de ejecución de la app sigue siendo macOS 14.
+
+El contrato usa un JSON sintético generado por `build_native_snapshot` sin red ni
+acceso a datos reales. Ante un cambio intencional de esquema, actualiza el modelo
+Swift y revisa la salida del generador antes de sustituir
+`tests/fixtures/native_snapshot.json`. Ejecuta el generador desde una copia de
+trabajo sin cachés ni claves locales:
+
+```bash
+PYTHONPATH=. .venv/bin/python tests/test_native_snapshot_contract.py --emit-fixture
 ```
 
 Para inspeccionar tamaños exactos, usa Ventana → Tamaño de ventana (820, 1280,
